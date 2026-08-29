@@ -1,0 +1,49 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { RequireRole } from "@/lib/auth/RequireRole";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import { CabeceraSesion } from "@/components/CabeceraSesion";
+import type { PedidoResumen } from "@/lib/dominio/tipos";
+
+export default function MisEnviosPage() {
+  return (
+    <RequireRole roles={["cliente"]}>
+      <ListaEnvios />
+    </RequireRole>
+  );
+}
+
+function ListaEnvios() {
+  const { fetchConSesion } = useAuth();
+  const [pedidos, setPedidos] = useState<PedidoResumen[] | null>(null);
+
+  useEffect(() => {
+    fetchConSesion("/api/pedidos")
+      .then((r) => r.json())
+      .then(setPedidos);
+  }, [fetchConSesion]);
+
+  return (
+    <div className="p-8">
+      <CabeceraSesion titulo="Mis envíos" />
+      {!pedidos ? (
+        <p className="text-muted-foreground">Cargando…</p>
+      ) : pedidos.length === 0 ? (
+        <p className="text-muted-foreground">Todavía no tenés envíos.</p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {pedidos.map((p) => (
+            <li key={p.id} className="rounded-lg border p-4">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{p.destinatarioNombre}</span>
+                <span className="text-xs uppercase text-muted-foreground">{p.estado}</span>
+              </div>
+              <p className="text-sm text-muted-foreground">Entrega: {p.fechaEntrega}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}

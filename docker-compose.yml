@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: logistica-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: logistica
+      POSTGRES_PASSWORD: logistica_dev
+      POSTGRES_DB: logistica
+    ports:
+      - "5432:5432"
+    volumes:
+      - logistica_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  logistica_postgres_data:
