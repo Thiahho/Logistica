@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Logistica.Auth;
 using Logistica.Datos;
@@ -11,6 +12,14 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Npgsql;
+
+// El body JSON (System.Text.Json) siempre parsea decimales en invariant culture, pero el model
+// binder de [FromForm]/multipart (MisParadasController.Cerrar, H2) usa CultureInfo.CurrentCulture
+// por thread — que en un host es-AR/es-* lee "." como separador de miles, no decimal ("34.5905"
+// se vuelve 345905 y explota el numeric(10,7) de pruebas_entrega). Fijar invariant culture acá,
+// antes de levantar el host, blinda a todo el proceso de esta clase de bug, no solo a un endpoint.
+CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
+CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,9 +39,11 @@ builder.Services.AddScoped<AuthService>();
 
 builder.Services.Configure<OpcionesPrecio>(builder.Configuration.GetSection("Precio"));
 builder.Services.Configure<OpcionesDeposito>(builder.Configuration.GetSection("Deposito"));
+builder.Services.Configure<OpcionesPruebaEntrega>(builder.Configuration.GetSection("PruebaEntrega"));
 builder.Services.AddScoped<PrecioService>();
 builder.Services.AddScoped<UbicacionService>();
 builder.Services.AddScoped<TarifaService>();
+builder.Services.AddScoped<AlmacenamientoFotos>();
 
 // construccion_v1.md §3 regla 3: si el trigger lo impide, la app muestra el error, no lo
 // previene por su cuenta. ManejadorExcepciones traduce las excepciones de reglas de negocio de

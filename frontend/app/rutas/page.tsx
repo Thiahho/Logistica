@@ -91,7 +91,7 @@ function ListaRutas() {
               <TableRow key={r.id}>
                 <TableCell>{r.id}</TableCell>
                 <TableCell>{r.fecha}</TableCell>
-                <TableCell>{r.vehiculo ?? "—"}</TableCell>
+                <TableCell>{r.vehiculoPatente ?? "—"}</TableCell>
                 <TableCell>{r.repartidorNombre ?? "—"}</TableCell>
                 <TableCell>{r.cantidadParadas}</TableCell>
                 <TableCell>{r.estado}</TableCell>

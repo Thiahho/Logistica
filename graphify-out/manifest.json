@@ -1,9 +1,9 @@
 {
   "backend/Logistica/Auth/AuthService.cs": {
-    "mtime": 1787937198.4030435,
-    "seen": 1787946684.244254,
-    "ast_hash": "8e23ab53006c6e0c866c21da5ae4fd7d",
-    "semantic_hash": "8e23ab53006c6e0c866c21da5ae4fd7d"
+    "mtime": 1788040404.6712298,
+    "seen": 1788107625.0725672,
+    "ast_hash": "41d733fa476d9b75c97a8de56902405b",
+    "semantic_hash": "41d733fa476d9b75c97a8de56902405b"
   },
   "backend/Logistica/Auth/CurrentUser.cs": {
     "mtime": 1787937202.99888,
@@ -30,34 +30,34 @@
     "semantic_hash": "459c36bb713f61518a4c1461561a23c7"
   },
   "backend/Logistica/Controllers/ClientesController.cs": {
-    "mtime": 1787937272.6400888,
-    "seen": 1787946684.2442641,
-    "ast_hash": "9ef089a6e25c39438811843aee295637",
-    "semantic_hash": "9ef089a6e25c39438811843aee295637"
+    "mtime": 1788041298.1182752,
+    "seen": 1788107625.0725842,
+    "ast_hash": "bb1bdb291b34f56e6186caa6a216b394",
+    "semantic_hash": "bb1bdb291b34f56e6186caa6a216b394"
   },
   "backend/Logistica/Controllers/MisParadasController.cs": {
-    "mtime": 1787937283.6570244,
-    "seen": 1787946684.2442653,
-    "ast_hash": "1f443531b215073fa8998ebf808c5f4c",
-    "semantic_hash": "1f443531b215073fa8998ebf808c5f4c"
+    "mtime": 1788105780.192747,
+    "seen": 1788107625.0725873,
+    "ast_hash": "aae63e16645c893006209bac3eb93909",
+    "semantic_hash": "aae63e16645c893006209bac3eb93909"
   },
   "backend/Logistica/Controllers/PedidosController.cs": {
-    "mtime": 1787944958.93518,
-    "seen": 1787946684.2442663,
-    "ast_hash": "e6bc544949d56420a5e8e6f51c23f460",
-    "semantic_hash": "e6bc544949d56420a5e8e6f51c23f460"
+    "mtime": 1788105542.1274126,
+    "seen": 1788107625.0725882,
+    "ast_hash": "cbe341272ecf350a26d9025e0d68124d",
+    "semantic_hash": "cbe341272ecf350a26d9025e0d68124d"
   },
   "backend/Logistica/Controllers/UbicacionesController.cs": {
-    "mtime": 1787944912.3361926,
-    "seen": 1787946684.244267,
-    "ast_hash": "064db57d53cd2d0ac040529871389b36",
-    "semantic_hash": "064db57d53cd2d0ac040529871389b36"
+    "mtime": 1788042116.3621244,
+    "seen": 1788107625.072593,
+    "ast_hash": "e59104aea704bdeb45515afb52566dcc",
+    "semantic_hash": "e59104aea704bdeb45515afb52566dcc"
   },
   "backend/Logistica/Controllers/ZonasController.cs": {
-    "mtime": 1787937268.1987588,
-    "seen": 1787946684.2442677,
-    "ast_hash": "2dcd9f4651ad293842fc8833e79dcf57",
-    "semantic_hash": "2dcd9f4651ad293842fc8833e79dcf57"
+    "mtime": 1788103933.8974822,
+    "seen": 1788107625.0725963,
+    "ast_hash": "cdb155940366db9cc3e8d47d3ef87cd7",
+    "semantic_hash": "cdb155940366db9cc3e8d47d3ef87cd7"
   },
   "backend/Logistica/Datos/Configuraciones/ClienteConfiguration.cs": {
     "mtime": 1787936619.161914,
@@ -108,10 +108,10 @@
     "semantic_hash": "7876ddb1eecd9b310729da841a3306a4"
   },
   "backend/Logistica/Datos/Configuraciones/RutaConfiguration.cs": {
-    "mtime": 1787936668.407797,
-    "seen": 1787946684.2442758,
-    "ast_hash": "8dc1383f8770aa36bd9f7f755997ff2e",
-    "semantic_hash": "8dc1383f8770aa36bd9f7f755997ff2e"
+    "mtime": 1788102702.853446,
+    "seen": 1788107625.072609,
+    "ast_hash": "6b8d2c64e0b0698ac89823630f7658ed",
+    "semantic_hash": "6b8d2c64e0b0698ac89823630f7658ed"
   },
   "backend/Logistica/Datos/Configuraciones/RutaParadaConfiguration.cs": {
     "mtime": 1787936678.7355487,
@@ -144,16 +144,16 @@
     "semantic_hash": "a0706d0c593600eea23d2570329eab5c"
   },
   "backend/Logistica/Datos/Configuraciones/ZonaConfiguration.cs": {
-    "mtime": 1787936585.910168,
-    "seen": 1787946684.244281,
-    "ast_hash": "1e96e465cb39eb037313f4835f6a27d4",
-    "semantic_hash": "1e96e465cb39eb037313f4835f6a27d4"
+    "mtime": 1788103916.3847601,
+    "seen": 1788107625.0726182,
+    "ast_hash": "787870eeee4f5a279a5a2a031f371c67",
+    "semantic_hash": "787870eeee4f5a279a5a2a031f371c67"
   },
   "backend/Logistica/Datos/DatosSemilla.cs": {
-    "mtime": 1787944874.5452087,
-    "seen": 1787946684.244282,
-    "ast_hash": "d1fbbc27340420570970e35d3f03c13f",
-    "semantic_hash": "d1fbbc27340420570970e35d3f03c13f"
+    "mtime": 1788102795.1813657,
+    "seen": 1788107625.0726192,
+    "ast_hash": "2f674ddf9d8da0891ec8391cae6a8173",
+    "semantic_hash": "2f674ddf9d8da0891ec8391cae6a8173"
   },
   "backend/Logistica/Datos/EscrituraDominio.cs": {
     "mtime": 1787937002.6924858,
@@ -162,10 +162,10 @@
     "semantic_hash": "2fcb2797168dc2a455f3d6472b1d61f5"
   },
   "backend/Logistica/Datos/LogisticaDbContext.cs": {
-    "mtime": 1787944857.9452734,
-    "seen": 1787946684.244284,
-    "ast_hash": "ea7c4967713206fa8ce93894a2e4f5e9",
-    "semantic_hash": "ea7c4967713206fa8ce93894a2e4f5e9"
+    "mtime": 1788102708.0822587,
+    "seen": 1788107625.072622,
+    "ast_hash": "bb69719e1c58f732fec65bde41b206de",
+    "semantic_hash": "bb69719e1c58f732fec65bde41b206de"
   },
   "backend/Logistica/Entidades/Cliente.cs": {
     "mtime": 1787936532.2566867,
@@ -222,10 +222,10 @@
     "semantic_hash": "d8a8c370ff06974b0d7f69b463ea97b4"
   },
   "backend/Logistica/Entidades/Ruta.cs": {
-    "mtime": 1787936557.3589835,
-    "seen": 1787946684.2442915,
-    "ast_hash": "421bfbaaf47e4ffa053e34d323815678",
-    "semantic_hash": "421bfbaaf47e4ffa053e34d323815678"
+    "mtime": 1788102695.0598085,
+    "seen": 1788107625.072636,
+    "ast_hash": "3c08d81a1ee8585bb3a850192a6a0ae6",
+    "semantic_hash": "3c08d81a1ee8585bb3a850192a6a0ae6"
   },
   "backend/Logistica/Entidades/RutaParada.cs": {
     "mtime": 1787936561.143401,
@@ -258,10 +258,10 @@
     "semantic_hash": "593ef201b346265bbaa1bfa77a407960"
   },
   "backend/Logistica/Entidades/Zona.cs": {
-    "mtime": 1787936523.1645014,
-    "seen": 1787946684.2442973,
-    "ast_hash": "24d859e10c99c483387d8106bd2a2426",
-    "semantic_hash": "24d859e10c99c483387d8106bd2a2426"
+    "mtime": 1788103909.757098,
+    "seen": 1788107625.0726442,
+    "ast_hash": "c032b48ae9cd327d5338d92d256f84a9",
+    "semantic_hash": "c032b48ae9cd327d5338d92d256f84a9"
   },
   "backend/Logistica/Logistica.csproj": {
     "mtime": 1787937175.2808497,
@@ -300,10 +300,10 @@
     "semantic_hash": "edc12df147ccb752aab48ee7487c239a"
   },
   "backend/Logistica/Migrations/LogisticaDbContextModelSnapshot.cs": {
-    "mtime": 1787936939.4176283,
-    "seen": 1787946684.2443027,
-    "ast_hash": "e6b964ece456391ab642499bb69488d4",
-    "semantic_hash": "e6b964ece456391ab642499bb69488d4"
+    "mtime": 1788104068.5749724,
+    "seen": 1788107625.0726595,
+    "ast_hash": "595e6e4c6cf95c03f429c335f0f6810b",
+    "semantic_hash": "595e6e4c6cf95c03f429c335f0f6810b"
   },
   "backend/Logistica/Opciones/OpcionesDeposito.cs": {
     "mtime": 1787944813.4291315,
@@ -318,10 +318,10 @@
     "semantic_hash": "bd65f6d73e4eef93cbaad351073c3606"
   },
   "backend/Logistica/Program.cs": {
-    "mtime": 1787944902.6194417,
-    "seen": 1787946684.2443054,
-    "ast_hash": "72f46e4a02800c874c36c076a4f23a51",
-    "semantic_hash": "72f46e4a02800c874c36c076a4f23a51"
+    "mtime": 1788105999.7892272,
+    "seen": 1788107625.072664,
+    "ast_hash": "a5834e01a33fe183bb5c8cfb1472116a",
+    "semantic_hash": "a5834e01a33fe183bb5c8cfb1472116a"
   },
   "backend/Logistica/Properties/launchSettings.json": {
     "mtime": 1787925930.4939935,
@@ -348,22 +348,22 @@
     "semantic_hash": "3463a1518163d60c1a95a7c24e82e73b"
   },
   "backend/Logistica/appsettings.Development.json": {
-    "mtime": 1787943747.1074333,
-    "seen": 1787946684.2443094,
+    "mtime": 1788106146.7695076,
+    "seen": 1788107625.072673,
     "ast_hash": "6a00b014c7ff98fce0f70273e28475ba",
     "semantic_hash": "6a00b014c7ff98fce0f70273e28475ba"
   },
   "backend/Logistica/appsettings.json": {
-    "mtime": 1787944817.5393567,
-    "seen": 1787946684.2443104,
-    "ast_hash": "e16974f8ca432e128692dffd39f47b3f",
-    "semantic_hash": "e16974f8ca432e128692dffd39f47b3f"
+    "mtime": 1788105555.8510795,
+    "seen": 1788107625.072674,
+    "ast_hash": "3156564ee84cbc3466602a12b20530cb",
+    "semantic_hash": "3156564ee84cbc3466602a12b20530cb"
   },
   "docs/schema_v3.sql": {
-    "mtime": 1787930158.0420506,
-    "seen": 1787946684.244311,
-    "ast_hash": "44e31bcdc28b58536356b08cfb7087cc",
-    "semantic_hash": "44e31bcdc28b58536356b08cfb7087cc"
+    "mtime": 1788103974.4910593,
+    "seen": 1788107625.0726752,
+    "ast_hash": "e1022ad09a16b7477cbd66cd265ab9d7",
+    "semantic_hash": "e1022ad09a16b7477cbd66cd265ab9d7"
   },
   "frontend/app/hoy/page.tsx": {
     "mtime": 1787937914.6966555,
@@ -372,22 +372,22 @@
     "semantic_hash": "8fc05996e52862a6b1d5f88502bbfedd"
   },
   "frontend/app/layout.tsx": {
-    "mtime": 1787937886.890545,
-    "seen": 1787946684.2443125,
-    "ast_hash": "1bc5640be64e82eb499fa7e38e087467",
-    "semantic_hash": "1bc5640be64e82eb499fa7e38e087467"
+    "mtime": 1788040670.3020234,
+    "seen": 1788107625.0726817,
+    "ast_hash": "7d1742b28fe77bbaa09ecf9c147468fc",
+    "semantic_hash": "7d1742b28fe77bbaa09ecf9c147468fc"
   },
   "frontend/app/login/page.tsx": {
-    "mtime": 1787945943.4622052,
-    "seen": 1787946684.2443132,
-    "ast_hash": "d0fdc0c821a4d307b1dda5d13c5ed529",
-    "semantic_hash": "d0fdc0c821a4d307b1dda5d13c5ed529"
+    "mtime": 1788040699.1051831,
+    "seen": 1788107625.0726829,
+    "ast_hash": "7d9583ea0da4bf15ccd59d9a6fe6a33b",
+    "semantic_hash": "7d9583ea0da4bf15ccd59d9a6fe6a33b"
   },
   "frontend/app/mis-envios/page.tsx": {
-    "mtime": 1787937924.6206226,
-    "seen": 1787946684.2443142,
-    "ast_hash": "415fd800327af498b4fcd71b8eba5615",
-    "semantic_hash": "415fd800327af498b4fcd71b8eba5615"
+    "mtime": 1788040754.9150898,
+    "seen": 1788107625.0726838,
+    "ast_hash": "014c50cb94f66494ee7e014326a387a9",
+    "semantic_hash": "014c50cb94f66494ee7e014326a387a9"
   },
   "frontend/app/page.tsx": {
     "mtime": 1787937933.6524622,
@@ -396,16 +396,16 @@
     "semantic_hash": "196a0a2e09e1b604a45fab8ee7cc231f"
   },
   "frontend/app/pedidos/nuevo/page.tsx": {
-    "mtime": 1787945686.1819997,
-    "seen": 1787946684.2443159,
-    "ast_hash": "06a9a60b608be2887c4616cdbf9ed3fe",
-    "semantic_hash": "06a9a60b608be2887c4616cdbf9ed3fe"
+    "mtime": 1788040766.7298288,
+    "seen": 1788107625.0726876,
+    "ast_hash": "8ed541b03afc26169ce4f57d3c8f18bb",
+    "semantic_hash": "8ed541b03afc26169ce4f57d3c8f18bb"
   },
   "frontend/app/pedidos/page.tsx": {
-    "mtime": 1787945680.74043,
-    "seen": 1787946684.2443166,
-    "ast_hash": "6df37791bdf40d937852bee56ce8e9d5",
-    "semantic_hash": "6df37791bdf40d937852bee56ce8e9d5"
+    "mtime": 1788040730.6630313,
+    "seen": 1788107625.0726883,
+    "ast_hash": "8af95b519e54372a6ca043c788d53495",
+    "semantic_hash": "8af95b519e54372a6ca043c788d53495"
   },
   "frontend/components.json": {
     "mtime": 1787937692.6239953,
@@ -468,10 +468,10 @@
     "semantic_hash": "dfa1f5f6a7037bf39dc510f30b180002"
   },
   "frontend/lib/auth/AuthProvider.tsx": {
-    "mtime": 1787937800.722164,
-    "seen": 1787946684.2443259,
-    "ast_hash": "583cfb3a698755c98199d879f5baebd1",
-    "semantic_hash": "583cfb3a698755c98199d879f5baebd1"
+    "mtime": 1788040655.6040084,
+    "seen": 1788107625.0727158,
+    "ast_hash": "4ea0631d4f06d29d9709acdbd0e76286",
+    "semantic_hash": "4ea0631d4f06d29d9709acdbd0e76286"
   },
   "frontend/lib/auth/RequireRole.tsx": {
     "mtime": 1787937805.1517296,
@@ -510,10 +510,10 @@
     "semantic_hash": "239f3ebf717465dc636818a1a619398d"
   },
   "frontend/proxy.ts": {
-    "mtime": 1787938061.041155,
-    "seen": 1787946684.2443316,
-    "ast_hash": "433ef9716c6d0db1f03c9a52d887f054",
-    "semantic_hash": "433ef9716c6d0db1f03c9a52d887f054"
+    "mtime": 1788103117.7060113,
+    "seen": 1788107625.0727286,
+    "ast_hash": "b8731e8d9651e1dd33e2555af56ce08e",
+    "semantic_hash": "b8731e8d9651e1dd33e2555af56ce08e"
   },
   "frontend/tsconfig.json": {
     "mtime": 1787937515.4919622,
@@ -528,16 +528,16 @@
     "semantic_hash": "2a7f472ce3681723e3c5629636c1ea1a"
   },
   "docs/acta_sistema_v3.md": {
-    "mtime": 1787926292.246937,
-    "seen": 1787946684.244335,
-    "ast_hash": "605c4c26d772d2c2836f8a2651dfb0b1",
-    "semantic_hash": "605c4c26d772d2c2836f8a2651dfb0b1"
+    "mtime": 1788103994.492478,
+    "seen": 1788107625.0727322,
+    "ast_hash": "95815c67275bc8e90679ea9722784c58",
+    "semantic_hash": "95815c67275bc8e90679ea9722784c58"
   },
   "docs/construccion_v1.md": {
-    "mtime": 1787930179.105439,
-    "seen": 1787946684.2443357,
-    "ast_hash": "e2a628c7df16cdfe966cd60c2bef8f24",
-    "semantic_hash": "e2a628c7df16cdfe966cd60c2bef8f24"
+    "mtime": 1788104003.0255165,
+    "seen": 1788107625.0727332,
+    "ast_hash": "6263ff744dc06f90ca9d4927b01a9862",
+    "semantic_hash": "6263ff744dc06f90ca9d4927b01a9862"
   },
   "frontend/AGENTS.md": {
     "mtime": 1787937653.3408184,
@@ -592,5 +592,245 @@
     "seen": 1787946684.2443426,
     "ast_hash": "a2760511c65806022ad20adf74370ff3",
     "semantic_hash": "a2760511c65806022ad20adf74370ff3"
+  },
+  "backend/Logistica/Controllers/ExportarController.cs": {
+    "mtime": 1788102744.8463223,
+    "seen": 1788107625.0725858,
+    "ast_hash": "7e35e0ac94407ce7a444f65f24290842",
+    "semantic_hash": "7e35e0ac94407ce7a444f65f24290842"
+  },
+  "backend/Logistica/Controllers/PruebasEntregaController.cs": {
+    "mtime": 1788105493.6473074,
+    "seen": 1788107625.0725894,
+    "ast_hash": "0a577e3682717e18da2b6ae6ce4ec265",
+    "semantic_hash": "0a577e3682717e18da2b6ae6ce4ec265"
+  },
+  "backend/Logistica/Controllers/RutasController.cs": {
+    "mtime": 1788102740.8296218,
+    "seen": 1788107625.07259,
+    "ast_hash": "3bce0ce6d62bed813f0c406639336252",
+    "semantic_hash": "3bce0ce6d62bed813f0c406639336252"
+  },
+  "backend/Logistica/Controllers/TarifasController.cs": {
+    "mtime": 1788103942.22706,
+    "seen": 1788107625.072591,
+    "ast_hash": "8f2ed57dcecb06edc108dd4887697d11",
+    "semantic_hash": "8f2ed57dcecb06edc108dd4887697d11"
+  },
+  "backend/Logistica/Controllers/TiposEventoClienteController.cs": {
+    "mtime": 1787948021.2477007,
+    "seen": 1788107625.0725918,
+    "ast_hash": "cb6fc3c72dbcc068d6666894090f1d76",
+    "semantic_hash": "cb6fc3c72dbcc068d6666894090f1d76"
+  },
+  "backend/Logistica/Controllers/UsuariosController.cs": {
+    "mtime": 1788042106.4248517,
+    "seen": 1788107625.072594,
+    "ast_hash": "494dadaeb6cc6bd10dabd7bd203411aa",
+    "semantic_hash": "494dadaeb6cc6bd10dabd7bd203411aa"
+  },
+  "backend/Logistica/Controllers/VehiculosController.cs": {
+    "mtime": 1788102768.4695742,
+    "seen": 1788107625.072595,
+    "ast_hash": "d84825bba27dfcec0d5583c2928c58a0",
+    "semantic_hash": "d84825bba27dfcec0d5583c2928c58a0"
+  },
+  "backend/Logistica/Datos/Configuraciones/VehiculoConfiguration.cs": {
+    "mtime": 1788102691.554878,
+    "seen": 1788107625.0726173,
+    "ast_hash": "282684f631172b225f6698e3023f3780",
+    "semantic_hash": "282684f631172b225f6698e3023f3780"
+  },
+  "backend/Logistica/Dominio/Geo.cs": {
+    "mtime": 1788105352.8757403,
+    "seen": 1788107625.072623,
+    "ast_hash": "c56c3ad73428c6a6b04742954d33e94d",
+    "semantic_hash": "c56c3ad73428c6a6b04742954d33e94d"
+  },
+  "backend/Logistica/Dominio/TransicionesPedido.cs": {
+    "mtime": 1788040399.1626034,
+    "seen": 1788107625.0726242,
+    "ast_hash": "fd6b17fdc393a0e5998e1f82e14f9b62",
+    "semantic_hash": "fd6b17fdc393a0e5998e1f82e14f9b62"
+  },
+  "backend/Logistica/Entidades/Vehiculo.cs": {
+    "mtime": 1788102684.1276267,
+    "seen": 1788107625.0726433,
+    "ast_hash": "c9614fd8efa3d04d31d6b9930b19d3a2",
+    "semantic_hash": "c9614fd8efa3d04d31d6b9930b19d3a2"
+  },
+  "backend/Logistica/Migrations/20260830151431_AgregarVehiculos.Designer.cs": {
+    "mtime": 1788102871.5884004,
+    "seen": 1788107625.0726552,
+    "ast_hash": "d4c41f5c62a6fdc2e3eff22c85ea2658",
+    "semantic_hash": "d4c41f5c62a6fdc2e3eff22c85ea2658"
+  },
+  "backend/Logistica/Migrations/20260830151431_AgregarVehiculos.cs": {
+    "mtime": 1788102907.216315,
+    "seen": 1788107625.0726564,
+    "ast_hash": "236c78d8789eb72c69d139383253ef71",
+    "semantic_hash": "236c78d8789eb72c69d139383253ef71"
+  },
+  "backend/Logistica/Migrations/20260830153428_AgregarKmZonas.Designer.cs": {
+    "mtime": 1788104068.5749724,
+    "seen": 1788107625.0726573,
+    "ast_hash": "58f02c794666a91f89a4144d7a642b61",
+    "semantic_hash": "58f02c794666a91f89a4144d7a642b61"
+  },
+  "backend/Logistica/Migrations/20260830153428_AgregarKmZonas.cs": {
+    "mtime": 1788104068.5739677,
+    "seen": 1788107625.072658,
+    "ast_hash": "e28b43802d4eb130a90114ad53cf5aae",
+    "semantic_hash": "e28b43802d4eb130a90114ad53cf5aae"
+  },
+  "backend/Logistica/Opciones/OpcionesPruebaEntrega.cs": {
+    "mtime": 1788105361.3098652,
+    "seen": 1788107625.0726628,
+    "ast_hash": "3db9b71f718367650e6112e776b4a91e",
+    "semantic_hash": "3db9b71f718367650e6112e776b4a91e"
+  },
+  "backend/Logistica/Servicios/AlmacenamientoFotos.cs": {
+    "mtime": 1788105374.4178953,
+    "seen": 1788107625.0726664,
+    "ast_hash": "b9179e97e0c4a84ab4fdcaa53a0ad842",
+    "semantic_hash": "b9179e97e0c4a84ab4fdcaa53a0ad842"
+  },
+  "backend/Logistica/Servicios/TarifaService.cs": {
+    "mtime": 1788040412.189428,
+    "seen": 1788107625.0726697,
+    "ast_hash": "1145ddd82235060a04f5eac7e52b75ac",
+    "semantic_hash": "1145ddd82235060a04f5eac7e52b75ac"
+  },
+  "backend/Logistica/Web/ManejadorExcepciones.cs": {
+    "mtime": 1788040391.0228624,
+    "seen": 1788107625.0726717,
+    "ast_hash": "f9ea8b3821418b3d844b8c2d55a2e461",
+    "semantic_hash": "f9ea8b3821418b3d844b8c2d55a2e461"
+  },
+  "frontend/app/clientes/[id]/page.tsx": {
+    "mtime": 1788040746.0636885,
+    "seen": 1788107625.0726764,
+    "ast_hash": "ca7c7c7913639b70352c8d12c762104a",
+    "semantic_hash": "ca7c7c7913639b70352c8d12c762104a"
+  },
+  "frontend/app/clientes/nuevo/page.tsx": {
+    "mtime": 1787948620.8677497,
+    "seen": 1788107625.0726774,
+    "ast_hash": "0283211edaca44c06af66b54bb7d79ab",
+    "semantic_hash": "0283211edaca44c06af66b54bb7d79ab"
+  },
+  "frontend/app/clientes/page.tsx": {
+    "mtime": 1788040742.4185376,
+    "seen": 1788107625.0726783,
+    "ast_hash": "dd82f8a8daaa22e47886ec2315c9d724",
+    "semantic_hash": "dd82f8a8daaa22e47886ec2315c9d724"
+  },
+  "frontend/app/exportar/page.tsx": {
+    "mtime": 1788040986.5528383,
+    "seen": 1788107625.0726793,
+    "ast_hash": "9337d68a55ec496a12f8732ef61f0203",
+    "semantic_hash": "9337d68a55ec496a12f8732ef61f0203"
+  },
+  "frontend/app/pedidos/[id]/page.tsx": {
+    "mtime": 1788040823.4167254,
+    "seen": 1788107625.0726864,
+    "ast_hash": "dd7f877f6afe21c51885b0c26a7ed080",
+    "semantic_hash": "dd7f877f6afe21c51885b0c26a7ed080"
+  },
+  "frontend/app/rutas/[id]/armar/page.tsx": {
+    "mtime": 1788103032.4963753,
+    "seen": 1788107625.0726893,
+    "ast_hash": "ab9598bc588d3ab83d66c969049cff3d",
+    "semantic_hash": "ab9598bc588d3ab83d66c969049cff3d"
+  },
+  "frontend/app/rutas/[id]/cierre/page.tsx": {
+    "mtime": 1788040967.5318646,
+    "seen": 1788107625.0726905,
+    "ast_hash": "8087c5fcbbf5070df324799e3321dbed",
+    "semantic_hash": "8087c5fcbbf5070df324799e3321dbed"
+  },
+  "frontend/app/rutas/nueva/page.tsx": {
+    "mtime": 1788042327.5932264,
+    "seen": 1788107625.0726914,
+    "ast_hash": "663233f73db24a6aa1fd6c9c60a1ab38",
+    "semantic_hash": "663233f73db24a6aa1fd6c9c60a1ab38"
+  },
+  "frontend/app/rutas/page.tsx": {
+    "mtime": 1788102997.359306,
+    "seen": 1788107625.0726924,
+    "ast_hash": "b628fff3a83144748ff0df328494c699",
+    "semantic_hash": "b628fff3a83144748ff0df328494c699"
+  },
+  "frontend/app/tarifas/page.tsx": {
+    "mtime": 1788104045.8935757,
+    "seen": 1788107625.0726933,
+    "ast_hash": "41fe235d9f3f074d2fae95440338c42b",
+    "semantic_hash": "41fe235d9f3f074d2fae95440338c42b"
+  },
+  "frontend/app/usuarios/nuevo/page.tsx": {
+    "mtime": 1788040877.992631,
+    "seen": 1788107625.0726943,
+    "ast_hash": "a0b30ada6e0b754582069c4eb4b7c31f",
+    "semantic_hash": "a0b30ada6e0b754582069c4eb4b7c31f"
+  },
+  "frontend/app/usuarios/page.tsx": {
+    "mtime": 1788040863.4932408,
+    "seen": 1788107625.072695,
+    "ast_hash": "7ebb1a17cdc8f7962d2ddb218b93de1c",
+    "semantic_hash": "7ebb1a17cdc8f7962d2ddb218b93de1c"
+  },
+  "frontend/app/vehiculos/[id]/page.tsx": {
+    "mtime": 1788103106.2797983,
+    "seen": 1788107625.0726957,
+    "ast_hash": "e4910f0ce9eb92edddde5f78c51951a1",
+    "semantic_hash": "e4910f0ce9eb92edddde5f78c51951a1"
+  },
+  "frontend/app/vehiculos/nuevo/page.tsx": {
+    "mtime": 1788103083.0749943,
+    "seen": 1788107625.0726967,
+    "ast_hash": "780407ae3a08241ffade45d7777b8182",
+    "semantic_hash": "780407ae3a08241ffade45d7777b8182"
+  },
+  "frontend/app/vehiculos/page.tsx": {
+    "mtime": 1788103066.249691,
+    "seen": 1788107625.0726974,
+    "ast_hash": "3824836825437d3c3c7292efacdd78d2",
+    "semantic_hash": "3824836825437d3c3c7292efacdd78d2"
+  },
+  "frontend/components/Shell.tsx": {
+    "mtime": 1788103110.555666,
+    "seen": 1788107625.0727012,
+    "ast_hash": "ec5d6536236c86e1d4859101495aa433",
+    "semantic_hash": "ec5d6536236c86e1d4859101495aa433"
+  },
+  "frontend/lib/api/errores.ts": {
+    "mtime": 1788040646.4278364,
+    "seen": 1788107625.072714,
+    "ast_hash": "0c2cb12cc724fac45cca2fd62cc1c443",
+    "semantic_hash": "0c2cb12cc724fac45cca2fd62cc1c443"
+  },
+  "frontend/lib/dominio/estados.ts": {
+    "mtime": 1788040642.4073932,
+    "seen": 1788107625.072719,
+    "ast_hash": "500fe5055cff5ab86eceb320b03c462f",
+    "semantic_hash": "500fe5055cff5ab86eceb320b03c462f"
+  },
+  "frontend/lib/dominio/geo.ts": {
+    "mtime": 1788042298.7409883,
+    "seen": 1788107625.0727198,
+    "ast_hash": "2569421106be045a214e9562fcc00032",
+    "semantic_hash": "2569421106be045a214e9562fcc00032"
+  },
+  "frontend/lib/dominio/ruteo.ts": {
+    "mtime": 1788042309.8038578,
+    "seen": 1788107625.072721,
+    "ast_hash": "6b7969f76793f2ff0c60a13998ff6a4f",
+    "semantic_hash": "6b7969f76793f2ff0c60a13998ff6a4f"
+  },
+  "frontend/lib/dominio/tipos.ts": {
+    "mtime": 1788104013.323089,
+    "seen": 1788107625.072722,
+    "ast_hash": "e5ea1cba7ec1e95b1bfbea58b76f3a05",
+    "semantic_hash": "e5ea1cba7ec1e95b1bfbea58b76f3a05"
   }
 }

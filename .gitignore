@@ -4,6 +4,9 @@ backend/**/obj/
 backend/**/.vs/
 *.user
 
+# Fotos de prueba de entrega (H2) — datos personales del destinatario, RNF-09, no van al repo
+backend/Logistica/almacenamiento/
+
 # Node / Next.js
 frontend/node_modules/
 frontend/.next/

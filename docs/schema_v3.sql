@@ -18,12 +18,16 @@
 -- ============ GEOGRAFÍA ============
 
 create table zonas (
-  id      serial primary key,
-  codigo  char(1) not null unique,              -- A, B, C, D
-  nombre  text not null,
-  activa  boolean not null default true
+  id        serial primary key,
+  codigo    char(1) not null unique,              -- A, B, C, D
+  nombre    text not null,
+  activa    boolean not null default true,
+  km_desde  int check (km_desde is null or km_desde >= 0),
+  km_hasta  int check (km_hasta is null or km_desde is null or km_hasta > km_desde)  -- null = sin límite superior
 );
 -- El precio NO vive acá. Vive en `tarifas` (RF-09).
+-- km_desde/km_hasta tampoco traen valor de fábrica: son datos comerciales que se cargan desde
+-- /tarifas, mismo criterio que el precio (acta_sistema_v3.md §13).
 
 create table localidades (
   id       serial primary key,
@@ -201,11 +205,27 @@ create index on pedido_eventos (pedido_id, ocurrido_en);
 
 -- ============ OPERACIÓN ============
 
+create table vehiculos (
+  id                 bigserial primary key,
+  patente            text not null unique,     -- normalizada a mayúsculas sin espacios
+  descripcion        text,                     -- alias operativo: "Utilitario 1"
+  marca              text,
+  modelo             text,
+  anio               int check (anio is null or anio between 1950 and 2100),
+  km_actual          int,
+  vence_vtv          date,
+  vence_seguro       date,
+  costo_km           numeric(12,2),
+  capacidad_paradas  int not null default 24 check (capacidad_paradas > 0),  -- P7 / RF-16
+  activo             boolean not null default true,
+  creado_en          timestamptz not null default now()
+);
+
 create table rutas (
   id                 bigserial primary key,
   fecha              date not null,
   repartidor_id      uuid references usuarios(id),
-  vehiculo           text,                     -- texto libre: un vehículo
+  vehiculo_id        bigint references vehiculos(id),
   capacidad_paradas  int not null default 24,  -- P7 / RF-16
   estado             text not null default 'planificada'
                      check (estado in ('planificada','en_curso','cerrada')),

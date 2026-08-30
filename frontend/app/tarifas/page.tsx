@@ -28,7 +28,9 @@ export default function TarifasPage() {
 function ListaTarifas() {
   const { fetchConSesion } = useAuth();
   const [tarifas, setTarifas] = useState<TarifaGeneral[] | null>(null);
-  const [valores, setValores] = useState<Record<number, string>>({});
+  const [precios, setPrecios] = useState<Record<number, string>>({});
+  const [kmDesdes, setKmDesdes] = useState<Record<number, string>>({});
+  const [kmHastas, setKmHastas] = useState<Record<number, string>>({});
   const [guardandoZona, setGuardandoZona] = useState<number | null>(null);
 
   const cargar = () => {
@@ -39,18 +41,39 @@ function ListaTarifas() {
 
   useEffect(cargar, [fetchConSesion]);
 
-  function valorZona(t: TarifaGeneral) {
-    return valores[t.zonaId] ?? (t.precio !== null ? String(t.precio) : "");
+  function valorPrecio(t: TarifaGeneral) {
+    return precios[t.zonaId] ?? (t.precio !== null ? String(t.precio) : "");
   }
 
-  async function fijar(zonaId: number, precio: number | null) {
-    setGuardandoZona(zonaId);
+  function valorKmDesde(t: TarifaGeneral) {
+    return kmDesdes[t.zonaId] ?? (t.kmDesde !== null ? String(t.kmDesde) : "");
+  }
+
+  function valorKmHasta(t: TarifaGeneral) {
+    return kmHastas[t.zonaId] ?? (t.kmHasta !== null ? String(t.kmHasta) : "");
+  }
+
+  async function guardar(t: TarifaGeneral) {
+    setGuardandoZona(t.zonaId);
     try {
-      await fetchConSesion(`/api/tarifas/${zonaId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ precio }),
-      });
+      const precioTexto = valorPrecio(t);
+      const kmDesdeTexto = valorKmDesde(t);
+      const kmHastaTexto = valorKmHasta(t);
+      await Promise.all([
+        fetchConSesion(`/api/tarifas/${t.zonaId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ precio: precioTexto === "" ? null : Number(precioTexto) }),
+        }),
+        fetchConSesion(`/api/zonas/${t.zonaId}/km`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kmDesde: kmDesdeTexto === "" ? null : Number(kmDesdeTexto),
+            kmHasta: kmHastaTexto === "" ? null : Number(kmHastaTexto),
+          }),
+        }),
+      ]);
       cargar();
     } finally {
       setGuardandoZona(null);
@@ -58,7 +81,7 @@ function ListaTarifas() {
   }
 
   return (
-    <div className="p-8 max-w-2xl">
+    <div className="p-8 max-w-3xl">
       <CabeceraSesion titulo="Tarifas — lista general" />
 
       <Card>
@@ -73,6 +96,8 @@ function ListaTarifas() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Zona</TableHead>
+                  <TableHead>Km desde</TableHead>
+                  <TableHead>Km hasta</TableHead>
                   <TableHead>Precio vigente</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
@@ -86,19 +111,35 @@ function ListaTarifas() {
                     <TableCell>
                       <Input
                         type="number"
-                        step="0.01"
-                        className="w-32"
-                        placeholder="sin tarifa"
-                        value={valorZona(t)}
-                        onChange={(e) => setValores((v) => ({ ...v, [t.zonaId]: e.target.value }))}
+                        min={0}
+                        className="w-24"
+                        placeholder="—"
+                        value={valorKmDesde(t)}
+                        onChange={(e) => setKmDesdes((v) => ({ ...v, [t.zonaId]: e.target.value }))}
                       />
                     </TableCell>
                     <TableCell>
-                      <Button
-                        size="sm"
-                        disabled={guardandoZona === t.zonaId || valorZona(t) === ""}
-                        onClick={() => fijar(t.zonaId, Number(valorZona(t)))}
-                      >
+                      <Input
+                        type="number"
+                        min={0}
+                        className="w-24"
+                        placeholder="sin límite"
+                        value={valorKmHasta(t)}
+                        onChange={(e) => setKmHastas((v) => ({ ...v, [t.zonaId]: e.target.value }))}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        className="w-32"
+                        placeholder="sin tarifa"
+                        value={valorPrecio(t)}
+                        onChange={(e) => setPrecios((v) => ({ ...v, [t.zonaId]: e.target.value }))}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Button size="sm" disabled={guardandoZona === t.zonaId} onClick={() => guardar(t)}>
                         Guardar
                       </Button>
                     </TableCell>

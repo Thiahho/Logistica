@@ -2,10 +2,12 @@ using Logistica.Auth;
 using Logistica.Datos;
 using Logistica.Dominio;
 using Logistica.Entidades;
+using Logistica.Opciones;
 using Logistica.Servicios;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Logistica.Controllers;
 
@@ -17,7 +19,7 @@ namespace Logistica.Controllers;
 [ApiController]
 [Route("api/pedidos")]
 [Authorize(Roles = "administracion,operacion,cliente")]
-public class PedidosController(LogisticaDbContext db, PrecioService precios) : ControllerBase
+public class PedidosController(LogisticaDbContext db, PrecioService precios, IOptions<OpcionesPruebaEntrega> opcionesPruebaEntrega) : ControllerBase
 {
     public record PedidoResumen(
         long Id, string DestinatarioNombre, string Estado, decimal Total,
@@ -56,6 +58,11 @@ public class PedidosController(LogisticaDbContext db, PrecioService precios) : C
         bool DireccionDudosa, List<HistorialEvento> Historial);
 
     public record CambiarEstadoRequest(string EstadoNuevo, string? Motivo, DateOnly? NuevaFechaEntrega);
+
+    public record PruebaEntregaResumen(
+        long Id, string Resultado, string? MotivoFallo, string? ReceptorNombre, bool IdentidadVerificada,
+        bool TieneFoto, decimal? Lat, decimal? Lng, int? DesvioMetros, bool DesvioAlto,
+        DateTimeOffset CapturadaEn, DateTimeOffset SincronizadaEn);
 
     public record CandidatoRuta(
         long PedidoId, string ClienteRazonSocial, string DestinatarioNombre, int Bultos, bool Urgente,
@@ -397,5 +404,27 @@ public class PedidosController(LogisticaDbContext db, PrecioService precios) : C
         await db.GuardarComoAsync(User.UsuarioId(), req.Motivo, ct);
 
         return NoContent();
+    }
+
+    /// <summary>Prueba de entrega del pedido (H2). Sin esto no hay forma de verificar el cierre de
+    /// una parada desde el back-office sin abrir psql. Más estricta que la clase (Administracion
+    /// sobre administracion+operacion+cliente) — combinación AND, regla 8.</summary>
+    [HttpGet("{id:long}/prueba-entrega")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> PruebaEntrega(long id, CancellationToken ct)
+    {
+        var umbral = opcionesPruebaEntrega.Value.UmbralDesvioMetros;
+
+        var prueba = await db.PruebasEntrega.AsNoTracking()
+            .Where(pe => pe.PedidoId == id)
+            .OrderByDescending(pe => pe.CapturadaEn)
+            .Select(pe => new PruebaEntregaResumen(
+                pe.Id, pe.Resultado, pe.MotivoFallo, pe.ReceptorNombre, pe.IdentidadVerificada,
+                pe.FotoPath != null, pe.Lat, pe.Lng, pe.DesvioMetros,
+                pe.DesvioMetros != null && pe.DesvioMetros > umbral,
+                pe.CapturadaEn, pe.SincronizadaEn))
+            .FirstOrDefaultAsync(ct);
+
+        return prueba is null ? NotFound() : Ok(prueba);
     }
 }

@@ -26,6 +26,7 @@ import type {
   ParadaArmada,
   RutaDetalle,
   UsuarioSeleccion,
+  VehiculoSeleccion,
 } from "@/lib/dominio/tipos";
 
 interface ParadaConsolidada {
@@ -52,13 +53,14 @@ function ArmarRuta() {
   const [ruta, setRuta] = useState<RutaDetalle | null>(null);
   const [candidatos, setCandidatos] = useState<CandidatoRuta[] | null>(null);
   const [repartidores, setRepartidores] = useState<UsuarioSeleccion[]>([]);
+  const [vehiculos, setVehiculos] = useState<VehiculoSeleccion[]>([]);
   const [deposito, setDeposito] = useState<Punto | null>(null);
 
   const [seleccionados, setSeleccionados] = useState<Set<number>>(new Set());
   const [ordenUbicaciones, setOrdenUbicaciones] = useState<number[]>([]);
   const [anclajes, setAnclajes] = useState<Set<number>>(new Set());
 
-  const [vehiculo, setVehiculo] = useState("");
+  const [vehiculoId, setVehiculoId] = useState<number | null>(null);
   const [repartidorId, setRepartidorId] = useState<string | null>(null);
   const [capacidadParadas, setCapacidadParadas] = useState(24);
 
@@ -72,7 +74,7 @@ function ArmarRuta() {
       .then((r) => r.json())
       .then((r: RutaDetalle) => {
         setRuta(r);
-        setVehiculo(r.vehiculo ?? "");
+        setVehiculoId(r.vehiculoId);
         setRepartidorId(r.repartidorId);
         setCapacidadParadas(r.capacidadParadas);
       });
@@ -99,8 +101,18 @@ function ArmarRuta() {
 
   useEffect(() => {
     fetchConSesion("/api/usuarios/seleccion?rol=repartidor").then((r) => r.json()).then(setRepartidores);
+    fetchConSesion("/api/vehiculos/seleccion").then((r) => r.json()).then(setVehiculos);
     fetchConSesion("/api/ubicaciones/deposito").then((r) => r.json()).then(setDeposito);
   }, [fetchConSesion]);
+
+  // Al elegir un vehículo del catálogo, prellena la capacidad de paradas de la ruta con la suya
+  // (P7/RF-16); el campo sigue editable a mano después.
+  function onElegirVehiculo(valor: string | null) {
+    const nuevoId = valor ? Number(valor) : null;
+    setVehiculoId(nuevoId);
+    const vehiculo = vehiculos.find((v) => v.id === nuevoId);
+    if (vehiculo) setCapacidadParadas(vehiculo.capacidadParadas);
+  }
 
   // Consolidación por destino (RF-14): N pedidos al mismo destino son una sola parada.
   const paradasConsolidadas = useMemo(() => {
@@ -189,7 +201,7 @@ function ArmarRuta() {
     const resp = await fetchConSesion(`/api/rutas/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vehiculo: vehiculo || null, repartidorId, capacidadParadas }),
+      body: JSON.stringify({ vehiculoId, repartidorId, capacidadParadas }),
     });
     if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
   }
@@ -279,8 +291,26 @@ function ArmarRuta() {
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-4">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="vehiculo">Vehículo</Label>
-            <Input id="vehiculo" value={vehiculo} onChange={(e) => setVehiculo(e.target.value)} />
+            <Label>Vehículo</Label>
+            <Select
+              items={vehiculos.map((v) => ({
+                value: String(v.id),
+                label: v.descripcion ? `${v.patente} — ${v.descripcion}` : v.patente,
+              }))}
+              value={vehiculoId !== null ? String(vehiculoId) : null}
+              onValueChange={onElegirVehiculo}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Elegir vehículo" />
+              </SelectTrigger>
+              <SelectContent>
+                {vehiculos.map((v) => (
+                  <SelectItem key={v.id} value={String(v.id)}>
+                    {v.descripcion ? `${v.patente} — ${v.descripcion}` : v.patente}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex flex-col gap-2">
             <Label>Repartidor</Label>

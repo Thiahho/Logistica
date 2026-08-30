@@ -62,12 +62,12 @@ Cambiarlos después implica migración de datos, no refactor.
 | Geografía | `zonas`, `localidades`, `ubicaciones` |
 | Comercial | `clientes`, `tarifas` |
 | Núcleo | `pedidos`, `pedido_eventos` |
-| Operación | `rutas`, `ruta_paradas`, `parada_pedidos`, `pruebas_entrega` |
+| Operación | `rutas`, `ruta_paradas`, `parada_pedidos`, `pruebas_entrega`, `vehiculos` |
 | Registro sin maquinaria | `tipos_evento_cliente`, `eventos_cliente` |
 
-**Fuera del modelo inicial:** `listas_precio`, `reglas_precio`, `contratos_dedicados`, `vehiculos`, `repartidores`, `liquidaciones`, `cuentas_cobrar`, `cliente_scores`, `condiciones_comerciales`.
+**Fuera del modelo inicial:** `listas_precio`, `reglas_precio`, `contratos_dedicados`, `repartidores`, `liquidaciones`, `cuentas_cobrar`, `cliente_scores`, `condiciones_comerciales`.
 
-Dos entidades concentran las relaciones: `pedidos` (qué se prometió y a qué precio) y `ruta_paradas` (qué pasó en la calle). Toda tabla que no se conecte a alguna de las dos está fuera de alcance por definición.
+Dos entidades concentran las relaciones: `pedidos` (qué se prometió y a qué precio) y `ruta_paradas` (qué pasó en la calle). Toda tabla que no se conecte a alguna de las dos está fuera de alcance por definición. `vehiculos` entra por esa puerta: cuelga de `rutas`, cabecera de `ruta_paradas`. El texto libre que traía `rutas.vehiculo` no identificaba la unidad de forma confiable ni tenía dónde registrar vencimientos (VTV, seguro) — el motivo del alta es operativo, no una ampliación de alcance comercial.
 
 ### 4.1 Campos incorporados en esta versión
 
@@ -234,7 +234,7 @@ Cosas que no se construyen hoy pero cuyo lugar se deja reservado, porque incorpo
 
 Con un vehículo el problema es en qué orden visitar. **Con tres o más, el problema caro es qué parada va a qué vehículo**, y una asignación mala no la corrige ningún ordenamiento bueno.
 
-El modelo ya soporta N rutas por día. Lo que falta es la pantalla de asignación masiva por zona, previa al armado individual de cada ruta. Se construye al tercer vehículo (9.2), no antes.
+El modelo ya soporta N rutas por día, y desde esta versión también el catálogo de flota (`vehiculos`, tabla con patente y ficha propia en vez de texto libre en `rutas`). Lo que falta es la pantalla de asignación masiva por zona, previa al armado individual de cada ruta. Se construye al tercer vehículo (9.2), no antes.
 
 **Regla de crecimiento de flota:** no se agrega vehículo hasta que el actual sostenga 85% de su capacidad de paradas durante tres semanas consecutivas. Comprar el segundo antes de llenar el primero multiplica el costo fijo sin multiplicar el margen.
 
@@ -299,3 +299,5 @@ Se definen con la operación en marcha o con asesoramiento específico. Ponerlos
 |---|---|---|
 | 1.0 – 2.0 | 26–27/08/2026 | Ver documentos anteriores, reemplazados por esta versión |
 | **3.0** | **27/08/2026** | **Documento consolidado y único.** Incorpora: segundo cliente cerrado y tarifas por cliente (RF-09); principio P7 de capacidad medida en paradas; registro de tiempo de servicio por parada (RF-24); control de desvío de la prueba de entrega (RF-29); previsiones de arquitectura para multi-vehículo y consolidación en depósito (sección 10); reglas de crecimiento de flota e incorporación de clientes por geografía. Valores monetarios excluidos por decisión: se documentan por separado. |
+| **3.1** | **30/08/2026** | Alta de la tabla `vehiculos` (bloque Operación, §4): reemplaza el texto libre `rutas.vehiculo` por una ficha de flota (patente, descripción, marca/modelo/año, km, vencimientos de VTV y seguro, costo/km, capacidad de paradas). Sale de "fuera del modelo inicial" porque cuelga de `rutas`. Nota agregada en §10.1. |
+| **3.2** | **30/08/2026** | `zonas.km_desde` / `zonas.km_hasta`: rango de distancia de cada zona, visible y editable junto al precio en la pantalla Tarifas. Sin valores de fábrica, mismo criterio que el precio (§13): un número inventado es peor que un casillero vacío. |

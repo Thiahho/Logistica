@@ -120,6 +120,8 @@ export interface TarifaGeneral {
   zonaId: number;
   zonaCodigo: string;
   zonaNombre: string;
+  kmDesde: number | null;
+  kmHasta: number | null;
   precio: number | null;
 }
 
@@ -146,10 +148,34 @@ export interface UsuarioCuenta {
   activo: boolean;
 }
 
+/** Fila del ABM de flota (GET /api/vehiculos). */
+export interface Vehiculo {
+  id: number;
+  patente: string;
+  descripcion: string | null;
+  marca: string | null;
+  modelo: string | null;
+  anio: number | null;
+  kmActual: number | null;
+  venceVtv: string | null;
+  venceSeguro: string | null;
+  costoKm: number | null;
+  capacidadParadas: number;
+  activo: boolean;
+}
+
+/** Para el selector de vehículo al armar una ruta (GET /api/vehiculos/seleccion). */
+export interface VehiculoSeleccion {
+  id: number;
+  patente: string;
+  descripcion: string | null;
+  capacidadParadas: number;
+}
+
 export interface RutaResumen {
   id: number;
   fecha: string;
-  vehiculo: string | null;
+  vehiculoPatente: string | null;
   repartidorNombre: string | null;
   estado: string;
   cantidadParadas: number;
@@ -158,7 +184,8 @@ export interface RutaResumen {
 export interface RutaDetalle {
   id: number;
   fecha: string;
-  vehiculo: string | null;
+  vehiculoId: number | null;
+  vehiculoPatente: string | null;
   repartidorId: string | null;
   repartidorNombre: string | null;
   capacidadParadas: number;

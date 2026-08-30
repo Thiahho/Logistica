@@ -123,12 +123,42 @@ public static class DatosSemilla
             await db.SaveChangesAsync(ct);
         }
 
+        if (!await db.Vehiculos.AnyAsync(ct))
+        {
+            db.Vehiculos.AddRange(
+                new Vehiculo
+                {
+                    Patente = "AB123CD",
+                    Descripcion = "Utilitario 1",
+                    Marca = "Renault",
+                    Modelo = "Kangoo",
+                    Anio = 2020,
+                    KmActual = 45000,
+                    CapacidadParadas = 24,
+                },
+                // Inactivo a propósito: sirve para probar en desarrollo que /seleccion (el
+                // desplegable de armar ruta) filtra por Activo.
+                new Vehiculo
+                {
+                    Patente = "XY987ZW",
+                    Descripcion = "Utilitario 2 (de baja)",
+                    Marca = "Fiat",
+                    Modelo = "Fiorino",
+                    Anio = 2017,
+                    KmActual = 98000,
+                    CapacidadParadas = 20,
+                    Activo = false,
+                });
+            await db.SaveChangesAsync(ct);
+        }
+
         // Ruta de ayer, en curso y sin cerrar: sin esto el cierre económico (RF-26/27) no se
         // puede probar de punta a punta en desarrollo sin haber armado una ruta a mano primero
         // (el armado en sí es una fase posterior).
         if (!await db.Rutas.AnyAsync(ct))
         {
             var repartidor = await db.Usuarios.SingleAsync(u => u.Rol == Roles.Repartidor, ct);
+            var vehiculo = await db.Vehiculos.SingleAsync(v => v.Patente == "AB123CD", ct);
             var clienteDemo = await db.Clientes.FirstAsync(ct);
             var zonaA = await db.Zonas.SingleAsync(z => z.Codigo == "A", ct);
             var caba = await db.Localidades.SingleAsync(l => l.Nombre == "CABA", ct);
@@ -184,7 +214,7 @@ public static class DatosSemilla
             {
                 Fecha = ayer,
                 RepartidorId = repartidor.Id,
-                Vehiculo = "Utilitario 1",
+                VehiculoId = vehiculo.Id,
                 CapacidadParadas = 24,
                 Estado = "en_curso",
                 CreadaEn = DateTimeOffset.UtcNow,

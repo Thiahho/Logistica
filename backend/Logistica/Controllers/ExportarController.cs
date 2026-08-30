@@ -45,7 +45,7 @@ public class ExportarController(LogisticaDbContext db) : ControllerBase
             .OrderBy(r => r.Fecha)
             .Select(r => new object?[]
             {
-                r.Id, r.Fecha, r.Vehiculo, r.Repartidor != null ? r.Repartidor.Nombre : null,
+                r.Id, r.Fecha, r.Vehiculo != null ? r.Vehiculo.Patente : null, r.Repartidor != null ? r.Repartidor.Nombre : null,
                 r.Estado, r.KmInicial, r.KmFinal, r.CombustibleMonto, r.PeajesMonto,
                 r.OtrosCostos, r.PagoRepartidor, r.CerradaEn,
             })

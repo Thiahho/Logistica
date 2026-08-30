@@ -697,15 +697,17 @@ namespace Logistica.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("repartidor_id");
 
-                    b.Property<string>("Vehiculo")
-                        .HasColumnType("text")
-                        .HasColumnName("vehiculo");
+                    b.Property<long?>("VehiculoId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("vehiculo_id");
 
                     b.HasKey("Id");
 
                     b.HasIndex("Fecha");
 
                     b.HasIndex("RepartidorId");
+
+                    b.HasIndex("VehiculoId");
 
                     b.ToTable("rutas", null, t =>
                         {
@@ -983,6 +985,83 @@ namespace Logistica.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Logistica.Entidades.Vehiculo", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<bool>("Activo")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("activo");
+
+                    b.Property<int?>("Anio")
+                        .HasColumnType("integer")
+                        .HasColumnName("anio");
+
+                    b.Property<int>("CapacidadParadas")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(24)
+                        .HasColumnName("capacidad_paradas");
+
+                    b.Property<decimal?>("CostoKm")
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("costo_km");
+
+                    b.Property<DateTimeOffset>("CreadoEn")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("creado_en")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Descripcion")
+                        .HasColumnType("text")
+                        .HasColumnName("descripcion");
+
+                    b.Property<int?>("KmActual")
+                        .HasColumnType("integer")
+                        .HasColumnName("km_actual");
+
+                    b.Property<string>("Marca")
+                        .HasColumnType("text")
+                        .HasColumnName("marca");
+
+                    b.Property<string>("Modelo")
+                        .HasColumnType("text")
+                        .HasColumnName("modelo");
+
+                    b.Property<string>("Patente")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("patente");
+
+                    b.Property<DateOnly?>("VenceSeguro")
+                        .HasColumnType("date")
+                        .HasColumnName("vence_seguro");
+
+                    b.Property<DateOnly?>("VenceVtv")
+                        .HasColumnType("date")
+                        .HasColumnName("vence_vtv");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Patente")
+                        .IsUnique();
+
+                    b.ToTable("vehiculos", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_vehiculos_anio", "anio is null or anio between 1950 and 2100");
+
+                            t.HasCheckConstraint("ck_vehiculos_capacidad", "capacidad_paradas > 0");
+                        });
+                });
+
             modelBuilder.Entity("Logistica.Entidades.Zona", b =>
                 {
                     b.Property<int>("Id")
@@ -1004,6 +1083,14 @@ namespace Logistica.Migrations
                         .HasColumnType("character varying(1)")
                         .HasColumnName("codigo");
 
+                    b.Property<int?>("KmDesde")
+                        .HasColumnType("integer")
+                        .HasColumnName("km_desde");
+
+                    b.Property<int?>("KmHasta")
+                        .HasColumnType("integer")
+                        .HasColumnName("km_hasta");
+
                     b.Property<string>("Nombre")
                         .IsRequired()
                         .HasColumnType("text")
@@ -1014,7 +1101,12 @@ namespace Logistica.Migrations
                     b.HasIndex("Codigo")
                         .IsUnique();
 
-                    b.ToTable("zonas", (string)null);
+                    b.ToTable("zonas", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_zonas_km_desde", "km_desde is null or km_desde >= 0");
+
+                            t.HasCheckConstraint("ck_zonas_km_rango", "km_hasta is null or km_desde is null or km_hasta > km_desde");
+                        });
                 });
 
             modelBuilder.Entity("Logistica.Entidades.EventoCliente", b =>
@@ -1179,7 +1271,14 @@ namespace Logistica.Migrations
                         .HasForeignKey("RepartidorId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("Logistica.Entidades.Vehiculo", "Vehiculo")
+                        .WithMany()
+                        .HasForeignKey("VehiculoId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Repartidor");
+
+                    b.Navigation("Vehiculo");
                 });
 
             modelBuilder.Entity("Logistica.Entidades.RutaParada", b =>

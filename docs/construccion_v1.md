@@ -50,7 +50,8 @@ Regla de corte: acá no se justifica ninguna decisión de negocio. Si aparece un
     AuthService.cs            # login, rotación de refresh, hashing de contraseñas
     CurrentUser.cs             # extensiones sobre ClaimsPrincipal
   /Controllers                # un controller por recurso (pedidos, rutas, clientes, usuarios,
-                               # tarifas, zonas, localidades, ubicaciones, exportar, mis-paradas)
+                               # tarifas, zonas, localidades, ubicaciones, vehiculos, exportar,
+                               # mis-paradas)
   /Datos
     LogisticaDbContext.cs
     EscrituraDominio.cs        # GuardarComoAsync: publica el actor como GUC antes de guardar,
@@ -75,6 +76,7 @@ Regla de corte: acá no se justifica ninguna decisión de negocio. Si aparece un
     /rutas/[id]/cierre                             # solo administración
     /clientes, /clientes/[id], /clientes/nuevo     # solo administración
     /usuarios, /usuarios/nuevo                     # solo administración
+    /vehiculos, /vehiculos/nuevo, /vehiculos/[id]  # solo administración
     /tarifas, /exportar                            # solo administración
     /hoy                                           # rol repartidor — solo lectura, sin cola offline
     /mis-envios                                    # rol cliente
@@ -129,11 +131,12 @@ División de roles entre administración y operación (no estaba resuelta en la 
 | Detalle de pedido | admin + operación | Datos, desglose de precio congelado, historial completo de estados (actor, motivo, hora — RF-28), botones de transición según `Dominio/TransicionesPedido.cs`. | 02, 28; criterios de aceptación 5 y 7 |
 | Rutas | admin + operación | Listado por fecha. Acción por fila según estado: *Armar* (`planificada`), *Cerrar* (`en_curso`, solo admin), *Ver cierre* (`cerrada`, solo admin). | 10 |
 | Nueva ruta | admin + operación | Alta mínima (solo fecha) → redirige a armar. | — |
-| Armar ruta | admin + operación | Candidatos confirmados de la fecha, agrupados por zona; consolidación automática por destino (RF-14); botón "sugerir orden" (`lib/dominio/ruteo.ts`); reordenamiento manual con flechas ↑/↓ y anclar/desanclar (RF-12/13, no drag & drop — decisión tomada, ver más abajo); contador contra `capacidad_paradas` (RF-16, aviso, nunca bloqueo); asignar vehículo y repartidor; cerrar planificación. | 11–17 |
+| Armar ruta | admin + operación | Candidatos confirmados de la fecha, agrupados por zona; consolidación automática por destino (RF-14); botón "sugerir orden" (`lib/dominio/ruteo.ts`); reordenamiento manual con flechas ↑/↓ y anclar/desanclar (RF-12/13, no drag & drop — decisión tomada, ver más abajo); contador contra `capacidad_paradas` (RF-16, aviso, nunca bloqueo); seleccionar vehículo del catálogo y repartidor; cerrar planificación. | 11–17 |
 | Cierre de ruta | solo admin | Km, combustible, peajes, otros costos, pago al repartidor → margen del día y conteo de entregas efectivas/fallidas/reprogramadas. Solo disponible una vez cerrada la planificación (`Estado == "en_curso"`). | 26, 27 |
 | Clientes | solo admin | Alta, datos, tres colores (semáforos, RF-32/33), tarifas por zona. | 09, 31–33 |
-| Tarifas | solo admin | Lista general de precios por zona (`tarifas.cliente_id` null). | 09 |
+| Tarifas | solo admin | Lista general de precios por zona (`tarifas.cliente_id` null), con el rango de km de cada zona editable al lado. | 09 |
 | Usuarios | solo admin | Alta, edición, activo/inactivo, reset de contraseña. Sin esto no se puede dar de alta al repartidor. | RNF-08 |
+| Vehículos | solo admin | Alta, edición, activo/inactivo. Ficha de flota: patente, descripción, marca/modelo/año, km, vencimientos de VTV y seguro, costo/km, capacidad de paradas (prellena la de la ruta al elegirlo en Armar ruta). | — |
 | Exportar | solo admin | CSV de pedidos, rutas y resultados por rango. Reemplaza el módulo de reportes. | 30 |
 | Mis envíos | rol cliente | Solo lectura de los propios pedidos, sin importes internos ni datos de otros clientes. | RNF-08 |
 | Login | todos | Sesión de dos tokens: access en memoria, refresh en cookie httpOnly. Nunca pedir contraseña en la calle. | — |

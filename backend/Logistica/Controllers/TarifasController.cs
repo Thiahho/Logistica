@@ -16,7 +16,7 @@ namespace Logistica.Controllers;
 [Authorize(Policy = "Administracion")]
 public class TarifasController(LogisticaDbContext db, TarifaService tarifas) : ControllerBase
 {
-    public record TarifaGeneral(int ZonaId, string ZonaCodigo, string ZonaNombre, decimal? Precio);
+    public record TarifaGeneral(int ZonaId, string ZonaCodigo, string ZonaNombre, int? KmDesde, int? KmHasta, decimal? Precio);
     public record FijarTarifaRequest(decimal? Precio);
 
     [HttpGet]
@@ -31,7 +31,7 @@ public class TarifasController(LogisticaDbContext db, TarifaService tarifas) : C
             var precio = await db.Database
                 .SqlQuery<decimal?>($"select tarifa_vigente(null, {zona.Id}, {hoy}) as \"Value\"")
                 .SingleAsync(ct);
-            resultado.Add(new TarifaGeneral(zona.Id, zona.Codigo, zona.Nombre, precio));
+            resultado.Add(new TarifaGeneral(zona.Id, zona.Codigo, zona.Nombre, zona.KmDesde, zona.KmHasta, precio));
         }
 
         return Ok(resultado);

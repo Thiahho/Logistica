@@ -25,10 +25,10 @@ namespace Logistica.Controllers;
 [Authorize(Policy = "BackOffice")]
 public class RutasController(LogisticaDbContext db) : ControllerBase
 {
-    public record RutaResumen(long Id, DateOnly Fecha, string? Vehiculo, string? RepartidorNombre, string Estado, int CantidadParadas);
+    public record RutaResumen(long Id, DateOnly Fecha, string? VehiculoPatente, string? RepartidorNombre, string Estado, int CantidadParadas);
 
     public record RutaDetalle(
-        long Id, DateOnly Fecha, string? Vehiculo, Guid? RepartidorId, string? RepartidorNombre,
+        long Id, DateOnly Fecha, long? VehiculoId, string? VehiculoPatente, Guid? RepartidorId, string? RepartidorNombre,
         int CapacidadParadas, string Estado, int CantidadParadas, int? KmInicial, int? KmFinal,
         decimal? CombustibleMonto, decimal? PeajesMonto, decimal? OtrosCostos, decimal? PagoRepartidor,
         string? NotasCierre, DateTimeOffset? CerradaEn);
@@ -40,7 +40,7 @@ public class RutasController(LogisticaDbContext db) : ControllerBase
     public record ResultadoRuta(decimal Ingresos, decimal Costos, decimal Margen, int Efectivas, int Fallidas, int Reprogramadas);
 
     public record CrearRutaRequest(DateOnly Fecha);
-    public record ActualizarRutaRequest(string? Vehiculo, Guid? RepartidorId, int CapacidadParadas);
+    public record ActualizarRutaRequest(long? VehiculoId, Guid? RepartidorId, int CapacidadParadas);
     public record ParadaArmadoRequest(long UbicacionId, bool Anclada, List<long> PedidoIds);
     public record GuardarParadasRequest(List<ParadaArmadoRequest> Paradas);
     public record ParadaArmada(
@@ -59,14 +59,14 @@ public class RutasController(LogisticaDbContext db) : ControllerBase
             {
                 r.Id,
                 r.Fecha,
-                r.Vehiculo,
+                VehiculoPatente = r.Vehiculo != null ? r.Vehiculo.Patente : null,
                 RepartidorNombre = r.Repartidor != null ? r.Repartidor.Nombre : null,
                 r.Estado,
                 CantidadParadas = db.RutaParadas.Count(p => p.RutaId == r.Id),
             })
             .ToListAsync(ct);
 
-        return Ok(filas.Select(r => new RutaResumen(r.Id, r.Fecha, r.Vehiculo, r.RepartidorNombre, r.Estado, r.CantidadParadas)));
+        return Ok(filas.Select(r => new RutaResumen(r.Id, r.Fecha, r.VehiculoPatente, r.RepartidorNombre, r.Estado, r.CantidadParadas)));
     }
 
     [HttpGet("{id:long}")]
@@ -75,7 +75,8 @@ public class RutasController(LogisticaDbContext db) : ControllerBase
         var ruta = await db.Rutas.AsNoTracking()
             .Where(r => r.Id == id)
             .Select(r => new RutaDetalle(
-                r.Id, r.Fecha, r.Vehiculo, r.RepartidorId, r.Repartidor != null ? r.Repartidor.Nombre : null,
+                r.Id, r.Fecha, r.VehiculoId, r.Vehiculo != null ? r.Vehiculo.Patente : null,
+                r.RepartidorId, r.Repartidor != null ? r.Repartidor.Nombre : null,
                 r.CapacidadParadas, r.Estado, db.RutaParadas.Count(p => p.RutaId == r.Id),
                 r.KmInicial, r.KmFinal, r.CombustibleMonto,
                 r.PeajesMonto, r.OtrosCostos, r.PagoRepartidor, r.NotasCierre, r.CerradaEn))
@@ -100,7 +101,7 @@ public class RutasController(LogisticaDbContext db) : ControllerBase
         if (ruta is null) return NotFound();
         if (ruta.Estado != "planificada") return Conflict("La ruta ya no está en planificación.");
 
-        ruta.Vehiculo = req.Vehiculo;
+        ruta.VehiculoId = req.VehiculoId;
         ruta.RepartidorId = req.RepartidorId;
         ruta.CapacidadParadas = req.CapacidadParadas;
         await db.SaveChangesAsync(ct);
@@ -229,7 +230,7 @@ public class RutasController(LogisticaDbContext db) : ControllerBase
         var ruta = await db.Rutas.SingleOrDefaultAsync(r => r.Id == id, ct);
         if (ruta is null) return NotFound();
         if (ruta.Estado != "planificada") return Conflict("La ruta ya no está en planificación.");
-        if (string.IsNullOrWhiteSpace(ruta.Vehiculo) || ruta.RepartidorId is null)
+        if (ruta.VehiculoId is null || ruta.RepartidorId is null)
             return BadRequest("Faltan vehículo y/o repartidor.");
 
         var pedidos = await db.Pedidos
