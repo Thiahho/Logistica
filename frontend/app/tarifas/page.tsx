@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { leerError, leerJson } from "@/lib/api/errores";
 import type { TarifaGeneral } from "@/lib/dominio/tipos";
 
 export default function TarifasPage() {
@@ -32,11 +33,13 @@ function ListaTarifas() {
   const [kmDesdes, setKmDesdes] = useState<Record<number, string>>({});
   const [kmHastas, setKmHastas] = useState<Record<number, string>>({});
   const [guardandoZona, setGuardandoZona] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const cargar = () => {
     fetchConSesion("/api/tarifas")
-      .then((r) => r.json())
-      .then(setTarifas);
+      .then((r) => leerJson<TarifaGeneral[]>(r))
+      .then(setTarifas)
+      .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar las tarifas."));
   };
 
   useEffect(cargar, [fetchConSesion]);
@@ -54,12 +57,13 @@ function ListaTarifas() {
   }
 
   async function guardar(t: TarifaGeneral) {
+    setError(null);
     setGuardandoZona(t.zonaId);
     try {
       const precioTexto = valorPrecio(t);
       const kmDesdeTexto = valorKmDesde(t);
       const kmHastaTexto = valorKmHasta(t);
-      await Promise.all([
+      const [respTarifa, respKm] = await Promise.all([
         fetchConSesion(`/api/tarifas/${t.zonaId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -74,7 +78,11 @@ function ListaTarifas() {
           }),
         }),
       ]);
+      if (!respTarifa.ok) throw new Error((await leerError(respTarifa)).mensaje);
+      if (!respKm.ok) throw new Error((await leerError(respKm)).mensaje);
       cargar();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo guardar la tarifa.");
     } finally {
       setGuardandoZona(null);
     }
@@ -89,8 +97,9 @@ function ListaTarifas() {
           <CardTitle className="text-base">Precio por zona</CardTitle>
         </CardHeader>
         <CardContent>
+          {error && <p className="text-sm text-destructive mb-4">{error}</p>}
           {!tarifas ? (
-            <p className="text-muted-foreground">Cargando…</p>
+            error ? null : <p className="text-muted-foreground">Cargando…</p>
           ) : (
             <Table>
               <TableHeader>

@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { leerError } from "@/lib/api/errores";
+import { leerError, leerJson } from "@/lib/api/errores";
 import type { EstadoPedido, PedidoDetalle } from "@/lib/dominio/tipos";
 import {
   ETIQUETA_TRANSICION,
@@ -37,10 +37,13 @@ function DetallePedido() {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
+
   const cargar = useCallback(() => {
     fetchConSesion(`/api/pedidos/${id}`)
-      .then((r) => r.json())
-      .then(setPedido);
+      .then((r) => leerJson<PedidoDetalle>(r))
+      .then(setPedido)
+      .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudo cargar el pedido."));
   }, [fetchConSesion, id]);
 
   useEffect(cargar, [cargar]);
@@ -89,7 +92,9 @@ function DetallePedido() {
     return (
       <div className="p-8">
         <CabeceraSesion titulo="Pedido" />
-        <p className="text-muted-foreground">Cargando…</p>
+        <p className={errorCarga ? "text-sm text-destructive" : "text-muted-foreground"}>
+          {errorCarga ?? "Cargando…"}
+        </p>
       </div>
     );
   }

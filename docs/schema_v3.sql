@@ -4,6 +4,8 @@
 -- Base vacía: ejecutar entero, de una vez, en Supabase.
 --
 -- 13 tablas. Ese es el techo hasta el tercer cliente.
+-- Excepción registrada (acta §11.1, changelog 3.3): `clientes_usuarios` sube el conteo a 14 —
+-- el login de cliente no puede compartir tabla con el personal interno de `usuarios`.
 --
 -- NOTA (post H0/H1, ver construccion_v1.md §1): el backend real es ASP.NET Core + Postgres en
 -- Docker, no Supabase. No hay auth.uid() ni RLS ejecutándose: `usuarios.id` ya no referencia
@@ -13,6 +15,10 @@
 -- fn_log_estado_pedido necesita en vez de auth.uid() lo publica EscrituraDominio.GuardarComoAsync
 -- como el GUC de sesión `app.usuario_id`. El resto del DDL —tablas, triggers, funciones,
 -- vista— sí está aplicado tal cual (ver Migrations/20260828170859_ReglasDeBaseDeDatos.cs).
+-- Por el mismo motivo, `usuarios` y `clientes_usuarios` en la base real tienen columnas propias
+-- `email` y `password_hash` (auth JWT propio, TokenService/AuthService) en vez de depender de
+-- `auth.users` — acá se mantiene el `id references auth.users` original solo como referencia
+-- del diseño previo a H0/H1, igual que el resto de esta nota.
 -- =====================================================================
 
 -- ============ GEOGRAFÍA ============
@@ -116,16 +122,26 @@ $$;
 
 -- ============ USUARIOS Y ROLES (11.1 / RNF-08) ============
 
+-- Personal interno únicamente. El login de cliente es otra tabla (ver clientes_usuarios más
+-- abajo) a propósito: los dos tipos de cuenta no comparten gestión ni ciclo de vida.
 create table usuarios (
   id          uuid primary key references auth.users(id) on delete cascade,
   nombre      text not null,
   rol         text not null
-              check (rol in ('administracion','operacion','repartidor','cliente')),
-  cliente_id  int references clientes(id),      -- solo rol 'cliente'
+              check (rol in ('administracion','operacion','repartidor')),
   activo      boolean not null default true,
-  creado_en   timestamptz not null default now(),
-  constraint usuario_cliente_coherente
-    check (rol <> 'cliente' or cliente_id is not null)
+  creado_en   timestamptz not null default now()
+);
+
+-- Login de consulta de una empresa cliente. Separada de `usuarios` para que un cliente no
+-- pueda convivir con el ABM del personal interno ni compartir su tabla.
+create table clientes_usuarios (
+  id          uuid primary key references auth.users(id) on delete cascade,
+  cliente_id  int not null references clientes(id),
+  nombre      text not null,
+  email       text not null unique,
+  activo      boolean not null default true,
+  creado_en   timestamptz not null default now()
 );
 
 create or replace function mi_rol() returns text
@@ -133,9 +149,10 @@ language sql stable security definer set search_path = public as $$
   select rol from usuarios where id = auth.uid() and activo
 $$;
 
+-- Devuelve el cliente si quien está logueado es un login de cliente; null si es personal interno.
 create or replace function mi_cliente() returns int
 language sql stable security definer set search_path = public as $$
-  select cliente_id from usuarios where id = auth.uid() and activo
+  select cliente_id from clientes_usuarios where id = auth.uid() and activo
 $$;
 
 -- ============ NÚCLEO ============
@@ -388,6 +405,34 @@ create trigger trg_bloquear_direccion_dudosa
   before insert on parada_pedidos
   for each row execute function fn_bloquear_direccion_dudosa();
 
+-- 5. Un mismo email no puede estar en usuarios y clientes_usuarios a la vez (si no, el login
+--    por email queda ambiguo). Un índice único no alcanza porque son dos tablas distintas.
+create or replace function fn_verificar_email_unico_usuarios()
+returns trigger language plpgsql as $$
+begin
+  if exists (select 1 from clientes_usuarios where email = new.email) then
+    raise exception 'El email % ya está en uso por un login de cliente.', new.email;
+  end if;
+  return new;
+end $$;
+
+create trigger trg_verificar_email_unico_usuarios
+  before insert or update of email on usuarios
+  for each row execute function fn_verificar_email_unico_usuarios();
+
+create or replace function fn_verificar_email_unico_clientes_usuarios()
+returns trigger language plpgsql as $$
+begin
+  if exists (select 1 from usuarios where email = new.email) then
+    raise exception 'El email % ya está en uso por un usuario interno.', new.email;
+  end if;
+  return new;
+end $$;
+
+create trigger trg_verificar_email_unico_clientes_usuarios
+  before insert or update of email on clientes_usuarios
+  for each row execute function fn_verificar_email_unico_clientes_usuarios();
+
 -- =====================================================================
 -- RLS — sin esto, la anon key de Supabase lee todo (RNF-08)
 -- =====================================================================
@@ -441,9 +486,10 @@ create policy repartidor_prueba on pruebas_entrega for insert to authenticated
 create policy repartidor_ubicaciones on ubicaciones for select to authenticated
   using (mi_rol() = 'repartidor');
 
--- Cliente: solo sus pedidos, sin colores ni costos internos.
+-- Cliente: solo sus pedidos, sin colores ni costos internos. mi_cliente() ya resuelve null si
+-- quien está logueado no es un login de clientes_usuarios, así que alcanza con esa condición.
 create policy cliente_pedidos on pedidos for select to authenticated
-  using (mi_rol() = 'cliente' and cliente_id = mi_cliente());
+  using (cliente_id = mi_cliente());
 
 -- Vista para la PWA: todo lo que el repartidor necesita, ningún importe.
 create or replace view v_paradas_repartidor

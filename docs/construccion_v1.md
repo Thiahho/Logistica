@@ -35,7 +35,7 @@ Regla de corte: acá no se justifica ninguna decisión de negocio. Si aparece un
 | Orden de paradas | Nearest-neighbor + 2-opt sobre haversine, en el navegador (`lib/dominio/ruteo.ts` + `geo.ts`) | Sin API de matriz. Reordenamiento manual con flechas subir/bajar + anclar, no drag & drop — ver §4.1 |
 | Hosting | A definir | Vercel servía para el plan original con Next.js full-stack; con backend .NET separado, el back-office necesita su propio hosting |
 
-**Restricción de disciplina:** las 13 tablas del esquema son el techo hasta el tercer cliente. Cada tabla nueva necesita una línea en el acta antes que una línea en el SQL.
+**Restricción de disciplina:** las 13 tablas del esquema son el techo hasta el tercer cliente. Cada tabla nueva necesita una línea en el acta antes que una línea en el SQL. **Excepción registrada:** `clientes_usuarios` (acta §11.1, changelog 3.3) sube el conteo a 14 — el login de cliente no puede compartir tabla con el personal interno, no es crecimiento por catálogo (P6).
 
 ---
 
@@ -51,7 +51,9 @@ Regla de corte: acá no se justifica ninguna decisión de negocio. Si aparece un
     CurrentUser.cs             # extensiones sobre ClaimsPrincipal
   /Controllers                # un controller por recurso (pedidos, rutas, clientes, usuarios,
                                # tarifas, zonas, localidades, ubicaciones, vehiculos, exportar,
-                               # mis-paradas)
+                               # mis-paradas). El ABM del login de cliente (api/clientes/{id}/usuarios)
+                               # vive anidado en ClientesController, no en UsuariosController — ese
+                               # es solo personal interno (administracion, operacion, repartidor).
   /Datos
     LogisticaDbContext.cs
     EscrituraDominio.cs        # GuardarComoAsync: publica el actor como GUC antes de guardar,
@@ -74,8 +76,10 @@ Regla de corte: acá no se justifica ninguna decisión de negocio. Si aparece un
     /pedidos, /pedidos/nuevo, /pedidos/[id]        # administración + operación
     /rutas, /rutas/nueva, /rutas/[id]/armar        # administración + operación
     /rutas/[id]/cierre                             # solo administración
-    /clientes, /clientes/[id], /clientes/nuevo     # solo administración
-    /usuarios, /usuarios/nuevo                     # solo administración
+    /clientes, /clientes/[id], /clientes/nuevo     # solo administración — clientes/[id] incluye
+                                                    # el ABM del login de ese cliente
+    /usuarios, /usuarios/nuevo                     # solo administración — solo personal interno,
+                                                    # el rol "cliente" no aparece acá
     /vehiculos, /vehiculos/nuevo, /vehiculos/[id]  # solo administración
     /tarifas, /exportar                            # solo administración
     /hoy                                           # rol repartidor — solo lectura, sin cola offline
@@ -301,3 +305,4 @@ Diseño visual, textos de interfaz, esquema de pruebas automatizadas, monitoreo 
 |---|---|---|
 | 1.0 | 28/08/2026 | Documento inicial. Reemplaza `mvp_especificacion.md`, alineado al Acta v3.0 y a `schema_v3.sql`. |
 | **1.1** | **29/08/2026** | **Refleja la implementación real de H0, H1 y H3** (administración y operación completas desde el escritorio; H2, la PWA offline, sigue sin construir — desvío consciente del orden que este documento recomienda, ver §8). Cambios: stack real sin Supabase (§1–§3, §9); regla nueva sobre combinación de `[Authorize]` de clase y de acción (§3.8); pantallas divididas por rol tal como quedaron construidas, con la decisión de reordenamiento manual sin drag & drop (§4); fuente de verdad de la máquina de estados movida al backend (§5); estado hito por hito (§8); variables de configuración reales (§9). |
+| **1.2** | **30/08/2026** | Separación de `usuarios` (personal interno) y `clientes_usuarios` (login de cliente) en dos tablas — acta §11.1/changelog 3.3. Excepción al techo de 13 tablas (§1); `UsuariosController` queda solo para staff, el ABM del login de cliente pasa a `ClientesController` anidado (§2); pantallas actualizadas (`/usuarios` sin el rol cliente, `clientes/[id]` con su login). |

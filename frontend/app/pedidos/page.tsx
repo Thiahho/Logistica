@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { leerJson } from "@/lib/api/errores";
 import { ESTADOS_PEDIDO, type PedidoResumen } from "@/lib/dominio/tipos";
 
 export default function PedidosPage() {
@@ -36,6 +37,7 @@ export default function PedidosPage() {
 function ListaPedidos() {
   const { fetchConSesion } = useAuth();
   const [pedidos, setPedidos] = useState<PedidoResumen[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [fecha, setFecha] = useState("");
   const [estado, setEstado] = useState<string>("");
 
@@ -45,8 +47,9 @@ function ListaPedidos() {
     if (estado) params.set("estado", estado);
     const query = params.toString();
     fetchConSesion(`/api/pedidos${query ? `?${query}` : ""}`)
-      .then((r) => r.json())
-      .then(setPedidos);
+      .then((r) => leerJson<PedidoResumen[]>(r))
+      .then(setPedidos)
+      .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar los pedidos."));
   }, [fetchConSesion, fecha, estado]);
 
   useEffect(() => {
@@ -108,7 +111,9 @@ function ListaPedidos() {
         </div>
       </div>
 
-      {!pedidos ? (
+      {error ? (
+        <p className="text-sm text-destructive">{error}</p>
+      ) : !pedidos ? (
         <p className="text-muted-foreground">Cargando…</p>
       ) : pedidos.length === 0 ? (
         <p className="text-muted-foreground">No hay pedidos cargados.</p>

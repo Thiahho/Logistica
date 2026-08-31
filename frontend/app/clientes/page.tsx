@@ -14,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { leerJson } from "@/lib/api/errores";
 import type { Cliente } from "@/lib/dominio/tipos";
 
 const COLOR_CLASE: Record<string, string> = {
@@ -43,11 +44,13 @@ function ListaClientes() {
   const { fetchConSesion } = useAuth();
   const [clientes, setClientes] = useState<Cliente[] | null>(null);
   const [cambiando, setCambiando] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const cargar = () => {
     fetchConSesion("/api/clientes")
-      .then((r) => r.json())
-      .then(setClientes);
+      .then((r) => leerJson<Cliente[]>(r))
+      .then(setClientes)
+      .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar los clientes."));
   };
 
   useEffect(cargar, [fetchConSesion]);
@@ -76,7 +79,9 @@ function ListaClientes() {
         </Button>
       </div>
 
-      {!clientes ? (
+      {error ? (
+        <p className="text-sm text-destructive">{error}</p>
+      ) : !clientes ? (
         <p className="text-muted-foreground">Cargando…</p>
       ) : clientes.length === 0 ? (
         <p className="text-muted-foreground">No hay clientes cargados.</p>

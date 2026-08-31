@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { leerJson } from "@/lib/api/errores";
 import type { Vehiculo } from "@/lib/dominio/tipos";
 
 export default function VehiculoDetallePage() {
@@ -25,11 +26,13 @@ function DetalleVehiculo() {
   const { fetchConSesion } = useAuth();
 
   const [vehiculo, setVehiculo] = useState<Vehiculo | null>(null);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
   const cargar = useCallback(() => {
     fetchConSesion(`/api/vehiculos/${id}`)
-      .then((r) => r.json())
-      .then(setVehiculo);
+      .then((r) => leerJson<Vehiculo>(r))
+      .then(setVehiculo)
+      .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudo cargar el vehículo."));
   }, [fetchConSesion, id]);
 
   useEffect(cargar, [cargar]);
@@ -38,7 +41,9 @@ function DetalleVehiculo() {
     return (
       <div className="p-8">
         <CabeceraSesion titulo="Vehículo" />
-        <p className="text-muted-foreground">Cargando…</p>
+        <p className={errorCarga ? "text-sm text-destructive" : "text-muted-foreground"}>
+          {errorCarga ?? "Cargando…"}
+        </p>
       </div>
     );
   }

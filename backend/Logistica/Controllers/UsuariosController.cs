@@ -8,9 +8,10 @@ using Microsoft.EntityFrameworkCore;
 namespace Logistica.Controllers;
 
 /// <summary>
-/// Alta y administración de usuarios. Sin esto el admin no puede dar de alta al repartidor
-/// (bloquea las fases de operador y repartidor) ni a un usuario de consulta para un cliente
-/// nuevo — hoy solo existen los cuatro usuarios de DatosSemilla.
+/// Alta y administración de usuarios de personal interno (administracion, operacion,
+/// repartidor). Sin esto el admin no puede dar de alta al repartidor (bloquea las fases de
+/// operador y repartidor). Los logins de cliente son otra tabla — ver ClienteUsuario y los
+/// endpoints anidados bajo ClientesController.
 ///
 /// Sin [Authorize] a nivel de clase a propósito (mismo motivo que ClientesController): ASP.NET
 /// Core combina el [Authorize] de clase y el de acción con AND, no lo reemplaza. Seleccion
@@ -21,10 +22,10 @@ namespace Logistica.Controllers;
 [Route("api/usuarios")]
 public class UsuariosController(LogisticaDbContext db) : ControllerBase
 {
-    public record UsuarioResumen(Guid Id, string Nombre, string Email, string Rol, int? ClienteId, bool Activo);
+    public record UsuarioResumen(Guid Id, string Nombre, string Email, string Rol, bool Activo);
     public record UsuarioSeleccion(Guid Id, string Nombre);
-    public record CrearUsuarioRequest(string Nombre, string Email, string Password, string Rol, int? ClienteId);
-    public record ActualizarUsuarioRequest(string Nombre, string Rol, int? ClienteId, bool Activo);
+    public record CrearUsuarioRequest(string Nombre, string Email, string Password, string Rol);
+    public record ActualizarUsuarioRequest(string Nombre, string Rol, bool Activo);
     public record CambiarPasswordRequest(string Password);
     public record ActivoRequest(bool Activo);
 
@@ -33,7 +34,7 @@ public class UsuariosController(LogisticaDbContext db) : ControllerBase
     public async Task<IActionResult> Listar(CancellationToken ct) =>
         Ok(await db.Usuarios.AsNoTracking()
             .OrderBy(u => u.Nombre)
-            .Select(u => new UsuarioResumen(u.Id, u.Nombre, u.Email, u.Rol, u.ClienteId, u.Activo))
+            .Select(u => new UsuarioResumen(u.Id, u.Nombre, u.Email, u.Rol, u.Activo))
             .ToListAsync(ct));
 
     /// <summary>Para selectores (ej. repartidor al armar una ruta — RutasController). BackOffice:
@@ -47,16 +48,12 @@ public class UsuariosController(LogisticaDbContext db) : ControllerBase
             .Select(u => new UsuarioSeleccion(u.Id, u.Nombre))
             .ToListAsync(ct));
 
-    /// <summary>
-    /// No se revalida ck_usuarios_cliente_coherente (rol 'cliente' exige cliente_id) en C#: el
-    /// check constraint ya lo hace, y ManejadorExcepciones lo traduce a 409 con el mensaje de
-    /// Postgres — duplicar la regla acá violaría construccion_v1.md §3 regla 3.
-    /// </summary>
     [HttpPost]
     [Authorize(Policy = "Administracion")]
     public async Task<IActionResult> Crear(CrearUsuarioRequest req, CancellationToken ct)
     {
         if (!Roles.Todos.Contains(req.Rol)) return BadRequest("Rol inválido.");
+        if (req.Password.Length < 8) return BadRequest("La contraseña debe tener al menos 8 caracteres.");
 
         var usuario = new Usuario
         {
@@ -64,7 +61,6 @@ public class UsuariosController(LogisticaDbContext db) : ControllerBase
             Nombre = req.Nombre,
             Email = req.Email,
             Rol = req.Rol,
-            ClienteId = req.ClienteId,
             CreadoEn = DateTimeOffset.UtcNow,
         };
         usuario.PasswordHash = AuthService.Hashear(usuario, req.Password);
@@ -73,7 +69,7 @@ public class UsuariosController(LogisticaDbContext db) : ControllerBase
         await db.SaveChangesAsync(ct);
 
         return CreatedAtAction(nameof(Listar), new { },
-            new UsuarioResumen(usuario.Id, usuario.Nombre, usuario.Email, usuario.Rol, usuario.ClienteId, usuario.Activo));
+            new UsuarioResumen(usuario.Id, usuario.Nombre, usuario.Email, usuario.Rol, usuario.Activo));
     }
 
     [HttpPut("{id:guid}")]
@@ -87,7 +83,6 @@ public class UsuariosController(LogisticaDbContext db) : ControllerBase
 
         usuario.Nombre = req.Nombre;
         usuario.Rol = req.Rol;
-        usuario.ClienteId = req.ClienteId;
         usuario.Activo = req.Activo;
 
         await db.SaveChangesAsync(ct);
@@ -115,6 +110,8 @@ public class UsuariosController(LogisticaDbContext db) : ControllerBase
     [Authorize(Policy = "Administracion")]
     public async Task<IActionResult> CambiarPassword(Guid id, CambiarPasswordRequest req, CancellationToken ct)
     {
+        if (req.Password.Length < 8) return BadRequest("La contraseña debe tener al menos 8 caracteres.");
+
         var usuario = await db.Usuarios.SingleOrDefaultAsync(u => u.Id == id, ct);
         if (usuario is null) return NotFound();
 

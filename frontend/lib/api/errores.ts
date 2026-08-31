@@ -17,3 +17,13 @@ export async function leerError(resp: Response): Promise<ErrorApi> {
     return { status: resp.status, mensaje: texto || `Error ${resp.status}` };
   }
 }
+
+/**
+ * Reemplazo de `.then(r => r.json())` para GETs de listado: sin esto, una respuesta no-2xx
+ * (401 tras fallar el refresh, 500, etc.) se parseaba igual como si fuera el array/objeto
+ * esperado — pantalla colgada en "Cargando…" o `.map` explotando sobre un ProblemDetails.
+ */
+export async function leerJson<T>(resp: Response): Promise<T> {
+  if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
+  return resp.json() as Promise<T>;
+}

@@ -28,6 +28,9 @@ public class PrecioService(LogisticaDbContext db, IOptions<OpcionesPrecio> opcio
         bool descuentoRuta,
         CancellationToken ct = default)
     {
+        if (peajes < 0)
+            throw new InvalidOperationException("Peajes no puede ser negativo.");
+
         var precioBase = await db.Database
             .SqlQuery<decimal?>($"select tarifa_vigente({clienteId}, {zonaId}, {fecha}) as \"Value\"")
             .SingleAsync(ct);

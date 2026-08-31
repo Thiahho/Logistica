@@ -16,16 +16,22 @@ public class TokenService(IOptions<OpcionesJwt> opciones)
 {
     private readonly OpcionesJwt _o = opciones.Value;
 
-    public string CrearAccessToken(Usuario usuario)
+    public string CrearAccessToken(Usuario usuario) =>
+        CrearAccessToken(usuario.Id, usuario.Nombre, usuario.Rol, clienteId: null);
+
+    public string CrearAccessToken(ClienteUsuario clienteUsuario) =>
+        CrearAccessToken(clienteUsuario.Id, clienteUsuario.Nombre, Roles.Cliente, clienteUsuario.ClienteId);
+
+    private string CrearAccessToken(Guid id, string nombre, string rol, int? clienteId)
     {
         var claims = new List<Claim>
         {
-            new(JwtRegisteredClaimNames.Sub, usuario.Id.ToString()),
-            new("nombre", usuario.Nombre),
-            new(ClaimTypes.Role, usuario.Rol),
+            new(JwtRegisteredClaimNames.Sub, id.ToString()),
+            new("nombre", nombre),
+            new(ClaimTypes.Role, rol),
         };
-        if (usuario.ClienteId is not null)
-            claims.Add(new Claim("cliente_id", usuario.ClienteId.Value.ToString()));
+        if (clienteId is not null)
+            claims.Add(new Claim("cliente_id", clienteId.Value.ToString()));
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_o.Key));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -40,13 +46,20 @@ public class TokenService(IOptions<OpcionesJwt> opciones)
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    public (string TokenPlano, RefreshToken Entidad) CrearRefreshToken(Guid usuarioId, string? ip)
+    public (string TokenPlano, RefreshToken Entidad) CrearRefreshToken(Guid usuarioId, string? ip) =>
+        CrearRefreshToken(usuarioId, clienteUsuarioId: null, ip);
+
+    public (string TokenPlano, RefreshToken Entidad) CrearRefreshTokenCliente(Guid clienteUsuarioId, string? ip) =>
+        CrearRefreshToken(usuarioId: null, clienteUsuarioId, ip);
+
+    private (string TokenPlano, RefreshToken Entidad) CrearRefreshToken(Guid? usuarioId, Guid? clienteUsuarioId, string? ip)
     {
         var tokenPlano = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var entidad = new RefreshToken
         {
             Id = Guid.NewGuid(),
             UsuarioId = usuarioId,
+            ClienteUsuarioId = clienteUsuarioId,
             TokenHash = Hash(tokenPlano),
             CreadoEn = DateTimeOffset.UtcNow,
             ExpiraEn = DateTimeOffset.UtcNow.AddDays(_o.RefreshDias),

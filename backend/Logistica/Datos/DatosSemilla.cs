@@ -1,3 +1,4 @@
+using Logistica.Auth;
 using Logistica.Entidades;
 using Logistica.Opciones;
 using Microsoft.AspNetCore.Identity;
@@ -106,20 +107,35 @@ public static class DatosSemilla
             var hasher = new PasswordHasher<Usuario>();
             const string passwordDev = "Logistica123!"; // solo desarrollo local, nunca en producción
 
-            Usuario Crear(string nombre, string email, string rol, int? clienteId = null)
+            Usuario Crear(string nombre, string email, string rol)
             {
-                var usuario = new Usuario { Nombre = nombre, Email = email, Rol = rol, ClienteId = clienteId };
+                var usuario = new Usuario { Nombre = nombre, Email = email, Rol = rol };
                 usuario.PasswordHash = hasher.HashPassword(usuario, passwordDev);
                 return usuario;
             }
 
-            var clienteDemo = await db.Clientes.FirstAsync(ct);
-
             db.Usuarios.AddRange(
                 Crear("Admin Demo", "admin@logistica.local", Roles.Administracion),
                 Crear("Operación Demo", "operacion@logistica.local", Roles.Operacion),
-                Crear("Repartidor Demo", "repartidor@logistica.local", Roles.Repartidor),
-                Crear("Cliente Demo", "cliente@logistica.local", Roles.Cliente, clienteDemo.Id));
+                Crear("Repartidor Demo", "repartidor@logistica.local", Roles.Repartidor));
+            await db.SaveChangesAsync(ct);
+        }
+
+        // Login del cliente demo: tabla separada de Usuarios a propósito (ver Entidades/ClienteUsuario.cs).
+        if (!await db.ClientesUsuarios.AnyAsync(ct))
+        {
+            const string passwordDev = "Logistica123!"; // solo desarrollo local, nunca en producción
+            var clienteDemo = await db.Clientes.FirstAsync(ct);
+
+            var usuarioCliente = new ClienteUsuario
+            {
+                ClienteId = clienteDemo.Id,
+                Nombre = "Cliente Demo",
+                Email = "cliente@logistica.local",
+            };
+            usuarioCliente.PasswordHash = AuthService.HashearCliente(usuarioCliente, passwordDev);
+
+            db.ClientesUsuarios.Add(usuarioCliente);
             await db.SaveChangesAsync(ct);
         }
 

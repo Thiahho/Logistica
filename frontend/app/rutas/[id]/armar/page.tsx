@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { leerError } from "@/lib/api/errores";
+import { leerError, leerJson } from "@/lib/api/errores";
 import { sugerirOrden, type ParadaParaOrden } from "@/lib/dominio/ruteo";
 import type { Punto } from "@/lib/dominio/geo";
 import type {
@@ -68,16 +68,18 @@ function ArmarRuta() {
   const [cerrando, setCerrando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
   const cargarRuta = useCallback(() => {
     fetchConSesion(`/api/rutas/${id}`)
-      .then((r) => r.json())
-      .then((r: RutaDetalle) => {
+      .then((r) => leerJson<RutaDetalle>(r))
+      .then((r) => {
         setRuta(r);
         setVehiculoId(r.vehiculoId);
         setRepartidorId(r.repartidorId);
         setCapacidadParadas(r.capacidadParadas);
-      });
+      })
+      .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudo cargar la ruta."));
   }, [fetchConSesion, id]);
 
   useEffect(cargarRuta, [cargarRuta]);
@@ -85,24 +87,35 @@ function ArmarRuta() {
   useEffect(() => {
     if (!ruta) return;
     fetchConSesion(`/api/pedidos/candidatos-ruta?fecha=${ruta.fecha}&rutaId=${id}`)
-      .then((r) => r.json())
-      .then(setCandidatos);
+      .then((r) => leerJson<CandidatoRuta[]>(r))
+      .then(setCandidatos)
+      .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudieron cargar los candidatos."));
   }, [fetchConSesion, ruta, id]);
 
   useEffect(() => {
     fetchConSesion(`/api/rutas/${id}/paradas`)
-      .then((r) => r.json())
-      .then((paradas: ParadaArmada[]) => {
+      .then((r) => leerJson<ParadaArmada[]>(r))
+      .then((paradas) => {
         setOrdenUbicaciones(paradas.map((p) => p.ubicacionId));
         setAnclajes(new Set(paradas.filter((p) => p.anclada).map((p) => p.ubicacionId)));
         setSeleccionados(new Set(paradas.flatMap((p) => p.pedidoIds)));
-      });
+      })
+      .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudieron cargar las paradas."));
   }, [fetchConSesion, id]);
 
   useEffect(() => {
-    fetchConSesion("/api/usuarios/seleccion?rol=repartidor").then((r) => r.json()).then(setRepartidores);
-    fetchConSesion("/api/vehiculos/seleccion").then((r) => r.json()).then(setVehiculos);
-    fetchConSesion("/api/ubicaciones/deposito").then((r) => r.json()).then(setDeposito);
+    fetchConSesion("/api/usuarios/seleccion?rol=repartidor")
+      .then((r) => leerJson<UsuarioSeleccion[]>(r))
+      .then(setRepartidores)
+      .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudieron cargar los repartidores."));
+    fetchConSesion("/api/vehiculos/seleccion")
+      .then((r) => leerJson<VehiculoSeleccion[]>(r))
+      .then(setVehiculos)
+      .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudieron cargar los vehículos."));
+    fetchConSesion("/api/ubicaciones/deposito")
+      .then((r) => leerJson<Punto>(r))
+      .then(setDeposito)
+      .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudo cargar el depósito."));
   }, [fetchConSesion]);
 
   // Al elegir un vehículo del catálogo, prellena la capacidad de paradas de la ruta con la suya
@@ -257,7 +270,9 @@ function ArmarRuta() {
     return (
       <div className="p-8">
         <CabeceraSesion titulo="Armar ruta" />
-        <p className="text-muted-foreground">Cargando…</p>
+        <p className={errorCarga ? "text-sm text-destructive" : "text-muted-foreground"}>
+          {errorCarga ?? "Cargando…"}
+        </p>
       </div>
     );
   }
@@ -284,6 +299,8 @@ function ArmarRuta() {
       <Button variant="outline" render={<Link href="/rutas" />} nativeButton={false} className="self-start">
         ← Rutas
       </Button>
+
+      {errorCarga && <p className="text-sm text-destructive">{errorCarga}</p>}
 
       <Card>
         <CardHeader>

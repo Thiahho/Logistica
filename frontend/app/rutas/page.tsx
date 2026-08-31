@@ -16,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { leerJson } from "@/lib/api/errores";
 import type { RutaResumen } from "@/lib/dominio/tipos";
 
 export default function RutasPage() {
@@ -29,6 +30,7 @@ export default function RutasPage() {
 function ListaRutas() {
   const { usuario, fetchConSesion } = useAuth();
   const [rutas, setRutas] = useState<RutaResumen[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [fecha, setFecha] = useState("");
 
   const cargar = useCallback(() => {
@@ -36,8 +38,9 @@ function ListaRutas() {
     if (fecha) params.set("fecha", fecha);
     const query = params.toString();
     fetchConSesion(`/api/rutas${query ? `?${query}` : ""}`)
-      .then((r) => r.json())
-      .then(setRutas);
+      .then((r) => leerJson<RutaResumen[]>(r))
+      .then(setRutas)
+      .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar las rutas."));
   }, [fetchConSesion, fecha]);
 
   useEffect(cargar, [cargar]);
@@ -69,7 +72,9 @@ function ListaRutas() {
         </Button>
       </div>
 
-      {!rutas ? (
+      {error ? (
+        <p className="text-sm text-destructive">{error}</p>
+      ) : !rutas ? (
         <p className="text-muted-foreground">Cargando…</p>
       ) : rutas.length === 0 ? (
         <p className="text-muted-foreground">No hay rutas cargadas.</p>

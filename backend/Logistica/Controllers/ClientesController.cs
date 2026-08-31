@@ -43,6 +43,10 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas) : 
 
     public record CrearEventoRequest(int TipoId, decimal? ValorNum, string? Nota, long? PedidoId);
 
+    public record ClienteUsuarioResumen(Guid Id, string Nombre, string Email, bool Activo);
+    public record CrearClienteUsuarioRequest(string Nombre, string Email, string Password);
+    public record CambiarPasswordClienteUsuarioRequest(string Password);
+
     public record CrearClienteRequest(string RazonSocial, string? Cuit, string? Contacto, string? Telefono, string? Email);
 
     public record ActivoRequest(bool Activo);
@@ -178,7 +182,7 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas) : 
         var tieneDatos = await db.Pedidos.AnyAsync(p => p.ClienteId == id, ct)
             || await db.Tarifas.AnyAsync(t => t.ClienteId == id, ct)
             || await db.EventosCliente.AnyAsync(e => e.ClienteId == id, ct)
-            || await db.Usuarios.AnyAsync(u => u.ClienteId == id, ct);
+            || await db.ClientesUsuarios.AnyAsync(u => u.ClienteId == id, ct);
         if (tieneDatos)
             return Conflict("El cliente tiene pedidos, tarifas, eventos o usuarios asociados; desactivalo en vez de eliminarlo.");
 
@@ -238,5 +242,71 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas) : 
         await db.SaveChangesAsync(ct);
 
         return CreatedAtAction(nameof(ListarEventos), new { id }, null);
+    }
+
+    /// <summary>
+    /// CRUD del login de consulta de un cliente (tabla clientes_usuarios, separada de usuarios
+    /// de personal interno a propósito — ver Entidades/ClienteUsuario.cs). Mismo patrón que
+    /// UsuariosController: solo Administracion, contraseña mínima de 8 caracteres.
+    /// </summary>
+    [HttpGet("{id:int}/usuarios")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> ListarUsuarios(int id, CancellationToken ct) =>
+        Ok(await db.ClientesUsuarios.AsNoTracking()
+            .Where(u => u.ClienteId == id)
+            .OrderBy(u => u.Nombre)
+            .Select(u => new ClienteUsuarioResumen(u.Id, u.Nombre, u.Email, u.Activo))
+            .ToListAsync(ct));
+
+    [HttpPost("{id:int}/usuarios")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> CrearUsuario(int id, CrearClienteUsuarioRequest req, CancellationToken ct)
+    {
+        var clienteExiste = await db.Clientes.AnyAsync(c => c.Id == id, ct);
+        if (!clienteExiste) return NotFound();
+        if (req.Password.Length < 8) return BadRequest("La contraseña debe tener al menos 8 caracteres.");
+
+        var usuario = new ClienteUsuario
+        {
+            Id = Guid.NewGuid(),
+            ClienteId = id,
+            Nombre = req.Nombre,
+            Email = req.Email,
+            CreadoEn = DateTimeOffset.UtcNow,
+        };
+        usuario.PasswordHash = AuthService.HashearCliente(usuario, req.Password);
+
+        db.ClientesUsuarios.Add(usuario);
+        await db.SaveChangesAsync(ct);
+
+        return CreatedAtAction(nameof(ListarUsuarios), new { id },
+            new ClienteUsuarioResumen(usuario.Id, usuario.Nombre, usuario.Email, usuario.Activo));
+    }
+
+    [HttpPut("{id:int}/usuarios/{usuarioId:guid}/activo")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> CambiarActivoUsuario(int id, Guid usuarioId, ActivoRequest req, CancellationToken ct)
+    {
+        var usuario = await db.ClientesUsuarios.SingleOrDefaultAsync(u => u.Id == usuarioId && u.ClienteId == id, ct);
+        if (usuario is null) return NotFound();
+
+        usuario.Activo = req.Activo;
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+
+    [HttpPut("{id:int}/usuarios/{usuarioId:guid}/password")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> CambiarPasswordUsuario(
+        int id, Guid usuarioId, CambiarPasswordClienteUsuarioRequest req, CancellationToken ct)
+    {
+        if (req.Password.Length < 8) return BadRequest("La contraseña debe tener al menos 8 caracteres.");
+
+        var usuario = await db.ClientesUsuarios.SingleOrDefaultAsync(u => u.Id == usuarioId && u.ClienteId == id, ct);
+        if (usuario is null) return NotFound();
+
+        usuario.PasswordHash = AuthService.HashearCliente(usuario, req.Password);
+        await db.SaveChangesAsync(ct);
+        return NoContent();
     }
 }

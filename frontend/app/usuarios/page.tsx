@@ -15,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { leerError } from "@/lib/api/errores";
+import { leerError, leerJson } from "@/lib/api/errores";
 import type { UsuarioCuenta } from "@/lib/dominio/tipos";
 
 export default function UsuariosPage() {
@@ -36,8 +36,9 @@ function ListaUsuarios() {
 
   const cargar = () => {
     fetchConSesion("/api/usuarios")
-      .then((r) => r.json())
-      .then(setUsuarios);
+      .then((r) => leerJson<UsuarioCuenta[]>(r))
+      .then(setUsuarios)
+      .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar los usuarios."));
   };
 
   useEffect(cargar, [fetchConSesion]);
@@ -92,7 +93,7 @@ function ListaUsuarios() {
       {error && <p className="text-sm text-destructive mb-4">{error}</p>}
 
       {!usuarios ? (
-        <p className="text-muted-foreground">Cargando…</p>
+        error ? null : <p className="text-muted-foreground">Cargando…</p>
       ) : (
         <Table>
           <TableHeader>

@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { leerJson } from "@/lib/api/errores";
 import type { ClienteSeleccion, Localidad } from "@/lib/dominio/tipos";
 
 interface UbicacionResuelta {
@@ -74,12 +75,19 @@ function FormularioAlta() {
 
   const [enviando, setEnviando] = useState(false);
   const [errorAlta, setErrorAlta] = useState<string | null>(null);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
   useEffect(() => {
     // /seleccion (no /api/clientes: ese endpoint quedó privativo de administración) — sin
     // colores ni tarifas, que operación no debe ver.
-    fetchConSesion("/api/clientes/seleccion").then((r) => r.json()).then(setClientes);
-    fetchConSesion("/api/localidades").then((r) => r.json()).then(setLocalidades);
+    fetchConSesion("/api/clientes/seleccion")
+      .then((r) => leerJson<ClienteSeleccion[]>(r))
+      .then(setClientes)
+      .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudo cargar la lista de clientes."));
+    fetchConSesion("/api/localidades")
+      .then((r) => leerJson<Localidad[]>(r))
+      .then(setLocalidades)
+      .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudo cargar la lista de localidades."));
   }, [fetchConSesion]);
 
   const localidadElegida = useMemo(
@@ -111,6 +119,9 @@ function FormularioAlta() {
   useEffect(() => {
     if (!listoParaCotizar) return;
 
+    // AbortController evita que una cotización lenta resuelva después de una más nueva y
+    // pise el precio en pantalla con un valor stale (el usuario tipeando rápido dispara varias).
+    const abort = new AbortController();
     const timeout = setTimeout(async () => {
       setCotizando(true);
       setErrorCotizar(null);
@@ -125,17 +136,25 @@ function FormularioAlta() {
             urgente,
             peajes: Number(peajes) || 0,
           }),
+          signal: abort.signal,
         });
         if (resp.ok) setCotizacion(await resp.json());
         else {
           setCotizacion(null);
           setErrorCotizar(await resp.text());
         }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setCotizacion(null);
+        setErrorCotizar(err instanceof Error ? err.message : "No se pudo cotizar.");
       } finally {
-        setCotizando(false);
+        if (!abort.signal.aborted) setCotizando(false);
       }
     }, 400);
-    return () => clearTimeout(timeout);
+    return () => {
+      clearTimeout(timeout);
+      abort.abort();
+    };
   }, [listoParaCotizar, clienteId, localidadId, fechaEntrega, urgente, peajes, fetchConSesion]);
 
   const cotizacionVisible = listoParaCotizar ? cotizacion : null;
@@ -189,6 +208,7 @@ function FormularioAlta() {
   return (
     <div className="p-8 max-w-2xl">
       <CabeceraSesion titulo="Nuevo pedido" />
+      {errorCarga && <p className="text-sm text-destructive mb-4">{errorCarga}</p>}
       <form onSubmit={onSubmit} className="flex flex-col gap-6">
         <Card>
           <CardHeader>

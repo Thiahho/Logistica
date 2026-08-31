@@ -19,6 +19,11 @@ public class AlmacenamientoFotos(IOptions<OpcionesPruebaEntrega> opciones)
 
     public async Task<string> GuardarAsync(long paradaId, string deviceUuid, Stream contenido, long tamanoBytes, CancellationToken ct)
     {
+        // deviceUuid llega del cliente (multipart) y termina en la ruta de disco: sin este chequeo,
+        // un valor tipo "../../../etc/algo" escribiría fuera de RaizFotos (path traversal).
+        if (!Guid.TryParse(deviceUuid, out _))
+            throw new InvalidOperationException("DeviceUuid inválido.");
+
         if (tamanoBytes > _opciones.TamanoMaximoKb * 1024L)
             throw new InvalidOperationException($"La foto supera el máximo permitido de {_opciones.TamanoMaximoKb} KB.");
 

@@ -100,6 +100,11 @@ public class ExportarController(LogisticaDbContext db) : ControllerBase
         return sb.ToString();
     }
 
+    // Campos de texto libre (destinatario, razón social) terminan en un CSV que un admin abre en
+    // Excel/Sheets: si empiezan con =, +, -, @ el programa los interpreta como fórmula (CSV
+    // injection). Anteponer un apóstrofo neutraliza esa interpretación sin alterar el dato.
+    private static readonly char[] PrefijosFormula = ['=', '+', '-', '@'];
+
     private static string EscaparCampo(object? valor)
     {
         var texto = valor switch
@@ -110,6 +115,9 @@ public class ExportarController(LogisticaDbContext db) : ControllerBase
             decimal dec => dec.ToString(CultureInfo.InvariantCulture),
             _ => valor.ToString() ?? "",
         };
+        if (texto.Length > 0 && PrefijosFormula.Contains(texto[0]))
+            texto = "'" + texto;
+
         return texto.Contains(';') || texto.Contains('"') || texto.Contains('\n')
             ? $"\"{texto.Replace("\"", "\"\"")}\""
             : texto;

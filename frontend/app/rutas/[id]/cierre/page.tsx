@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { leerError } from "@/lib/api/errores";
+import { leerError, leerJson } from "@/lib/api/errores";
 import type { ResultadoRuta, RutaDetalle } from "@/lib/dominio/tipos";
 
 export default function CierreRutaPage() {
@@ -38,11 +38,13 @@ function CierreRuta() {
 
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
   const cargar = useCallback(() => {
     fetchConSesion(`/api/rutas/${id}`)
-      .then((r) => r.json())
-      .then(setRuta);
+      .then((r) => leerJson<RutaDetalle>(r))
+      .then(setRuta)
+      .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudo cargar la ruta."));
   }, [fetchConSesion, id]);
 
   useEffect(cargar, [cargar]);
@@ -50,8 +52,9 @@ function CierreRuta() {
   useEffect(() => {
     if (ruta?.estado === "cerrada") {
       fetchConSesion(`/api/rutas/${id}/resultado`)
-        .then((r) => r.json())
-        .then(setResultado);
+        .then((r) => leerJson<ResultadoRuta>(r))
+        .then(setResultado)
+        .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudo cargar el resultado."));
     }
   }, [ruta?.estado, fetchConSesion, id]);
 
@@ -87,7 +90,9 @@ function CierreRuta() {
     return (
       <div className="p-8">
         <CabeceraSesion titulo="Cierre de ruta" />
-        <p className="text-muted-foreground">Cargando…</p>
+        <p className={errorCarga ? "text-sm text-destructive" : "text-muted-foreground"}>
+          {errorCarga ?? "Cargando…"}
+        </p>
       </div>
     );
   }

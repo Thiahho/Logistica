@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -17,14 +17,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { leerError } from "@/lib/api/errores";
-import type { ClienteSeleccion } from "@/lib/dominio/tipos";
 import type { Rol } from "@/lib/auth/types";
 
-const ROLES: { value: Rol; label: string }[] = [
+// Solo personal interno: los logins de cliente se dan de alta desde la ficha del cliente
+// (clientes/[id]), tabla separada a propósito — ver Entidades/ClienteUsuario.cs en el backend.
+type RolStaff = Exclude<Rol, "cliente">;
+
+const ROLES: { value: RolStaff; label: string }[] = [
   { value: "administracion", label: "Administración" },
   { value: "operacion", label: "Operación" },
   { value: "repartidor", label: "Repartidor" },
-  { value: "cliente", label: "Cliente (consulta)" },
 ];
 
 export default function NuevoUsuarioPage() {
@@ -39,18 +41,12 @@ function FormularioAlta() {
   const { fetchConSesion } = useAuth();
   const router = useRouter();
 
-  const [clientes, setClientes] = useState<ClienteSeleccion[]>([]);
   const [nombre, setNombre] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [rol, setRol] = useState<Rol>("operacion");
-  const [clienteId, setClienteId] = useState<number | null>(null);
+  const [rol, setRol] = useState<RolStaff>("operacion");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchConSesion("/api/clientes/seleccion").then((r) => r.json()).then(setClientes);
-  }, [fetchConSesion]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -60,13 +56,7 @@ function FormularioAlta() {
       const resp = await fetchConSesion("/api/usuarios", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nombre,
-          email,
-          password,
-          rol,
-          clienteId: rol === "cliente" ? clienteId : null,
-        }),
+        body: JSON.stringify({ nombre, email, password, rol }),
       });
       if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
       router.push("/usuarios");
@@ -113,7 +103,7 @@ function FormularioAlta() {
             </div>
             <div className="flex flex-col gap-2">
               <Label>Rol</Label>
-              <Select items={ROLES} value={rol} onValueChange={(v) => v && setRol(v as Rol)}>
+              <Select items={ROLES} value={rol} onValueChange={(v) => v && setRol(v as RolStaff)}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -126,32 +116,11 @@ function FormularioAlta() {
                 </SelectContent>
               </Select>
             </div>
-            {rol === "cliente" && (
-              <div className="flex flex-col gap-2">
-                <Label>Cliente</Label>
-                <Select
-                  items={clientes.map((c) => ({ value: String(c.id), label: c.razonSocial }))}
-                  value={clienteId !== null ? String(clienteId) : null}
-                  onValueChange={(v) => setClienteId(v ? Number(v) : null)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Elegir cliente" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clientes.map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)}>
-                        {c.razonSocial}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
           </CardContent>
         </Card>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
-        <Button type="submit" disabled={enviando || (rol === "cliente" && clienteId === null)}>
+        <Button type="submit" disabled={enviando}>
           {enviando ? "Creando…" : "Crear usuario"}
         </Button>
       </form>

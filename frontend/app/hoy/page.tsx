@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
+import { leerJson } from "@/lib/api/errores";
 
 interface ParadaRepartidor {
   paradaId: number;
@@ -30,17 +31,21 @@ export default function HoyPage() {
 function ListaParadas() {
   const { fetchConSesion } = useAuth();
   const [paradas, setParadas] = useState<ParadaRepartidor[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchConSesion("/api/mis-paradas")
-      .then((r) => r.json())
-      .then(setParadas);
+      .then((r) => leerJson<ParadaRepartidor[]>(r))
+      .then(setParadas)
+      .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar las paradas."));
   }, [fetchConSesion]);
 
   return (
     <div className="p-8">
       <CabeceraSesion titulo="Hoy" />
-      {!paradas ? (
+      {error ? (
+        <p className="text-sm text-destructive">{error}</p>
+      ) : !paradas ? (
         <p className="text-muted-foreground">Cargando…</p>
       ) : paradas.length === 0 ? (
         <p className="text-muted-foreground">No tenés paradas asignadas hoy.</p>

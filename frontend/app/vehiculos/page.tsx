@@ -14,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { leerJson } from "@/lib/api/errores";
 import type { Vehiculo } from "@/lib/dominio/tipos";
 
 export default function VehiculosPage() {
@@ -34,12 +35,14 @@ function vencido(fecha: string | null): boolean {
 function ListaVehiculos() {
   const { fetchConSesion } = useAuth();
   const [vehiculos, setVehiculos] = useState<Vehiculo[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [cambiando, setCambiando] = useState<number | null>(null);
 
   const cargar = () => {
     fetchConSesion("/api/vehiculos")
-      .then((r) => r.json())
-      .then(setVehiculos);
+      .then((r) => leerJson<Vehiculo[]>(r))
+      .then(setVehiculos)
+      .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar los vehículos."));
   };
 
   useEffect(cargar, [fetchConSesion]);
@@ -68,7 +71,9 @@ function ListaVehiculos() {
         </Button>
       </div>
 
-      {!vehiculos ? (
+      {error ? (
+        <p className="text-sm text-destructive">{error}</p>
+      ) : !vehiculos ? (
         <p className="text-muted-foreground">Cargando…</p>
       ) : (
         <Table>

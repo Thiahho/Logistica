@@ -138,13 +138,21 @@ export interface EventoResumen {
 
 // Nombrado "UsuarioCuenta" (no "Usuario") para no chocar con lib/auth/types.ts, que ya usa
 // "Usuario" para la identidad de la sesión activa — son conceptos distintos: esta es la fila de
-// la tabla que administra /usuarios, aquella es "quién soy yo ahora".
+// la tabla que administra /usuarios (personal interno), aquella es "quién soy yo ahora".
 export interface UsuarioCuenta {
   id: string;
   nombre: string;
   email: string;
   rol: string;
-  clienteId: number | null;
+  activo: boolean;
+}
+
+// Login de consulta de una empresa cliente — tabla separada de UsuarioCuenta a propósito
+// (backend: Entidades/ClienteUsuario.cs), gestionada desde la ficha del cliente, no desde /usuarios.
+export interface ClienteUsuarioCuenta {
+  id: string;
+  nombre: string;
+  email: string;
   activo: boolean;
 }
 

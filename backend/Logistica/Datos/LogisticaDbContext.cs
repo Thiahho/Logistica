@@ -18,6 +18,7 @@ public class LogisticaDbContext(DbContextOptions<LogisticaDbContext> options) : 
     public DbSet<Cliente> Clientes => Set<Cliente>();
     public DbSet<Tarifa> Tarifas => Set<Tarifa>();
     public DbSet<Usuario> Usuarios => Set<Usuario>();
+    public DbSet<ClienteUsuario> ClientesUsuarios => Set<ClienteUsuario>();
     public DbSet<Pedido> Pedidos => Set<Pedido>();
     public DbSet<PedidoEvento> PedidoEventos => Set<PedidoEvento>();
     public DbSet<Ruta> Rutas => Set<Ruta>();
