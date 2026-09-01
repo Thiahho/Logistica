@@ -45,20 +45,22 @@ create table localidades (
 );
 
 create table ubicaciones (
-  id             bigserial primary key,
-  calle_numero   text not null,
-  localidad_id   int references localidades(id),
-  referencia     text,
-  lat            numeric(10,7),
-  lng            numeric(10,7),
-  geo_confianza  text check (geo_confianza in ('alta','media','baja','fallida')),
-  geo_proveedor  text,
-  geo_fecha      timestamptz,
-  verificada     boolean not null default false,   -- corregida a mano
-  creada_en      timestamptz not null default now()
+  id               bigserial primary key,
+  calle_numero     text not null,
+  localidad_id     int references localidades(id),
+  referencia       text,
+  nombre_deposito  text,  -- no-nulo = depósito del catálogo, con este nombre (acta 3.8)
+  lat              numeric(10,7),
+  lng              numeric(10,7),
+  geo_confianza    text check (geo_confianza in ('alta','media','baja','fallida')),
+  geo_proveedor    text,
+  geo_fecha        timestamptz,
+  verificada       boolean not null default false,   -- corregida a mano
+  creada_en        timestamptz not null default now()
 );
 create index on ubicaciones (localidad_id);
 create unique index on ubicaciones (lower(calle_numero), localidad_id);
+create unique index on ubicaciones (nombre_deposito) where nombre_deposito is not null;
 
 -- Una ubicación es apta para ruta si está geolocalizada con confianza
 -- o fue verificada a mano, y su localidad tiene zona (RF-05).
@@ -97,22 +99,26 @@ create table tarifas (
   id             bigserial primary key,
   cliente_id     int references clientes(id),   -- null = lista general
   zona_id        int not null references zonas(id),
+  tipo_vehiculo  text not null default 'camioneta'
+                 check (tipo_vehiculo in ('camioneta','moto')),  -- acta changelog 3.11
   precio         numeric(12,2) not null check (precio > 0),
   vigente_desde  date not null default current_date,
   vigente_hasta  date,
   creada_en      timestamptz not null default now(),
   check (vigente_hasta is null or vigente_hasta >= vigente_desde)
 );
-create unique index tarifas_vigencia_uk
-  on tarifas (coalesce(cliente_id, 0), zona_id, vigente_desde);
-create index on tarifas (cliente_id, zona_id) where vigente_hasta is null;
+create unique index ux_tarifas_vigencia
+  on tarifas (coalesce(cliente_id, 0), zona_id, tipo_vehiculo, vigente_desde);
+create index on tarifas (cliente_id, zona_id, tipo_vehiculo) where vigente_hasta is null;
 
--- Resolución: tarifa del cliente si existe, si no la general.
+-- Resolución: tarifa del cliente si existe, si no la general. p_tipo_vehiculo desde acta
+-- changelog 3.11 — camioneta y moto tienen tarifa propia, no una es un factor de la otra.
 create or replace function tarifa_vigente(
-  p_cliente int, p_zona int, p_fecha date default current_date
+  p_cliente int, p_zona int, p_fecha date, p_tipo_vehiculo text
 ) returns numeric language sql stable as $$
   select precio from tarifas
   where zona_id = p_zona
+    and tipo_vehiculo = p_tipo_vehiculo
     and (cliente_id = p_cliente or cliente_id is null)
     and vigente_desde <= p_fecha
     and (vigente_hasta is null or vigente_hasta >= p_fecha)
@@ -180,14 +186,17 @@ create table pedidos (
   fecha_entrega         date not null,
   urgente               boolean not null default false,
 
-  -- snapshot de precio (P1 / RF-02). Nunca se recalcula.
+  -- snapshot de precio (P1 / RF-02). Nunca se recalcula. Nullable desde acta changelog 3.11:
+  -- el precio depende del tipo de vehículo, que recién se conoce cuando la ruta cierra su
+  -- planificación — hasta entonces el pedido está en Borrador, sin ninguno de estos campos.
+  -- `peajes` es la excepción: se conoce en el alta, no depende del vehículo.
   zona_id               int references zonas(id),
-  precio_base           numeric(12,2) not null,
-  recargo_urgencia      numeric(12,2) not null default 0,
-  descuento_ruta        numeric(12,2) not null default 0,
+  precio_base           numeric(12,2),
+  recargo_urgencia      numeric(12,2) default 0,
+  descuento_ruta        numeric(12,2) default 0,
   peajes                numeric(12,2) not null default 0,
-  total                 numeric(12,2) not null,
-  precio_congelado_en   timestamptz not null default now(),
+  total                 numeric(12,2),
+  precio_congelado_en   timestamptz,
 
   estado                estado_pedido not null default 'borrador',
   origen_carga          text not null default 'interno'
@@ -226,6 +235,8 @@ create table vehiculos (
   id                 bigserial primary key,
   patente            text not null unique,     -- normalizada a mayúsculas sin espacios
   descripcion        text,                     -- alias operativo: "Utilitario 1"
+  tipo               text not null default 'camioneta'
+                     check (tipo in ('camioneta','moto')),  -- acta changelog 3.11
   marca              text,
   modelo             text,
   anio               int check (anio is null or anio between 1950 and 2100),
@@ -243,6 +254,7 @@ create table rutas (
   fecha              date not null,
   repartidor_id      uuid references usuarios(id),
   vehiculo_id        bigint references vehiculos(id),
+  origen_ubicacion_id bigint references ubicaciones(id),  -- null = sin elegir todavía; CerrarPlanificacion lo exige antes de en_curso (acta 3.8)
   capacidad_paradas  int not null default 24,  -- P7 / RF-16
   estado             text not null default 'planificada'
                      check (estado in ('planificada','en_curso','cerrada')),

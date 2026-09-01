@@ -12,6 +12,10 @@ public class Vehiculo
 
     public string? Marca { get; set; }
     public string? Modelo { get; set; }
+
+    /// <summary>camioneta | moto (acta changelog 3.11). Determina qué tarifa aplica a los
+    /// pedidos de una ruta cuando se cierra su planificación — ver OrigenRutaService/PrecioService.</summary>
+    public string Tipo { get; set; } = "camioneta";
     public int? Anio { get; set; }
     public int? KmActual { get; set; }
     public DateOnly? VenceVtv { get; set; }

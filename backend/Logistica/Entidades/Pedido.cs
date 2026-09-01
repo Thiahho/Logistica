@@ -29,14 +29,18 @@ public class Pedido
     public bool Urgente { get; set; }
 
     // Snapshot de precio (P1 / RF-02). Nunca se recalcula tras confirmar; trg_congelar_pedido lo impide.
+    // Nullable desde acta changelog 3.11: el precio depende del tipo de vehículo (camioneta/moto),
+    // que recién se conoce cuando la ruta que lo lleva cierra su planificación — hasta entonces el
+    // pedido queda en Borrador, sin ninguno de estos campos. `Peajes` es la excepción: es un dato
+    // que el cliente ya conoce al cargar el pedido, no depende del vehículo, se guarda de entrada.
     public int? ZonaId { get; set; }
     public Zona? Zona { get; set; }
-    public decimal PrecioBase { get; set; }
-    public decimal RecargoUrgencia { get; set; }
-    public decimal DescuentoRuta { get; set; }
+    public decimal? PrecioBase { get; set; }
+    public decimal? RecargoUrgencia { get; set; }
+    public decimal? DescuentoRuta { get; set; }
     public decimal Peajes { get; set; }
-    public decimal Total { get; set; }
-    public DateTimeOffset PrecioCongeladoEn { get; set; }
+    public decimal? Total { get; set; }
+    public DateTimeOffset? PrecioCongeladoEn { get; set; }
 
     public EstadoPedido Estado { get; set; } = EstadoPedido.Borrador;
 

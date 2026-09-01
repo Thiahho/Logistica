@@ -23,7 +23,10 @@ namespace Logistica.Controllers;
 [Route("api/clientes")]
 public class ClientesController(LogisticaDbContext db, TarifaService tarifas) : ControllerBase
 {
-    public record TarifaZona(int ZonaId, string ZonaCodigo, string ZonaNombre, decimal? PrecioGeneral, decimal? PrecioCliente);
+    public record TarifaZona(
+        int ZonaId, string ZonaCodigo, string ZonaNombre,
+        decimal? PrecioGeneralCamioneta, decimal? PrecioClienteCamioneta,
+        decimal? PrecioGeneralMoto, decimal? PrecioClienteMoto);
     public record ClienteSeleccion(int Id, string RazonSocial);
 
     public record EventoResumen(
@@ -39,7 +42,7 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas) : 
         string RazonSocial, string? Cuit, string? Contacto, string? Telefono, string? Email, bool Activo,
         string ColorPago, string ColorTrato, string ColorOper);
 
-    public record FijarTarifaRequest(decimal? Precio);
+    public record FijarTarifaRequest(string TipoVehiculo, decimal? Precio);
 
     public record CrearEventoRequest(int TipoId, decimal? ValorNum, string? Nota, long? PedidoId);
 
@@ -101,14 +104,18 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas) : 
         var tarifas = new List<TarifaZona>();
         foreach (var zona in zonas)
         {
-            var precioGeneral = await db.Database
-                .SqlQuery<decimal?>($"select tarifa_vigente(null, {zona.Id}, {hoy}) as \"Value\"")
+            async Task<decimal?> PrecioGeneral(string tipo) => await db.Database
+                .SqlQuery<decimal?>($"select tarifa_vigente(null, {zona.Id}, {hoy}, {tipo}) as \"Value\"")
                 .SingleAsync(ct);
-            var precioCliente = await db.Tarifas.AsNoTracking()
-                .Where(t => t.ClienteId == id && t.ZonaId == zona.Id && t.VigenteHasta == null)
+            async Task<decimal?> PrecioCliente(string tipo) => await db.Tarifas.AsNoTracking()
+                .Where(t => t.ClienteId == id && t.ZonaId == zona.Id && t.TipoVehiculo == tipo && t.VigenteHasta == null)
                 .Select(t => (decimal?)t.Precio)
                 .SingleOrDefaultAsync(ct);
-            tarifas.Add(new TarifaZona(zona.Id, zona.Codigo, zona.Nombre, precioGeneral, precioCliente));
+
+            tarifas.Add(new TarifaZona(
+                zona.Id, zona.Codigo, zona.Nombre,
+                await PrecioGeneral("camioneta"), await PrecioCliente("camioneta"),
+                await PrecioGeneral("moto"), await PrecioCliente("moto")));
         }
 
         var contador = await db.EventosCliente.AsNoTracking()
@@ -200,7 +207,8 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas) : 
     [Authorize(Policy = "Administracion")]
     public async Task<IActionResult> FijarTarifa(int id, int zonaId, FijarTarifaRequest req, CancellationToken ct)
     {
-        await tarifas.FijarAsync(id, zonaId, req.Precio, ct);
+        if (req.TipoVehiculo is not ("camioneta" or "moto")) return BadRequest("Tipo de vehículo inválido.");
+        await tarifas.FijarAsync(id, zonaId, req.TipoVehiculo, req.Precio, ct);
         return NoContent();
     }
 

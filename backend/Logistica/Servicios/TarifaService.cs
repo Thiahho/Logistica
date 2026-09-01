@@ -14,11 +14,11 @@ namespace Logistica.Servicios;
 /// </summary>
 public class TarifaService(LogisticaDbContext db)
 {
-    public async Task FijarAsync(int? clienteId, int zonaId, decimal? precio, CancellationToken ct = default)
+    public async Task FijarAsync(int? clienteId, int zonaId, string tipoVehiculo, decimal? precio, CancellationToken ct = default)
     {
         var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
         var vigente = await db.Tarifas
-            .Where(t => t.ClienteId == clienteId && t.ZonaId == zonaId && t.VigenteHasta == null)
+            .Where(t => t.ClienteId == clienteId && t.ZonaId == zonaId && t.TipoVehiculo == tipoVehiculo && t.VigenteHasta == null)
             .SingleOrDefaultAsync(ct);
 
         if (precio is null)
@@ -41,7 +41,7 @@ public class TarifaService(LogisticaDbContext db)
         else
         {
             if (vigente is not null) vigente.VigenteHasta = hoy.AddDays(-1);
-            db.Tarifas.Add(new Tarifa { ClienteId = clienteId, ZonaId = zonaId, Precio = precio.Value, VigenteDesde = hoy });
+            db.Tarifas.Add(new Tarifa { ClienteId = clienteId, ZonaId = zonaId, TipoVehiculo = tipoVehiculo, Precio = precio.Value, VigenteDesde = hoy });
         }
 
         await db.SaveChangesAsync(ct);

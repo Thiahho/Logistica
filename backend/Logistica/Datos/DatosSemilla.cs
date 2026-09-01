@@ -61,14 +61,16 @@ public static class DatosSemilla
             await db.SaveChangesAsync(ct);
         }
 
-        if (!await db.Ubicaciones.AnyAsync(u => u.Referencia == "deposito", ct))
+        // Catálogo de depósitos (acta changelog 3.8): sembramos uno solo, nombrado "Depósito" —
+        // administración carga los demás desde /depositos cuando los necesite.
+        if (!await db.Ubicaciones.AnyAsync(u => u.NombreDeposito != null, ct))
         {
             var localidadDeposito = await db.Localidades.SingleAsync(l => l.Nombre == deposito.Localidad, ct);
             db.Ubicaciones.Add(new Ubicacion
             {
                 CalleNumero = deposito.CalleNumero,
                 LocalidadId = localidadDeposito.Id,
-                Referencia = "deposito",
+                NombreDeposito = "Depósito",
                 Lat = deposito.Lat,
                 Lng = deposito.Lng,
                 GeoConfianza = "alta",
@@ -179,7 +181,7 @@ public static class DatosSemilla
             var zonaA = await db.Zonas.SingleAsync(z => z.Codigo == "A", ct);
             var caba = await db.Localidades.SingleAsync(l => l.Nombre == "CABA", ct);
             var vicenteLopez = await db.Localidades.SingleAsync(l => l.Nombre == "Vicente López", ct);
-            var origenDeposito = await db.Ubicaciones.SingleAsync(u => u.Referencia == "deposito", ct);
+            var origenDeposito = await db.Ubicaciones.SingleAsync(u => u.NombreDeposito != null, ct);
 
             // Destinos ya verificados: no dependen del geocoder para poder cerrar la ruta
             // sembrada sin red (dato de desarrollo, no real).
@@ -231,6 +233,10 @@ public static class DatosSemilla
                 Fecha = ayer,
                 RepartidorId = repartidor.Id,
                 VehiculoId = vehiculo.Id,
+                // Toda ruta "en_curso" tiene que tener origen resuelto (acta changelog 3.8,
+                // CerrarPlanificacion lo exige) — esta se siembra directo en ese estado, sin pasar
+                // por el endpoint, así que hay que replicar el invariante a mano.
+                OrigenUbicacionId = origenDeposito.Id,
                 CapacidadParadas = 24,
                 Estado = "en_curso",
                 CreadaEn = DateTimeOffset.UtcNow,

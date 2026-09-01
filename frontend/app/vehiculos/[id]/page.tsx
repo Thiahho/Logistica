@@ -10,8 +10,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { leerJson } from "@/lib/api/errores";
-import type { Vehiculo } from "@/lib/dominio/tipos";
+import type { TipoVehiculo, Vehiculo } from "@/lib/dominio/tipos";
 
 export default function VehiculoDetallePage() {
   return (
@@ -71,6 +78,7 @@ function DatosVehiculo({
   onGuardado: () => void;
 }) {
   const [patente, setPatente] = useState(vehiculo.patente);
+  const [tipo, setTipo] = useState<TipoVehiculo>(vehiculo.tipo);
   const [descripcion, setDescripcion] = useState(vehiculo.descripcion ?? "");
   const [marca, setMarca] = useState(vehiculo.marca ?? "");
   const [modelo, setModelo] = useState(vehiculo.modelo ?? "");
@@ -92,6 +100,7 @@ function DatosVehiculo({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           patente,
+          tipo,
           descripcion: descripcion || null,
           marca: marca || null,
           modelo: modelo || null,
@@ -126,6 +135,18 @@ function DatosVehiculo({
         <div className="flex flex-col gap-2">
           <Label htmlFor="descripcion">Descripción</Label>
           <Input id="descripcion" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} />
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="tipo">Tipo</Label>
+          <Select value={tipo} onValueChange={(v) => setTipo(v as TipoVehiculo)}>
+            <SelectTrigger id="tipo">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="camioneta">Camioneta</SelectItem>
+              <SelectItem value="moto">Moto</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div className="flex flex-col gap-2">

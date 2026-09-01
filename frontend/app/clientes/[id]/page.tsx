@@ -32,12 +32,15 @@ import type { ClienteUsuarioCuenta } from "@/lib/dominio/tipos";
 type Color = "verde" | "amarillo" | "rojo";
 const COLORES: Color[] = ["verde", "amarillo", "rojo"];
 
+/** Por zona x tipo de vehículo (acta changelog 3.11): camioneta y moto tienen tarifa propia. */
 interface TarifaZona {
   zonaId: number;
   zonaCodigo: string;
   zonaNombre: string;
-  precioGeneral: number | null;
-  precioCliente: number | null;
+  precioGeneralCamioneta: number | null;
+  precioClienteCamioneta: number | null;
+  precioGeneralMoto: number | null;
+  precioClienteMoto: number | null;
 }
 
 interface EventoResumen {
@@ -347,24 +350,27 @@ function TarifasCliente({
   fetchConSesion: ReturnType<typeof useAuth>["fetchConSesion"];
   onCambio: () => void;
 }) {
-  const [valores, setValores] = useState<Record<number, string>>({});
-  const [guardandoZona, setGuardandoZona] = useState<number | null>(null);
+  const [valores, setValores] = useState<Record<string, string>>({});
+  const [guardando, setGuardando] = useState<string | null>(null);
 
-  function valorZona(t: TarifaZona) {
-    return valores[t.zonaId] ?? (t.precioCliente !== null ? String(t.precioCliente) : "");
+  const clave = (zonaId: number, tipo: "camioneta" | "moto") => `${zonaId}:${tipo}`;
+
+  function valorZona(t: TarifaZona, tipo: "camioneta" | "moto") {
+    const precioCliente = tipo === "camioneta" ? t.precioClienteCamioneta : t.precioClienteMoto;
+    return valores[clave(t.zonaId, tipo)] ?? (precioCliente !== null ? String(precioCliente) : "");
   }
 
-  async function fijar(zonaId: number, precio: number | null) {
-    setGuardandoZona(zonaId);
+  async function fijar(zonaId: number, tipo: "camioneta" | "moto", precio: number | null) {
+    setGuardando(clave(zonaId, tipo));
     try {
       await fetchConSesion(`/api/clientes/${cliente.id}/tarifas/${zonaId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ precio }),
+        body: JSON.stringify({ tipoVehiculo: tipo, precio }),
       });
       onCambio();
     } finally {
-      setGuardandoZona(null);
+      setGuardando(null);
     }
   }
 
@@ -373,13 +379,16 @@ function TarifasCliente({
       <CardHeader>
         <CardTitle className="text-base">Tarifas por zona</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Zona</TableHead>
-              <TableHead>Precio general</TableHead>
-              <TableHead>Precio del cliente</TableHead>
+              <TableHead>General camioneta</TableHead>
+              <TableHead>Cliente camioneta</TableHead>
+              <TableHead></TableHead>
+              <TableHead>General moto</TableHead>
+              <TableHead>Cliente moto</TableHead>
               <TableHead></TableHead>
             </TableRow>
           </TableHeader>
@@ -390,32 +399,64 @@ function TarifasCliente({
                   {t.zonaCodigo} — {t.zonaNombre}
                 </TableCell>
                 <TableCell>
-                  {t.precioGeneral !== null ? `$${t.precioGeneral.toLocaleString("es-AR")}` : "—"}
+                  {t.precioGeneralCamioneta !== null ? `$${t.precioGeneralCamioneta.toLocaleString("es-AR")}` : "—"}
                 </TableCell>
                 <TableCell>
                   <Input
                     type="number"
                     step="0.01"
-                    className="w-32"
+                    className="w-28"
                     placeholder="—"
-                    value={valorZona(t)}
-                    onChange={(e) => setValores((v) => ({ ...v, [t.zonaId]: e.target.value }))}
+                    value={valorZona(t, "camioneta")}
+                    onChange={(e) => setValores((v) => ({ ...v, [clave(t.zonaId, "camioneta")]: e.target.value }))}
                   />
                 </TableCell>
                 <TableCell className="flex gap-2">
                   <Button
                     size="sm"
-                    disabled={guardandoZona === t.zonaId || valorZona(t) === ""}
-                    onClick={() => fijar(t.zonaId, Number(valorZona(t)))}
+                    disabled={guardando === clave(t.zonaId, "camioneta") || valorZona(t, "camioneta") === ""}
+                    onClick={() => fijar(t.zonaId, "camioneta", Number(valorZona(t, "camioneta")))}
                   >
                     Fijar
                   </Button>
-                  {t.precioCliente !== null && (
+                  {t.precioClienteCamioneta !== null && (
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={guardandoZona === t.zonaId}
-                      onClick={() => fijar(t.zonaId, null)}
+                      disabled={guardando === clave(t.zonaId, "camioneta")}
+                      onClick={() => fijar(t.zonaId, "camioneta", null)}
+                    >
+                      Quitar
+                    </Button>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {t.precioGeneralMoto !== null ? `$${t.precioGeneralMoto.toLocaleString("es-AR")}` : "—"}
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    className="w-28"
+                    placeholder="—"
+                    value={valorZona(t, "moto")}
+                    onChange={(e) => setValores((v) => ({ ...v, [clave(t.zonaId, "moto")]: e.target.value }))}
+                  />
+                </TableCell>
+                <TableCell className="flex gap-2">
+                  <Button
+                    size="sm"
+                    disabled={guardando === clave(t.zonaId, "moto") || valorZona(t, "moto") === ""}
+                    onClick={() => fijar(t.zonaId, "moto", Number(valorZona(t, "moto")))}
+                  >
+                    Fijar
+                  </Button>
+                  {t.precioClienteMoto !== null && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={guardando === clave(t.zonaId, "moto")}
+                      onClick={() => fijar(t.zonaId, "moto", null)}
                     >
                       Quitar
                     </Button>

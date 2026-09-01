@@ -2,6 +2,7 @@ using Logistica.Auth;
 using Logistica.Datos;
 using Logistica.Dominio;
 using Logistica.Entidades;
+using Logistica.Servicios;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,8 +15,10 @@ namespace Logistica.Controllers;
 /// Ruta.Estado solo tiene tres valores (planificada|en_curso|cerrada, ver el check constraint;
 /// no hay migración nueva en esta fase). Mientras está 'planificada' las paradas son totalmente
 /// reeditables (GuardarParadas reemplaza todo). CerrarPlanificacion (RF-17) es la acción
-/// explícita que la pasa a 'en_curso' Y transiciona en bloque sus pedidos Confirmado -> EnRuta
-/// (construccion_v1.md §5: "confirmado → en_ruta | Existe fila en parada_pedidos") — recién ahí
+/// explícita que la pasa a 'en_curso' Y transiciona en bloque sus pedidos — desde acta changelog
+/// 3.11, Borrador -> Confirmado (cotizando ahí, con el vehículo real ya conocido) y luego
+/// Confirmado -> EnRuta (construccion_v1.md §5: "confirmado → en_ruta | Existe fila en
+/// parada_pedidos") — recién ahí
 /// la ruta aparece en /api/mis-paradas. Esto adelanta a esta fase la transición que el acta
 /// asocia al retiro físico de las 07:30 (F3, sin construir): es una simplificación consciente,
 /// no hay otro actor todavía que la dispare.
@@ -23,7 +26,7 @@ namespace Logistica.Controllers;
 [ApiController]
 [Route("api/rutas")]
 [Authorize(Policy = "BackOffice")]
-public class RutasController(LogisticaDbContext db) : ControllerBase
+public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, PrecioService precios) : ControllerBase
 {
     public record RutaResumen(long Id, DateOnly Fecha, string? VehiculoPatente, string? RepartidorNombre, string Estado, int CantidadParadas);
 
@@ -31,7 +34,8 @@ public class RutasController(LogisticaDbContext db) : ControllerBase
         long Id, DateOnly Fecha, long? VehiculoId, string? VehiculoPatente, Guid? RepartidorId, string? RepartidorNombre,
         int CapacidadParadas, string Estado, int CantidadParadas, int? KmInicial, int? KmFinal,
         decimal? CombustibleMonto, decimal? PeajesMonto, decimal? OtrosCostos, decimal? PagoRepartidor,
-        string? NotasCierre, DateTimeOffset? CerradaEn);
+        string? NotasCierre, DateTimeOffset? CerradaEn,
+        long? OrigenUbicacionId, OrigenRuta? Origen);
 
     public record CerrarRutaRequest(
         int KmInicial, int KmFinal, decimal CombustibleMonto, decimal PeajesMonto,
@@ -40,21 +44,71 @@ public class RutasController(LogisticaDbContext db) : ControllerBase
     public record ResultadoRuta(decimal Ingresos, decimal Costos, decimal Margen, int Efectivas, int Fallidas, int Reprogramadas);
 
     public record CrearRutaRequest(DateOnly Fecha);
-    public record ActualizarRutaRequest(long? VehiculoId, Guid? RepartidorId, int CapacidadParadas);
+    public record ActualizarRutaRequest(long? VehiculoId, Guid? RepartidorId, int CapacidadParadas, long? OrigenUbicacionId);
     public record ParadaArmadoRequest(long UbicacionId, bool Anclada, List<long> PedidoIds);
     public record GuardarParadasRequest(List<ParadaArmadoRequest> Paradas);
     public record ParadaArmada(
         long UbicacionId, string CalleNumero, string? Localidad, decimal? Lat, decimal? Lng,
         bool Anclada, List<long> PedidoIds);
 
+    /// <summary>
+    /// Listado paginado y filtrable (RF-10 y ss. — mismo patrón que PedidosController.Listar).
+    /// `pagina`/`tamanioPagina` opcionales: sin ellos devuelve todo sin recortar. Orden por
+    /// defecto: fecha descendente con `id` descendente como desempate (antes el desempate entre
+    /// rutas de la misma fecha quedaba librado al orden físico de la tabla).
+    /// </summary>
     [HttpGet]
-    public async Task<IActionResult> Listar([FromQuery] DateOnly? fecha, CancellationToken ct)
+    public async Task<IActionResult> Listar(
+        [FromQuery] DateOnly? fecha,
+        [FromQuery] DateOnly? fechaDesde,
+        [FromQuery] DateOnly? fechaHasta,
+        [FromQuery] string? estado,
+        [FromQuery] string? q,
+        [FromQuery] string? orden,
+        [FromQuery] int? pagina,
+        [FromQuery] int? tamanioPagina,
+        CancellationToken ct)
     {
         var query = db.Rutas.AsNoTracking().AsQueryable();
+
         if (fecha is not null) query = query.Where(r => r.Fecha == fecha.Value);
+        if (fechaDesde is not null) query = query.Where(r => r.Fecha >= fechaDesde.Value);
+        if (fechaHasta is not null) query = query.Where(r => r.Fecha <= fechaHasta.Value);
+        if (!string.IsNullOrWhiteSpace(estado)) query = query.Where(r => r.Estado == estado);
+
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var texto = q.Trim();
+            query = int.TryParse(texto, out var idBuscado)
+                ? query.Where(r => r.Id == idBuscado
+                    || (r.Vehiculo != null && r.Vehiculo.Patente.ToLower().Contains(texto.ToLower()))
+                    || (r.Repartidor != null && r.Repartidor.Nombre.ToLower().Contains(texto.ToLower())))
+                : query.Where(r => (r.Vehiculo != null && r.Vehiculo.Patente.ToLower().Contains(texto.ToLower()))
+                    || (r.Repartidor != null && r.Repartidor.Nombre.ToLower().Contains(texto.ToLower())));
+        }
+
+        var total = await query.CountAsync(ct);
+
+        query = orden switch
+        {
+            "fecha" => query.OrderBy(r => r.Fecha).ThenBy(r => r.Id),
+            "-fecha" => query.OrderByDescending(r => r.Fecha).ThenByDescending(r => r.Id),
+            "id" => query.OrderBy(r => r.Id),
+            "-id" => query.OrderByDescending(r => r.Id),
+            "estado" => query.OrderBy(r => r.Estado).ThenByDescending(r => r.Id),
+            "-estado" => query.OrderByDescending(r => r.Estado).ThenByDescending(r => r.Id),
+            "paradas" => query.OrderBy(r => db.RutaParadas.Count(p => p.RutaId == r.Id)).ThenByDescending(r => r.Id),
+            "-paradas" => query.OrderByDescending(r => db.RutaParadas.Count(p => p.RutaId == r.Id)).ThenByDescending(r => r.Id),
+            _ => query.OrderByDescending(r => r.Fecha).ThenByDescending(r => r.Id),
+        };
+
+        if (tamanioPagina is > 0)
+        {
+            var paginaActual = pagina is > 0 ? pagina.Value : 1;
+            query = query.Skip((paginaActual - 1) * tamanioPagina.Value).Take(tamanioPagina.Value);
+        }
 
         var filas = await query
-            .OrderByDescending(r => r.Fecha)
             .Select(r => new
             {
                 r.Id,
@@ -66,23 +120,29 @@ public class RutasController(LogisticaDbContext db) : ControllerBase
             })
             .ToListAsync(ct);
 
-        return Ok(filas.Select(r => new RutaResumen(r.Id, r.Fecha, r.VehiculoPatente, r.RepartidorNombre, r.Estado, r.CantidadParadas)));
+        var resultado = filas.Select(r => new RutaResumen(r.Id, r.Fecha, r.VehiculoPatente, r.RepartidorNombre, r.Estado, r.CantidadParadas)).ToList();
+
+        return Ok(new ListaPaginada<RutaResumen>(resultado, total));
     }
 
     [HttpGet("{id:long}")]
     public async Task<IActionResult> Detalle(long id, CancellationToken ct)
     {
         var ruta = await db.Rutas.AsNoTracking()
-            .Where(r => r.Id == id)
-            .Select(r => new RutaDetalle(
-                r.Id, r.Fecha, r.VehiculoId, r.Vehiculo != null ? r.Vehiculo.Patente : null,
-                r.RepartidorId, r.Repartidor != null ? r.Repartidor.Nombre : null,
-                r.CapacidadParadas, r.Estado, db.RutaParadas.Count(p => p.RutaId == r.Id),
-                r.KmInicial, r.KmFinal, r.CombustibleMonto,
-                r.PeajesMonto, r.OtrosCostos, r.PagoRepartidor, r.NotasCierre, r.CerradaEn))
-            .SingleOrDefaultAsync(ct);
+            .Include(r => r.Vehiculo)
+            .Include(r => r.Repartidor)
+            .SingleOrDefaultAsync(r => r.Id == id, ct);
+        if (ruta is null) return NotFound();
 
-        return ruta is null ? NotFound() : Ok(ruta);
+        var cantidadParadas = await db.RutaParadas.CountAsync(p => p.RutaId == id, ct);
+        var origen = await origenes.ResolverAsync(ruta, ct);
+
+        return Ok(new RutaDetalle(
+            ruta.Id, ruta.Fecha, ruta.VehiculoId, ruta.Vehiculo?.Patente,
+            ruta.RepartidorId, ruta.Repartidor?.Nombre,
+            ruta.CapacidadParadas, ruta.Estado, cantidadParadas, ruta.KmInicial, ruta.KmFinal,
+            ruta.CombustibleMonto, ruta.PeajesMonto, ruta.OtrosCostos, ruta.PagoRepartidor,
+            ruta.NotasCierre, ruta.CerradaEn, ruta.OrigenUbicacionId, origen));
     }
 
     [HttpPost]
@@ -101,9 +161,16 @@ public class RutasController(LogisticaDbContext db) : ControllerBase
         if (ruta is null) return NotFound();
         if (ruta.Estado != "planificada") return Conflict("La ruta ya no está en planificación.");
 
+        // null = depósito (OrigenRutaService); con valor, tiene que existir: una FK rota acá se
+        // manifestaría recién al abrir la jornada del repartidor. No se exige ubicacion_apta —
+        // igual que el alta de pedido, una dirección dudosa no bloquea el guardado.
+        if (req.OrigenUbicacionId is { } origenId && !await db.Ubicaciones.AnyAsync(u => u.Id == origenId, ct))
+            return BadRequest("La ubicación de partida no existe.");
+
         ruta.VehiculoId = req.VehiculoId;
         ruta.RepartidorId = req.RepartidorId;
         ruta.CapacidadParadas = req.CapacidadParadas;
+        ruta.OrigenUbicacionId = req.OrigenUbicacionId;
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
@@ -180,8 +247,10 @@ public class RutasController(LogisticaDbContext db) : ControllerBase
             var pedidos = await db.Pedidos.Where(p => pedidoIds.Contains(p.Id)).ToListAsync(ct);
             if (pedidos.Count != pedidoIds.Count)
                 return BadRequest("Alguno de los pedidos no existe.");
-            if (pedidos.Any(p => p.Estado != EstadoPedido.Confirmado || p.FechaEntrega != ruta.Fecha))
-                return BadRequest("Todos los pedidos deben estar confirmados y ser de la fecha de la ruta.");
+            // Acta changelog 3.11: el precio (y Confirmado) recién se fija en CerrarPlanificacion,
+            // cuando se conoce el vehículo — un pedido llega acá siempre en Borrador.
+            if (pedidos.Any(p => p.Estado != EstadoPedido.Borrador || p.FechaEntrega != ruta.Fecha))
+                return BadRequest("Todos los pedidos deben estar en borrador (sin rutear todavía) y ser de la fecha de la ruta.");
 
             // Nada a nivel de base impide todavía que el mismo pedido termine en dos rutas: la PK
             // de parada_pedidos es compuesta (parada_id, pedido_id), no hay unique sobre pedido_id.
@@ -220,31 +289,80 @@ public class RutasController(LogisticaDbContext db) : ControllerBase
     }
 
     /// <summary>
-    /// RF-17: cierra el armado y lo hace disponible para el repartidor. Transiciona la ruta y,
-    /// en la misma escritura, todos sus pedidos Confirmado -> EnRuta (un solo GuardarComoAsync:
-    /// fn_log_estado_pedido corre una vez por fila, mismo actor y motivo para todas).
+    /// RF-17: cierra el armado y lo hace disponible para el repartidor. Desde acta changelog
+    /// 3.11, este es también el momento en que se cotiza y confirma cada pedido de la ruta que
+    /// todavía esté en Borrador: recién acá se conoce el vehículo real (camioneta o moto), y el
+    /// precio depende de eso. Dos SaveChangesAsync bajo la misma transacción y el mismo actor
+    /// (PublicarActorAsync, no dos GuardarComoAsync — esto abriría dos transacciones separadas y
+    /// dejaría una ventana de fallo parcial): el primero fija precio y pasa Borrador -> Confirmado,
+    /// el segundo pasa todo a EnRuta — así el historial (RF-28, "sin huecos") registra ambas
+    /// transiciones por separado en vez de saltar directo de Borrador a EnRuta.
     /// </summary>
     [HttpPost("{id:long}/cerrar-planificacion")]
     public async Task<IActionResult> CerrarPlanificacion(long id, CancellationToken ct)
     {
-        var ruta = await db.Rutas.SingleOrDefaultAsync(r => r.Id == id, ct);
+        var ruta = await db.Rutas.Include(r => r.Vehiculo).SingleOrDefaultAsync(r => r.Id == id, ct);
         if (ruta is null) return NotFound();
         if (ruta.Estado != "planificada") return Conflict("La ruta ya no está en planificación.");
         if (ruta.VehiculoId is null || ruta.RepartidorId is null)
             return BadRequest("Faltan vehículo y/o repartidor.");
+        // Acta changelog 3.8: ya no hay un depósito único que resolver por default — el
+        // planificador siempre elige el punto de partida a mano. Esto garantiza que ninguna ruta
+        // llegue a "en_curso" (y por lo tanto a Cerrar) sin origen resuelto.
+        if (ruta.OrigenUbicacionId is null)
+            return BadRequest("Falta elegir el punto de partida.");
 
         var pedidos = await db.Pedidos
             .Where(p => db.ParadaPedidos.Any(pp => pp.Parada.RutaId == id && pp.PedidoId == p.Id))
             .ToListAsync(ct);
         if (pedidos.Count == 0) return BadRequest("La ruta no tiene paradas.");
-        if (pedidos.Any(p => !TransicionesPedido.Permitida(p.Estado, EstadoPedido.EnRuta)))
+        if (pedidos.Any(p => p.Estado != EstadoPedido.Borrador && p.Estado != EstadoPedido.Confirmado))
             return Conflict("Alguno de los pedidos de la ruta cambió de estado; volvé a armar la ruta.");
+
+        var tipoVehiculo = ruta.Vehiculo!.Tipo;
+        var pedidosACotizar = pedidos.Where(p => p.Estado == EstadoPedido.Borrador).ToList();
+
+        // Cotizar todo ANTES de escribir nada: si un pedido no tiene tarifa cargada para su zona
+        // en este tipo de vehículo, la ruta entera se rechaza sin tocar la base — no puede quedar
+        // una ruta a medio confirmar.
+        var desglosesPorPedido = new Dictionary<long, DesglosePrecio>();
+        foreach (var pedido in pedidosACotizar)
+        {
+            if (pedido.ZonaId is null)
+                return BadRequest($"El pedido {pedido.Id} no tiene zona resuelta; no se puede cotizar.");
+            try
+            {
+                desglosesPorPedido[pedido.Id] = await precios.CotizarAsync(
+                    pedido.ClienteId, pedido.ZonaId.Value, pedido.FechaEntrega, pedido.Urgente,
+                    pedido.Peajes, descuentoRuta: false, tipoVehiculo, ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest($"Pedido {pedido.Id}: {ex.Message}");
+            }
+        }
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.PublicarActorAsync(User.UsuarioId(), "Cierre de planificación de ruta.", ct);
+
+        foreach (var pedido in pedidosACotizar)
+        {
+            var desglose = desglosesPorPedido[pedido.Id];
+            pedido.PrecioBase = desglose.PrecioBase;
+            pedido.RecargoUrgencia = desglose.RecargoUrgencia;
+            pedido.DescuentoRuta = desglose.DescuentoRuta;
+            pedido.Total = desglose.Total;
+            pedido.PrecioCongeladoEn = DateTimeOffset.UtcNow;
+            pedido.Estado = EstadoPedido.Confirmado;
+        }
+        await db.SaveChangesAsync(ct);
 
         ruta.Estado = "en_curso";
         foreach (var pedido in pedidos)
             pedido.Estado = EstadoPedido.EnRuta;
+        await db.SaveChangesAsync(ct);
 
-        await db.GuardarComoAsync(User.UsuarioId(), "Cierre de planificación de ruta.", ct);
+        await tx.CommitAsync(ct);
 
         return NoContent();
     }
@@ -268,6 +386,10 @@ public class RutasController(LogisticaDbContext db) : ControllerBase
         if (ruta.Estado == "cerrada") return Conflict("La ruta ya está cerrada.");
         if (ruta.Estado != "en_curso")
             return Conflict("La ruta todavía no cerró su planificación (RF-17); no se puede cerrar económicamente.");
+
+        // Sin freeze que hacer acá: CerrarPlanificacion (RF-17) ya exige el origen elegido antes
+        // de pasar a en_curso (acta changelog 3.8), así que si esta ruta llegó hasta acá, su
+        // origen_ubicacion_id ya es un id concreto — nunca null.
 
         ruta.KmInicial = req.KmInicial;
         ruta.KmFinal = req.KmFinal;

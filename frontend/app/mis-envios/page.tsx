@@ -5,7 +5,7 @@ import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
 import { leerJson } from "@/lib/api/errores";
-import type { PedidoResumen } from "@/lib/dominio/tipos";
+import type { ListaPaginada, PedidoResumen } from "@/lib/dominio/tipos";
 
 export default function MisEnviosPage() {
   return (
@@ -22,8 +22,8 @@ function ListaEnvios() {
 
   useEffect(() => {
     fetchConSesion("/api/pedidos")
-      .then((r) => leerJson<PedidoResumen[]>(r))
-      .then(setPedidos)
+      .then((r) => leerJson<ListaPaginada<PedidoResumen>>(r))
+      .then((r) => setPedidos(r.items))
       .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar los envíos."));
   }, [fetchConSesion]);
 

@@ -5,8 +5,11 @@ import type { EstadoPedido } from "./tipos";
  * verdad es el servidor — esto solo decide qué botones mostrar en /pedidos/[id]; el backend
  * valida la transición igual, un intento inválido devuelve 400 sin importar qué muestre acá.
  */
+// Borrador -> Confirmado no está acá a propósito (acta changelog 3.11): confirmar es cotizar,
+// y eso exige conocer el tipo de vehículo real — solo pasa cuando la ruta que lleva el pedido
+// cierra su planificación (RutasController.CerrarPlanificacion), nunca a mano.
 const TRANSICIONES: Record<EstadoPedido, EstadoPedido[]> = {
-  Borrador: ["Confirmado", "Cancelado"],
+  Borrador: ["Cancelado"],
   Confirmado: ["EnRuta", "Cancelado"],
   EnRuta: ["Entregado", "Fallido"],
   Entregado: [],

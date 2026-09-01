@@ -13,12 +13,14 @@ public class TarifaConfiguration : IEntityTypeConfiguration<Tarifa>
             t.HasCheckConstraint("ck_tarifas_precio", "precio > 0");
             t.HasCheckConstraint("ck_tarifas_vigencia",
                 "vigente_hasta is null or vigente_hasta >= vigente_desde");
+            t.HasCheckConstraint("ck_tarifas_tipo_vehiculo", "tipo_vehiculo in ('camioneta','moto')");
         });
 
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).HasColumnName("id");
         b.Property(x => x.ClienteId).HasColumnName("cliente_id");
         b.Property(x => x.ZonaId).HasColumnName("zona_id");
+        b.Property(x => x.TipoVehiculo).HasColumnName("tipo_vehiculo").HasDefaultValue("camioneta");
         b.Property(x => x.Precio).HasColumnName("precio").HasColumnType("numeric(12,2)");
         b.Property(x => x.VigenteDesde).HasColumnName("vigente_desde").HasDefaultValueSql("current_date");
         b.Property(x => x.VigenteHasta).HasColumnName("vigente_hasta");
@@ -29,11 +31,12 @@ public class TarifaConfiguration : IEntityTypeConfiguration<Tarifa>
         b.HasOne(x => x.Zona).WithMany()
             .HasForeignKey(x => x.ZonaId).OnDelete(DeleteBehavior.Restrict);
 
-        // tarifa_vigente(cliente, zona): la tarifa activa por combinación
-        b.HasIndex(x => new { x.ClienteId, x.ZonaId })
+        // tarifa_vigente(cliente, zona, tipo_vehiculo): la tarifa activa por combinación
+        b.HasIndex(x => new { x.ClienteId, x.ZonaId, x.TipoVehiculo })
             .HasFilter("vigente_hasta is null");
 
-        // El unique real es sobre (coalesce(cliente_id,0), zona_id, vigente_desde) — índice de
-        // expresión, se crea a mano en la migración ReglasDeBaseDeDatos.
+        // El unique real es sobre (coalesce(cliente_id,0), zona_id, tipo_vehiculo, vigente_desde) —
+        // índice de expresión, se crea a mano en la migración ReglasDeBaseDeDatos (acá se
+        // recrea en AgregarTipoVehiculo, acta changelog 3.11).
     }
 }

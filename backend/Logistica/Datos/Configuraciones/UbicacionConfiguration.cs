@@ -17,6 +17,7 @@ public class UbicacionConfiguration : IEntityTypeConfiguration<Ubicacion>
         b.Property(x => x.CalleNumero).HasColumnName("calle_numero").IsRequired();
         b.Property(x => x.LocalidadId).HasColumnName("localidad_id");
         b.Property(x => x.Referencia).HasColumnName("referencia");
+        b.Property(x => x.NombreDeposito).HasColumnName("nombre_deposito");
         b.Property(x => x.Lat).HasColumnName("lat").HasColumnType("numeric(10,7)");
         b.Property(x => x.Lng).HasColumnName("lng").HasColumnType("numeric(10,7)");
         b.Property(x => x.GeoConfianza).HasColumnName("geo_confianza");
@@ -29,6 +30,11 @@ public class UbicacionConfiguration : IEntityTypeConfiguration<Ubicacion>
             .HasForeignKey(x => x.LocalidadId).OnDelete(DeleteBehavior.Restrict);
 
         b.HasIndex(x => x.LocalidadId);
+
+        // Dos depósitos no pueden compartir nombre (el selector de armar ruta los lista por
+        // nombre). Filtrado, no sobre toda la tabla: el 99% de las filas tiene NombreDeposito
+        // null y no debe competir por unicidad entre sí.
+        b.HasIndex(x => x.NombreDeposito).IsUnique().HasFilter("nombre_deposito is not null");
 
         // El unique real es sobre lower(calle_numero), localidad_id — índice de expresión,
         // se crea a mano en la migración ReglasDeBaseDeDatos (EF no expresa funciones en índices).

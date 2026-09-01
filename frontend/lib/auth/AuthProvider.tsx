@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { leerError } from "@/lib/api/errores";
 import type { Usuario } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL!;
@@ -85,7 +86,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         credentials: "include",
         body: JSON.stringify({ email, password }),
       });
-      if (!resp.ok) throw new Error("Email o contraseña incorrectos");
+      // 429 (rate limiting de /api/auth/login, Program.cs) trae su propio mensaje — cualquier
+      // otro !ok se trata como credenciales inválidas, sin filtrar detalle (no hay por qué
+      // distinguir "no existe el email" de "contraseña incorrecta" de cara al usuario).
+      if (!resp.ok) {
+        if (resp.status === 429) throw new Error((await leerError(resp)).mensaje);
+        throw new Error("Email o contraseña incorrectos");
+      }
       const { accessToken } = await resp.json();
       accessTokenRef.current = accessToken;
       const u = await obtenerUsuario(accessToken);

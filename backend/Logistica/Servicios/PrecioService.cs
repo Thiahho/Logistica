@@ -26,17 +26,18 @@ public class PrecioService(LogisticaDbContext db, IOptions<OpcionesPrecio> opcio
         bool urgente,
         decimal peajes,
         bool descuentoRuta,
+        string tipoVehiculo,
         CancellationToken ct = default)
     {
         if (peajes < 0)
             throw new InvalidOperationException("Peajes no puede ser negativo.");
 
         var precioBase = await db.Database
-            .SqlQuery<decimal?>($"select tarifa_vigente({clienteId}, {zonaId}, {fecha}) as \"Value\"")
+            .SqlQuery<decimal?>($"select tarifa_vigente({clienteId}, {zonaId}, {fecha}, {tipoVehiculo}) as \"Value\"")
             .SingleAsync(ct);
 
         if (precioBase is null)
-            throw new InvalidOperationException($"No hay tarifa vigente para la zona {zonaId}.");
+            throw new InvalidOperationException($"No hay tarifa vigente para la zona {zonaId} en {tipoVehiculo}.");
 
         var factores = opciones.Value;
         var recargoUrgencia = urgente ? precioBase.Value * factores.FactorUrgencia : 0m;

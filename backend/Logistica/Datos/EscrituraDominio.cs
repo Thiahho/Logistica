@@ -13,14 +13,16 @@ namespace Logistica.Datos;
 /// </summary>
 public static class EscrituraDominio
 {
-    public static async Task<int> GuardarComoAsync(
+    /// <summary>Publica actor (y motivo, si aplica) como GUC dentro de la transacción actual —
+    /// extraído de GuardarComoAsync para los pocos casos (RutasController.CerrarPlanificacion,
+    /// acta changelog 3.11) que necesitan más de un SaveChangesAsync bajo la misma transacción y
+    /// el mismo actor, en vez de abrir una transacción nueva por cada uno.</summary>
+    public static async Task PublicarActorAsync(
         this LogisticaDbContext db,
         Guid? usuarioId,
         string? motivo = null,
         CancellationToken ct = default)
     {
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-
         await db.Database.ExecuteSqlInterpolatedAsync(
             $"select set_config('app.usuario_id', {usuarioId.ToString()}, true)", ct);
 
@@ -29,7 +31,16 @@ public static class EscrituraDominio
             await db.Database.ExecuteSqlInterpolatedAsync(
                 $"select set_config('app.motivo', {motivo}, true)", ct);
         }
+    }
 
+    public static async Task<int> GuardarComoAsync(
+        this LogisticaDbContext db,
+        Guid? usuarioId,
+        string? motivo = null,
+        CancellationToken ct = default)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.PublicarActorAsync(usuarioId, motivo, ct);
         var filas = await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return filas;

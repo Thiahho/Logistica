@@ -11,8 +11,17 @@
       "input_tokens": 133755,
       "output_tokens": 0,
       "files": 65
+    },
+    {
+      "timestamp": "2026-09-01T03:01:38.111808+00:00",
+      "input_tokens": 141752,
+      "output_tokens": 0,
+      "nodes": 1727,
+      "edges": 4039
     }
   ],
   "total_input_tokens": 408024,
-  "total_output_tokens": 0
+  "total_output_tokens": 0,
+  "cumulative_input_tokens": 141752,
+  "cumulative_output_tokens": 0
 }

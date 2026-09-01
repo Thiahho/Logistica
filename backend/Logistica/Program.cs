@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Threading.RateLimiting;
 using Logistica.Auth;
 using Logistica.Datos;
 using Logistica.Entidades;
@@ -7,6 +8,8 @@ using Logistica.Opciones;
 using Logistica.Servicios;
 using Logistica.Web;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -42,8 +45,12 @@ builder.Services.Configure<OpcionesDeposito>(builder.Configuration.GetSection("D
 builder.Services.Configure<OpcionesPruebaEntrega>(builder.Configuration.GetSection("PruebaEntrega"));
 builder.Services.AddScoped<PrecioService>();
 builder.Services.AddScoped<UbicacionService>();
+builder.Services.AddScoped<OrigenRutaService>();
 builder.Services.AddScoped<TarifaService>();
 builder.Services.AddScoped<AlmacenamientoFotos>();
+
+// RuteoService cachea recorridos en memoria (acta changelog 3.4) — sin tabla nueva.
+builder.Services.AddMemoryCache();
 
 // construccion_v1.md §3 regla 3: si el trigger lo impide, la app muestra el error, no lo
 // previene por su cuenta. ManejadorExcepciones traduce las excepciones de reglas de negocio de
@@ -55,6 +62,17 @@ builder.Services.AddExceptionHandler<ManejadorExcepciones>();
 builder.Services.AddHttpClient<GeocodificacionService>(client =>
 {
     client.BaseAddress = new Uri("https://nominatim.openstreetmap.org/");
+    client.DefaultRequestHeaders.Add("User-Agent", "Logistica/1.0 (contacto@logistica.local)");
+});
+
+// "Ruteo:BaseUrl" es PROVISIONAL: en desarrollo apunta al demo público de OSRM
+// (router.project-osrm.org), cuya política de uso no admite producción — ahí exige un
+// contenedor propio (construccion_v1.md §1, acta changelog 3.4).
+var ruteoBaseUrl = builder.Configuration["Ruteo:BaseUrl"]
+    ?? throw new InvalidOperationException("Falta Ruteo:BaseUrl");
+builder.Services.AddHttpClient<RuteoService>(client =>
+{
+    client.BaseAddress = new Uri(ruteoBaseUrl);
     client.DefaultRequestHeaders.Add("User-Agent", "Logistica/1.0 (contacto@logistica.local)");
 });
 
@@ -88,7 +106,10 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy("Administracion", p => p.RequireRole(Roles.Administracion))
     .AddPolicy("Operacion", p => p.RequireRole(Roles.Operacion))
     .AddPolicy("Repartidor", p => p.RequireRole(Roles.Repartidor))
-    .AddPolicy("Cliente", p => p.RequireRole(Roles.Cliente));
+    .AddPolicy("Cliente", p => p.RequireRole(Roles.Cliente))
+    // Ninguna de las policies de arriba cubre "back-office O repartidor": el mapa lo consultan
+    // tanto el planificador (armar ruta) como el repartidor (guía del día).
+    .AddPolicy("Recorrido", p => p.RequireRole(Roles.Administracion, Roles.Operacion, Roles.Repartidor));
 
 var frontendOrigin = builder.Configuration["Frontend:Origin"]
     ?? throw new InvalidOperationException("Falta Frontend:Origin");
@@ -99,6 +120,38 @@ builder.Services.AddCors(options =>
         .AllowAnyHeader()
         .AllowAnyMethod()
         .AllowCredentials()));
+
+// Login sin límite de intentos era fuerza bruta viable contra /api/auth/login (auditoría de
+// seguridad). Por IP, no por email: frenar por email dejaría a cualquiera bloquear la cuenta de
+// otro con solo mandar intentos fallidos a su nombre (un DoS de negación de servicio disfrazado
+// de "protección"). 5 intentos por minuto alcanza para un typo real y frena un ataque automatizado.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "sin-ip",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(1),
+            PermitLimit = 5,
+            QueueLimit = 0,
+        }));
+    options.OnRejected = async (contexto, ct) =>
+    {
+        contexto.HttpContext.Response.Headers.RetryAfter = "60";
+        var problemDetailsService = contexto.HttpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
+        await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
+        {
+            HttpContext = contexto.HttpContext,
+            ProblemDetails = new ProblemDetails
+            {
+                Status = StatusCodes.Status429TooManyRequests,
+                Title = "Demasiados intentos",
+                Detail = "Demasiados intentos de inicio de sesión. Esperá un minuto y volvé a intentar.",
+            },
+        });
+    };
+});
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -141,6 +194,8 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.UseCors("Frontend");
+
+app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseAuthorization();

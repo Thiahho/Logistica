@@ -44,8 +44,9 @@ function FormularioLogin() {
       // es una ruta interna (nunca una URL externa) para no abrir una redirección arbitraria.
       const volver = searchParams.get("volver");
       router.push(volver?.startsWith("/") ? volver : rutaPorRol(usuario.rol));
-    } catch {
-      setError("Email o contraseña incorrectos");
+    } catch (err) {
+      // AuthProvider.login ya distingue 429 (rate limiting) del resto — acá solo se propaga.
+      setError(err instanceof Error ? err.message : "Email o contraseña incorrectos");
     } finally {
       setEnviando(false);
     }

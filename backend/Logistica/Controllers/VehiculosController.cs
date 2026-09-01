@@ -21,7 +21,7 @@ namespace Logistica.Controllers;
 public class VehiculosController(LogisticaDbContext db) : ControllerBase
 {
     public record VehiculoResumen(
-        long Id, string Patente, string? Descripcion, string? Marca, string? Modelo, int? Anio,
+        long Id, string Patente, string? Descripcion, string Tipo, string? Marca, string? Modelo, int? Anio,
         int? KmActual, DateOnly? VenceVtv, DateOnly? VenceSeguro, decimal? CostoKm,
         int CapacidadParadas, bool Activo);
 
@@ -29,11 +29,11 @@ public class VehiculosController(LogisticaDbContext db) : ControllerBase
     public record VehiculoSeleccion(long Id, string Patente, string? Descripcion, int CapacidadParadas);
 
     public record CrearVehiculoRequest(
-        string Patente, string? Descripcion, string? Marca, string? Modelo, int? Anio,
+        string Patente, string? Descripcion, string Tipo, string? Marca, string? Modelo, int? Anio,
         int? KmActual, DateOnly? VenceVtv, DateOnly? VenceSeguro, decimal? CostoKm, int CapacidadParadas);
 
     public record ActualizarVehiculoRequest(
-        string Patente, string? Descripcion, string? Marca, string? Modelo, int? Anio,
+        string Patente, string? Descripcion, string Tipo, string? Marca, string? Modelo, int? Anio,
         int? KmActual, DateOnly? VenceVtv, DateOnly? VenceSeguro, decimal? CostoKm,
         int CapacidadParadas, bool Activo);
 
@@ -44,7 +44,7 @@ public class VehiculosController(LogisticaDbContext db) : ControllerBase
     public async Task<IActionResult> Listar(CancellationToken ct) =>
         Ok(await db.Vehiculos.AsNoTracking()
             .OrderBy(v => v.Patente)
-            .Select(v => new VehiculoResumen(v.Id, v.Patente, v.Descripcion, v.Marca, v.Modelo, v.Anio,
+            .Select(v => new VehiculoResumen(v.Id, v.Patente, v.Descripcion, v.Tipo, v.Marca, v.Modelo, v.Anio,
                 v.KmActual, v.VenceVtv, v.VenceSeguro, v.CostoKm, v.CapacidadParadas, v.Activo))
             .ToListAsync(ct));
 
@@ -65,7 +65,7 @@ public class VehiculosController(LogisticaDbContext db) : ControllerBase
     {
         var vehiculo = await db.Vehiculos.AsNoTracking()
             .Where(v => v.Id == id)
-            .Select(v => new VehiculoResumen(v.Id, v.Patente, v.Descripcion, v.Marca, v.Modelo, v.Anio,
+            .Select(v => new VehiculoResumen(v.Id, v.Patente, v.Descripcion, v.Tipo, v.Marca, v.Modelo, v.Anio,
                 v.KmActual, v.VenceVtv, v.VenceSeguro, v.CostoKm, v.CapacidadParadas, v.Activo))
             .SingleOrDefaultAsync(ct);
 
@@ -81,11 +81,13 @@ public class VehiculosController(LogisticaDbContext db) : ControllerBase
     {
         var patente = req.Patente.Trim().ToUpperInvariant();
         if (patente.Length == 0) return BadRequest("La patente es obligatoria.");
+        if (req.Tipo is not ("camioneta" or "moto")) return BadRequest("Tipo de vehículo inválido.");
 
         var vehiculo = new Vehiculo
         {
             Patente = patente,
             Descripcion = req.Descripcion,
+            Tipo = req.Tipo,
             Marca = req.Marca,
             Modelo = req.Modelo,
             Anio = req.Anio,
@@ -101,7 +103,7 @@ public class VehiculosController(LogisticaDbContext db) : ControllerBase
         await db.SaveChangesAsync(ct);
 
         return CreatedAtAction(nameof(Detalle), new { id = vehiculo.Id },
-            new VehiculoResumen(vehiculo.Id, vehiculo.Patente, vehiculo.Descripcion, vehiculo.Marca,
+            new VehiculoResumen(vehiculo.Id, vehiculo.Patente, vehiculo.Descripcion, vehiculo.Tipo, vehiculo.Marca,
                 vehiculo.Modelo, vehiculo.Anio, vehiculo.KmActual, vehiculo.VenceVtv, vehiculo.VenceSeguro,
                 vehiculo.CostoKm, vehiculo.CapacidadParadas, vehiculo.Activo));
     }
@@ -112,12 +114,14 @@ public class VehiculosController(LogisticaDbContext db) : ControllerBase
     {
         var patente = req.Patente.Trim().ToUpperInvariant();
         if (patente.Length == 0) return BadRequest("La patente es obligatoria.");
+        if (req.Tipo is not ("camioneta" or "moto")) return BadRequest("Tipo de vehículo inválido.");
 
         var vehiculo = await db.Vehiculos.SingleOrDefaultAsync(v => v.Id == id, ct);
         if (vehiculo is null) return NotFound();
 
         vehiculo.Patente = patente;
         vehiculo.Descripcion = req.Descripcion;
+        vehiculo.Tipo = req.Tipo;
         vehiculo.Marca = req.Marca;
         vehiculo.Modelo = req.Modelo;
         vehiculo.Anio = req.Anio;

@@ -27,10 +27,20 @@ export interface PedidoResumen {
   id: number;
   destinatarioNombre: string;
   estado: EstadoPedido;
-  total: number;
+  /** null mientras el pedido sigue en Borrador (acta changelog 3.11): el precio depende del tipo
+   * de vehículo, que recién se conoce cuando la ruta que lo lleva cierra su planificación. */
+  total: number | null;
   fechaEntrega: string;
   clienteId: number;
+  clienteRazonSocial: string;
   direccionDudosa: boolean;
+}
+
+/** Envoltorio de página (GET /api/pedidos con `pagina`/`tamanioPagina`). `total` es la cantidad
+ * de filas que matchean el filtro, no un importe — no confundir con PedidoResumen.total. */
+export interface ListaPaginada<T> {
+  items: T[];
+  total: number;
 }
 
 export interface HistorialEvento {
@@ -59,12 +69,14 @@ export interface PedidoDetalle {
   valorDeclarado: number | null;
   fechaEntrega: string;
   urgente: boolean;
-  precioBase: number;
-  recargoUrgencia: number;
-  descuentoRuta: number;
+  // Todos null mientras el pedido sigue en Borrador (acta changelog 3.11) — peajes es la
+  // excepción, se conoce desde el alta porque no depende del tipo de vehículo.
+  precioBase: number | null;
+  recargoUrgencia: number | null;
+  descuentoRuta: number | null;
   peajes: number;
-  total: number;
-  precioCongeladoEn: string;
+  total: number | null;
+  precioCongeladoEn: string | null;
   estado: EstadoPedido;
   origenCarga: string;
   observaciones: string | null;
@@ -108,12 +120,29 @@ export interface Zona {
   activa: boolean;
 }
 
+/** Localidad sin zona asignada, bloqueada para cotizar (GET /api/localidades/pendientes, acta
+ * changelog 3.10). La zona sugerida es orientativa (por distancia al depósito contra los rangos
+ * de km ya cargados en /tarifas) — nunca se aplica sola, hace falta confirmar con `PUT .../zona`. */
+export interface LocalidadPendiente {
+  id: number;
+  nombre: string;
+  partido: string | null;
+  distanciaKmDeposito: number | null;
+  zonaSugeridaId: number | null;
+  zonaSugeridaCodigo: string | null;
+  zonaSugeridaNombre: string | null;
+}
+
+/** Precio por cliente, ahora por zona x tipo de vehículo (acta changelog 3.11): camioneta y moto
+ * tienen tarifa propia, no un factor sobre la otra. */
 export interface TarifaZona {
   zonaId: number;
   zonaCodigo: string;
   zonaNombre: string;
-  precioGeneral: number | null;
-  precioCliente: number | null;
+  precioGeneralCamioneta: number | null;
+  precioClienteCamioneta: number | null;
+  precioGeneralMoto: number | null;
+  precioClienteMoto: number | null;
 }
 
 export interface TarifaGeneral {
@@ -122,7 +151,25 @@ export interface TarifaGeneral {
   zonaNombre: string;
   kmDesde: number | null;
   kmHasta: number | null;
-  precio: number | null;
+  precioCamioneta: number | null;
+  precioMoto: number | null;
+}
+
+export type TipoVehiculo = "camioneta" | "moto";
+
+export interface DesglosePrecio {
+  precioBase: number;
+  recargoUrgencia: number;
+  descuentoRuta: number;
+  peajes: number;
+  total: number;
+}
+
+/** Estimado informativo de POST /api/pedidos/cotizar (acta changelog 3.11) — nunca es el precio
+ * final: null en un tipo = todavía no hay tarifa cargada para esa zona en ese tipo de vehículo. */
+export interface CotizacionEstimada {
+  camioneta: DesglosePrecio | null;
+  moto: DesglosePrecio | null;
 }
 
 export interface EventoResumen {
@@ -161,6 +208,9 @@ export interface Vehiculo {
   id: number;
   patente: string;
   descripcion: string | null;
+  /** camioneta | moto (acta changelog 3.11) — determina qué tarifa aplica a los pedidos de una
+   * ruta al cerrar su planificación. */
+  tipo: TipoVehiculo;
   marca: string | null;
   modelo: string | null;
   anio: number | null;
@@ -207,6 +257,11 @@ export interface RutaDetalle {
   pagoRepartidor: number | null;
   notasCierre: string | null;
   cerradaEn: string | null;
+  /** Lo elegido, para saber en qué modo abrir el selector de partida. Null mientras el
+   * planificador todavía no eligió nada (acta changelog 3.8: ya no hay depósito por default). */
+  origenUbicacionId: number | null;
+  /** Resuelto a partir de `origenUbicacionId` — null en la misma situación que ese campo. */
+  origen: OrigenRuta | null;
 }
 
 /** Candidato a entrar en una ruta (GET /api/pedidos/candidatos-ruta). */
@@ -224,6 +279,22 @@ export interface CandidatoRuta {
   lng: number | null;
   direccionApta: boolean;
   yaEnEstaRuta: boolean;
+}
+
+/** Destinatario ya usado por un cliente, con su dirección ya geocodificada (GET
+ * /api/pedidos/destinatarios-frecuentes). Espejo exacto de PedidosController.DestinatarioFrecuente. */
+export interface DestinatarioFrecuente {
+  destinatarioNombre: string;
+  destinatarioTelefono: string;
+  destinoUbicacionId: number;
+  destinoCalleNumero: string;
+  localidadId: number;
+  localidadNombre: string;
+  lat: number | null;
+  lng: number | null;
+  geoConfianza: string | null;
+  veces: number;
+  ultimaFechaEntrega: string;
 }
 
 /** Un repartidor u otro usuario, para selectores (GET /api/usuarios/seleccion). */
@@ -250,4 +321,99 @@ export interface ResultadoRuta {
   efectivas: number;
   fallidas: number;
   reprogramadas: number;
+}
+
+/** Espejo de Servicios/RuteoService.cs. Recorrido real por calles vía OSRM, trazado siempre en
+ * el servidor (POST /api/recorrido o embebido en GET /api/mis-paradas/dia). */
+export interface PuntoRuta {
+  lat: number;
+  lng: number;
+}
+
+export interface Recorrido {
+  linea: PuntoRuta[];
+  distanciaMetros: number;
+  duracionSegundos: number;
+}
+
+/** Espejo de MisParadasController.PedidoDeParada. */
+export interface PedidoDeParada {
+  pedidoId: number;
+  destinatarioNombre: string;
+  destinatarioTelefono: string;
+  bultos: number;
+  observaciones: string | null;
+}
+
+/** Espejo de MisParadasController.ParadaDelDia (GET /api/mis-paradas/dia). */
+export interface ParadaDelDia {
+  paradaId: number;
+  rutaId: number;
+  orden: number;
+  tipo: string;
+  estado: "pendiente" | "completada" | "fallida";
+  llegadaEn: string | null;
+  salidaEn: string | null;
+  calleNumero: string;
+  localidad: string | null;
+  referencia: string | null;
+  lat: number | null;
+  lng: number | null;
+  pedidos: PedidoDeParada[];
+}
+
+/** Origen de una ruta: un depósito del catálogo, o cualquier otra dirección (donde quedó la
+ * camioneta el día anterior — acta changelog 3.6/3.8). Espejo exacto de
+ * Servicios/OrigenRutaService.OrigenRuta. Lat/lng nullable: una dirección de partida sin
+ * geocodificar no bloquea el armado, solo degrada el recorrido a la primera parada. */
+export interface OrigenRuta {
+  ubicacionId: number;
+  calleNumero: string;
+  localidad: string | null;
+  localidadId: number | null;
+  lat: number | null;
+  lng: number | null;
+  geoConfianza: string | null;
+  esDeposito: boolean;
+  nombreDeposito: string | null;
+}
+
+/** Un depósito del catálogo (GET /api/ubicaciones/depositos), seleccionable al armar una ruta.
+ * Espejo exacto de Servicios/OrigenRutaService.Deposito. */
+export interface Deposito {
+  ubicacionId: number;
+  nombre: string;
+  calleNumero: string;
+  localidad: string | null;
+  localidadId: number | null;
+  lat: number | null;
+  lng: number | null;
+  geoConfianza: string | null;
+}
+
+/** Bundle único de RNF-07: todo lo que la PWA necesita antes de salir, en un solo request —
+ * incluido el recorrido ya trazado, para que el mapa funcione sin señal en la calle. */
+export interface JornadaDelDia {
+  fecha: string | null;
+  rutaId: number | null;
+  total: number;
+  completadas: number;
+  fallidas: number;
+  motivosFallo: string[];
+  umbralDesvioMetros: number;
+  /** Solo null cuando no hay ruta en curso (`rutaId === null`) — una ruta en_curso siempre tiene
+   * origen resuelto, CerrarPlanificacion lo exige (acta changelog 3.8). */
+  origen: OrigenRuta | null;
+  recorrido: Recorrido | null;
+  paradas: ParadaDelDia[];
+}
+
+/** Espejo de MisParadasController.CierreResultado (POST /api/mis-paradas/{id}/cierre). */
+export interface CierreResultado {
+  paradaId: number;
+  estadoParada: string;
+  pedidosActualizados: number;
+  desvioMetros: number | null;
+  desvioAlto: boolean;
+  duplicado: boolean;
 }

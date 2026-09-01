@@ -11,6 +11,12 @@ public class Ruta
     public long? VehiculoId { get; set; }
     public Vehiculo? Vehiculo { get; set; }
 
+    /// <summary>Punto de partida de la jornada. null = depósito de la empresa (caso mayoritario y
+    /// comportamiento histórico); con valor, es donde quedó la camioneta el día anterior. Se
+    /// resuelve siempre por OrigenRutaService, nunca leyendo esta propiedad suelta.</summary>
+    public long? OrigenUbicacionId { get; set; }
+    public Ubicacion? Origen { get; set; }
+
     /// <summary>Presupuesto de paradas de la jornada (P7 / RF-16)</summary>
     public int CapacidadParadas { get; set; } = 24;
 

@@ -23,7 +23,9 @@ namespace Logistica.Controllers;
 public class MisParadasController(
     LogisticaDbContext db,
     IOptions<OpcionesPruebaEntrega> opciones,
-    AlmacenamientoFotos almacenamiento) : ControllerBase
+    OrigenRutaService origenes,
+    AlmacenamientoFotos almacenamiento,
+    RuteoService ruteo) : ControllerBase
 {
     public record PedidoDeParada(long PedidoId, string DestinatarioNombre, string DestinatarioTelefono, int Bultos, string? Observaciones);
 
@@ -33,10 +35,20 @@ public class MisParadasController(
         string CalleNumero, string? Localidad, string? Referencia, decimal? Lat, decimal? Lng,
         List<PedidoDeParada> Pedidos);
 
+    /// <summary>Origen viaja acá (y no por GET /api/ubicaciones/deposito, que es BackOffice) para
+    /// no ampliar la audiencia de un endpoint de back-office: RNF-07 pide que la PWA reciba todo lo
+    /// que necesita en un solo request, y el mapa del repartidor necesita el origen del recorrido.
+    /// No siempre es el depósito (acta changelog 3.6): puede ser donde quedó la camioneta el día
+    /// anterior — de ahí que sea un OrigenRuta completo (con dirección) y no solo lat/lng, para
+    /// que el repartidor sepa desde dónde arranca. Por la misma razón, Recorrido viaja YA TRAZADO
+    /// acá adentro en vez de exigir un POST propio a /api/recorrido: un repartidor sin señal en la
+    /// calle no puede depender de una llamada en vivo — la ruta se descarga completa antes de
+    /// salir (RNF-07). Recorrido es null si no se pudo trazar (OSRM caído): el mapa cae a línea
+    /// recta entre los puntos, nunca rompe.</summary>
     public record JornadaDelDia(
         DateOnly? Fecha, long? RutaId, int Total, int Completadas, int Fallidas,
-        IReadOnlyList<string> MotivosFallo, int UmbralDesvioMetros,
-        List<ParadaDelDia> Paradas);
+        IReadOnlyList<string> MotivosFallo, int UmbralDesvioMetros, OrigenRuta? Origen,
+        Recorrido? Recorrido, List<ParadaDelDia> Paradas);
 
     public record RegistrarLlegadaRequest(DateTimeOffset LlegadaEn, string DeviceUuid);
 
@@ -101,7 +113,13 @@ public class MisParadasController(
             .FirstOrDefaultAsync(ct);
 
         if (ruta is null)
-            return Ok(new JornadaDelDia(null, null, 0, 0, 0, opciones.Value.MotivosFallo, opciones.Value.UmbralDesvioMetros, []));
+            return Ok(new JornadaDelDia(null, null, 0, 0, 0, opciones.Value.MotivosFallo, opciones.Value.UmbralDesvioMetros, null, null, []));
+
+        // CerrarPlanificacion (RF-17, acta changelog 3.8) exige el origen elegido antes de pasar
+        // a en_curso: una ruta que llegó hasta acá siempre tiene uno resuelto. El throw es
+        // defensivo, no un camino esperado.
+        var origen = await origenes.ResolverAsync(ruta, ct)
+            ?? throw new InvalidOperationException($"La ruta {ruta.Id} está en curso sin origen resuelto.");
 
         var filas = await (
             from p in db.Set<ParadaRepartidor>()
@@ -124,10 +142,22 @@ public class MisParadasController(
             .OrderBy(p => p.Orden)
             .ToList();
 
+        // El recorrido se traza desde el origen de la ruta (depósito o donde quedó la camioneta,
+        // acta changelog 3.6), en el orden ya planificado (Orden), sobre las paradas con
+        // coordenada real. Si el origen no tiene coordenada, se traza desde la primera parada —
+        // misma degradación que las paradas sin geocodificar, nunca se inventa una posición.
+        // Cacheado en RuteoService: la ruta no cambia de forma durante la jornada, así que esto
+        // pega en caché en cada recarga de /dia después de la primera.
+        var puntosRuta = new List<PuntoRuta>();
+        if (OrigenRutaService.Punto(origen) is { } puntoOrigen) puntosRuta.Add(puntoOrigen);
+        puntosRuta.AddRange(paradas.Where(p => p.Lat is not null && p.Lng is not null)
+            .Select(p => new PuntoRuta(p.Lat!.Value, p.Lng!.Value)));
+        var recorrido = await ruteo.TrazarAsync(puntosRuta, ct);
+
         return Ok(new JornadaDelDia(
             ruta.Fecha, ruta.Id, paradas.Count,
             paradas.Count(p => p.Estado == "completada"), paradas.Count(p => p.Estado == "fallida"),
-            opciones.Value.MotivosFallo, opciones.Value.UmbralDesvioMetros, paradas));
+            opciones.Value.MotivosFallo, opciones.Value.UmbralDesvioMetros, origen, recorrido, paradas));
     }
 
     /// <summary>RF-24. Idempotente: si ya hay una llegada registrada, se conserva la primera —

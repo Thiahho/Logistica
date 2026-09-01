@@ -15,8 +15,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
 import { leerError, leerJson } from "@/lib/api/errores";
-import type { TarifaGeneral } from "@/lib/dominio/tipos";
+import type { LocalidadPendiente, TarifaGeneral } from "@/lib/dominio/tipos";
 
 export default function TarifasPage() {
   return (
@@ -29,11 +30,17 @@ export default function TarifasPage() {
 function ListaTarifas() {
   const { fetchConSesion } = useAuth();
   const [tarifas, setTarifas] = useState<TarifaGeneral[] | null>(null);
-  const [precios, setPrecios] = useState<Record<number, string>>({});
+  const [preciosCamioneta, setPreciosCamioneta] = useState<Record<number, string>>({});
+  const [preciosMoto, setPreciosMoto] = useState<Record<number, string>>({});
   const [kmDesdes, setKmDesdes] = useState<Record<number, string>>({});
   const [kmHastas, setKmHastas] = useState<Record<number, string>>({});
   const [guardandoZona, setGuardandoZona] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [pendientes, setPendientes] = useState<LocalidadPendiente[] | null>(null);
+  const [zonaElegida, setZonaElegida] = useState<Record<number, string>>({});
+  const [asignandoLocalidad, setAsignandoLocalidad] = useState<number | null>(null);
+  const [errorPendientes, setErrorPendientes] = useState<string | null>(null);
 
   const cargar = () => {
     fetchConSesion("/api/tarifas")
@@ -42,10 +49,50 @@ function ListaTarifas() {
       .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar las tarifas."));
   };
 
-  useEffect(cargar, [fetchConSesion]);
+  const cargarPendientes = () => {
+    fetchConSesion("/api/localidades/pendientes")
+      .then((r) => leerJson<LocalidadPendiente[]>(r))
+      .then((datos) => {
+        setPendientes(datos);
+        // La sugerencia precarga el combobox, pero no se asigna sola: hace falta el click de "Asignar".
+        setZonaElegida((z) => {
+          const copia = { ...z };
+          for (const p of datos) if (!(p.id in copia) && p.zonaSugeridaId !== null) copia[p.id] = String(p.zonaSugeridaId);
+          return copia;
+        });
+      })
+      .catch((err) => setErrorPendientes(err instanceof Error ? err.message : "No se pudieron cargar las localidades pendientes."));
+  };
 
-  function valorPrecio(t: TarifaGeneral) {
-    return precios[t.zonaId] ?? (t.precio !== null ? String(t.precio) : "");
+  useEffect(cargar, [fetchConSesion]);
+  useEffect(cargarPendientes, [fetchConSesion]);
+
+  async function asignarZona(localidadId: number) {
+    const zonaId = zonaElegida[localidadId];
+    if (!zonaId) return;
+    setAsignandoLocalidad(localidadId);
+    setErrorPendientes(null);
+    try {
+      const resp = await fetchConSesion(`/api/localidades/${localidadId}/zona`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ zonaId: Number(zonaId) }),
+      });
+      if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
+      cargarPendientes();
+    } catch (err) {
+      setErrorPendientes(err instanceof Error ? err.message : "No se pudo asignar la zona.");
+    } finally {
+      setAsignandoLocalidad(null);
+    }
+  }
+
+  function valorPrecioCamioneta(t: TarifaGeneral) {
+    return preciosCamioneta[t.zonaId] ?? (t.precioCamioneta !== null ? String(t.precioCamioneta) : "");
+  }
+
+  function valorPrecioMoto(t: TarifaGeneral) {
+    return preciosMoto[t.zonaId] ?? (t.precioMoto !== null ? String(t.precioMoto) : "");
   }
 
   function valorKmDesde(t: TarifaGeneral) {
@@ -60,14 +107,26 @@ function ListaTarifas() {
     setError(null);
     setGuardandoZona(t.zonaId);
     try {
-      const precioTexto = valorPrecio(t);
+      const precioCamionetaTexto = valorPrecioCamioneta(t);
+      const precioMotoTexto = valorPrecioMoto(t);
       const kmDesdeTexto = valorKmDesde(t);
       const kmHastaTexto = valorKmHasta(t);
-      const [respTarifa, respKm] = await Promise.all([
+      const [respCamioneta, respMoto, respKm] = await Promise.all([
         fetchConSesion(`/api/tarifas/${t.zonaId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ precio: precioTexto === "" ? null : Number(precioTexto) }),
+          body: JSON.stringify({
+            tipoVehiculo: "camioneta",
+            precio: precioCamionetaTexto === "" ? null : Number(precioCamionetaTexto),
+          }),
+        }),
+        fetchConSesion(`/api/tarifas/${t.zonaId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tipoVehiculo: "moto",
+            precio: precioMotoTexto === "" ? null : Number(precioMotoTexto),
+          }),
         }),
         fetchConSesion(`/api/zonas/${t.zonaId}/km`, {
           method: "PUT",
@@ -78,7 +137,8 @@ function ListaTarifas() {
           }),
         }),
       ]);
-      if (!respTarifa.ok) throw new Error((await leerError(respTarifa)).mensaje);
+      if (!respCamioneta.ok) throw new Error((await leerError(respCamioneta)).mensaje);
+      if (!respMoto.ok) throw new Error((await leerError(respMoto)).mensaje);
       if (!respKm.ok) throw new Error((await leerError(respKm)).mensaje);
       cargar();
     } catch (err) {
@@ -89,14 +149,64 @@ function ListaTarifas() {
   }
 
   return (
-    <div className="p-8 max-w-3xl">
+    <div className="p-8 max-w-4xl flex flex-col gap-6">
       <CabeceraSesion titulo="Tarifas — lista general" />
+
+      {pendientes !== null && pendientes.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Localidades sin zona</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <p className="text-sm text-muted-foreground">
+              Aparecieron al tipear una dirección nueva. Un pedido ahí no cotiza hasta que le
+              asignes zona — la sugerida es orientativa (por distancia real al depósito contra el
+              rango de km de cada zona), nunca se aplica sola.
+            </p>
+            {errorPendientes && <p className="text-sm text-destructive">{errorPendientes}</p>}
+            {pendientes.map((p) => (
+              <div key={p.id} className="flex items-center gap-2 rounded-lg border p-3">
+                <div className="flex-1">
+                  <p className="font-medium">
+                    {p.nombre}
+                    {p.partido && p.partido !== p.nombre ? ` — ${p.partido}` : ""}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {p.distanciaKmDeposito !== null
+                      ? `${p.distanciaKmDeposito} km del depósito`
+                      : "Sin dirección geocodificada todavía"}
+                    {p.zonaSugeridaNombre &&
+                      ` · sugerida: ${p.zonaSugeridaCodigo} — ${p.zonaSugeridaNombre}`}
+                  </p>
+                </div>
+                <ComboboxBusqueda
+                  items={(tarifas ?? []).map((t) => ({
+                    value: String(t.zonaId),
+                    label: `${t.zonaCodigo} — ${t.zonaNombre}`,
+                  }))}
+                  value={zonaElegida[p.id] ?? null}
+                  onValueChange={(v) => setZonaElegida((z) => ({ ...z, [p.id]: v ?? "" }))}
+                  placeholder="Elegir zona"
+                  className="w-56"
+                />
+                <Button
+                  size="sm"
+                  disabled={!zonaElegida[p.id] || asignandoLocalidad === p.id}
+                  onClick={() => asignarZona(p.id)}
+                >
+                  {asignandoLocalidad === p.id ? "Asignando…" : "Asignar"}
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Precio por zona</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           {error && <p className="text-sm text-destructive mb-4">{error}</p>}
           {!tarifas ? (
             error ? null : <p className="text-muted-foreground">Cargando…</p>
@@ -107,7 +217,8 @@ function ListaTarifas() {
                   <TableHead>Zona</TableHead>
                   <TableHead>Km desde</TableHead>
                   <TableHead>Km hasta</TableHead>
-                  <TableHead>Precio vigente</TableHead>
+                  <TableHead>Precio camioneta</TableHead>
+                  <TableHead>Precio moto</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
@@ -143,8 +254,18 @@ function ListaTarifas() {
                         step="0.01"
                         className="w-32"
                         placeholder="sin tarifa"
-                        value={valorPrecio(t)}
-                        onChange={(e) => setPrecios((v) => ({ ...v, [t.zonaId]: e.target.value }))}
+                        value={valorPrecioCamioneta(t)}
+                        onChange={(e) => setPreciosCamioneta((v) => ({ ...v, [t.zonaId]: e.target.value }))}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        className="w-32"
+                        placeholder="sin tarifa"
+                        value={valorPrecioMoto(t)}
+                        onChange={(e) => setPreciosMoto((v) => ({ ...v, [t.zonaId]: e.target.value }))}
                       />
                     </TableCell>
                     <TableCell>

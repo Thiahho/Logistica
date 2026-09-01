@@ -357,7 +357,7 @@ namespace Logistica.Migrations
                         .HasColumnName("creado_en")
                         .HasDefaultValueSql("now()");
 
-                    b.Property<decimal>("DescuentoRuta")
+                    b.Property<decimal?>("DescuentoRuta")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("numeric(12,2)")
                         .HasDefaultValue(0m)
@@ -416,17 +416,17 @@ namespace Logistica.Migrations
                         .HasColumnType("numeric(8,2)")
                         .HasColumnName("peso_kg");
 
-                    b.Property<decimal>("PrecioBase")
+                    b.Property<decimal?>("PrecioBase")
                         .HasColumnType("numeric(12,2)")
                         .HasColumnName("precio_base");
 
-                    b.Property<DateTimeOffset>("PrecioCongeladoEn")
+                    b.Property<DateTimeOffset?>("PrecioCongeladoEn")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("precio_congelado_en")
                         .HasDefaultValueSql("now()");
 
-                    b.Property<decimal>("RecargoUrgencia")
+                    b.Property<decimal?>("RecargoUrgencia")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("numeric(12,2)")
                         .HasDefaultValue(0m)
@@ -443,7 +443,7 @@ namespace Logistica.Migrations
                         .HasDefaultValue("entrega")
                         .HasColumnName("tipo");
 
-                    b.Property<decimal>("Total")
+                    b.Property<decimal?>("Total")
                         .HasColumnType("numeric(12,2)")
                         .HasColumnName("total");
 
@@ -738,6 +738,10 @@ namespace Logistica.Migrations
                         .HasColumnType("text")
                         .HasColumnName("notas_cierre");
 
+                    b.Property<long?>("OrigenUbicacionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("origen_ubicacion_id");
+
                     b.Property<decimal?>("OtrosCostos")
                         .HasColumnType("numeric(12,2)")
                         .HasColumnName("otros_costos");
@@ -761,6 +765,8 @@ namespace Logistica.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Fecha");
+
+                    b.HasIndex("OrigenUbicacionId");
 
                     b.HasIndex("RepartidorId");
 
@@ -856,6 +862,13 @@ namespace Logistica.Migrations
                         .HasColumnType("numeric(12,2)")
                         .HasColumnName("precio");
 
+                    b.Property<string>("TipoVehiculo")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("camioneta")
+                        .HasColumnName("tipo_vehiculo");
+
                     b.Property<DateOnly>("VigenteDesde")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("date")
@@ -874,12 +887,14 @@ namespace Logistica.Migrations
 
                     b.HasIndex("ZonaId");
 
-                    b.HasIndex("ClienteId", "ZonaId")
+                    b.HasIndex("ClienteId", "ZonaId", "TipoVehiculo")
                         .HasFilter("vigente_hasta is null");
 
                     b.ToTable("tarifas", null, t =>
                         {
                             t.HasCheckConstraint("ck_tarifas_precio", "precio > 0");
+
+                            t.HasCheckConstraint("ck_tarifas_tipo_vehiculo", "tipo_vehiculo in ('camioneta','moto')");
 
                             t.HasCheckConstraint("ck_tarifas_vigencia", "vigente_hasta is null or vigente_hasta >= vigente_desde");
                         });
@@ -964,6 +979,10 @@ namespace Logistica.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("localidad_id");
 
+                    b.Property<string>("NombreDeposito")
+                        .HasColumnType("text")
+                        .HasColumnName("nombre_deposito");
+
                     b.Property<string>("Referencia")
                         .HasColumnType("text")
                         .HasColumnName("referencia");
@@ -977,6 +996,10 @@ namespace Logistica.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("LocalidadId");
+
+                    b.HasIndex("NombreDeposito")
+                        .IsUnique()
+                        .HasFilter("nombre_deposito is not null");
 
                     b.ToTable("ubicaciones", null, t =>
                         {
@@ -1090,6 +1113,13 @@ namespace Logistica.Migrations
                         .HasColumnType("text")
                         .HasColumnName("patente");
 
+                    b.Property<string>("Tipo")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("camioneta")
+                        .HasColumnName("tipo");
+
                     b.Property<DateOnly?>("VenceSeguro")
                         .HasColumnType("date")
                         .HasColumnName("vence_seguro");
@@ -1108,6 +1138,8 @@ namespace Logistica.Migrations
                             t.HasCheckConstraint("ck_vehiculos_anio", "anio is null or anio between 1950 and 2100");
 
                             t.HasCheckConstraint("ck_vehiculos_capacidad", "capacidad_paradas > 0");
+
+                            t.HasCheckConstraint("ck_vehiculos_tipo", "tipo in ('camioneta','moto')");
                         });
                 });
 
@@ -1332,6 +1364,11 @@ namespace Logistica.Migrations
 
             modelBuilder.Entity("Logistica.Entidades.Ruta", b =>
                 {
+                    b.HasOne("Logistica.Entidades.Ubicacion", "Origen")
+                        .WithMany()
+                        .HasForeignKey("OrigenUbicacionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Logistica.Entidades.Usuario", "Repartidor")
                         .WithMany()
                         .HasForeignKey("RepartidorId")
@@ -1341,6 +1378,8 @@ namespace Logistica.Migrations
                         .WithMany()
                         .HasForeignKey("VehiculoId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Origen");
 
                     b.Navigation("Repartidor");
 

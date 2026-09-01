@@ -16,6 +16,7 @@ public class RutaConfiguration : IEntityTypeConfiguration<Ruta>
         b.Property(x => x.Fecha).HasColumnName("fecha");
         b.Property(x => x.RepartidorId).HasColumnName("repartidor_id");
         b.Property(x => x.VehiculoId).HasColumnName("vehiculo_id");
+        b.Property(x => x.OrigenUbicacionId).HasColumnName("origen_ubicacion_id");
         b.Property(x => x.CapacidadParadas).HasColumnName("capacidad_paradas").HasDefaultValue(24);
         b.Property(x => x.Estado).HasColumnName("estado").HasDefaultValue("planificada");
         b.Property(x => x.KmInicial).HasColumnName("km_inicial");
@@ -32,6 +33,8 @@ public class RutaConfiguration : IEntityTypeConfiguration<Ruta>
             .HasForeignKey(x => x.RepartidorId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.Vehiculo).WithMany()
             .HasForeignKey(x => x.VehiculoId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne(x => x.Origen).WithMany()
+            .HasForeignKey(x => x.OrigenUbicacionId).OnDelete(DeleteBehavior.Restrict);
 
         b.HasIndex(x => x.Fecha);
     }

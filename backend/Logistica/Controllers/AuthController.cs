@@ -3,6 +3,7 @@ using System.Security.Claims;
 using Logistica.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Logistica.Controllers;
 
@@ -13,8 +14,11 @@ public class AuthController(AuthService auth, IWebHostEnvironment env) : Control
     public record LoginRequest(string Email, string Password);
     public record AccessTokenResponse(string AccessToken);
 
+    /// <summary>Sin límite de intentos era fuerza bruta viable (auditoría de seguridad) —
+    /// EnableRateLimiting("login") lo frena a 5 intentos por minuto por IP (Program.cs).</summary>
     [HttpPost("login")]
     [AllowAnonymous]
+    [EnableRateLimiting("login")]
     public async Task<ActionResult<AccessTokenResponse>> Login(LoginRequest req, CancellationToken ct)
     {
         var resultado = await auth.LoginAsync(req.Email, req.Password, IpDelCliente(), ct);

@@ -9,6 +9,13 @@ public class Ubicacion
     public Localidad? Localidad { get; set; }
 
     public string? Referencia { get; set; }
+
+    /// <summary>No-null = esta ubicación es un depósito seleccionable al armar una ruta, con este
+    /// nombre corto (acta changelog 3.8). Campo propio, no se reusa `Referencia`: esa columna ya
+    /// significa otra cosa (la nota de la parada que ve el repartidor, v_paradas_repartidor) y
+    /// mezclar los dos sentidos rompía esa vista para cualquier ubicación que fuera depósito.</summary>
+    public string? NombreDeposito { get; set; }
+
     public decimal? Lat { get; set; }
     public decimal? Lng { get; set; }
 

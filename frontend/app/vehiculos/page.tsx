@@ -81,6 +81,7 @@ function ListaVehiculos() {
             <TableRow>
               <TableHead>Patente</TableHead>
               <TableHead>Descripción</TableHead>
+              <TableHead>Tipo</TableHead>
               <TableHead>Marca / modelo</TableHead>
               <TableHead>Capacidad</TableHead>
               <TableHead>Vence VTV</TableHead>
@@ -98,6 +99,7 @@ function ListaVehiculos() {
                   </Link>
                 </TableCell>
                 <TableCell>{v.descripcion ?? "—"}</TableCell>
+                <TableCell className="capitalize">{v.tipo}</TableCell>
                 <TableCell>
                   {v.marca || v.modelo ? [v.marca, v.modelo].filter(Boolean).join(" ") : "—"}
                 </TableCell>

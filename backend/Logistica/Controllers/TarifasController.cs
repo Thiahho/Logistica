@@ -16,8 +16,10 @@ namespace Logistica.Controllers;
 [Authorize(Policy = "Administracion")]
 public class TarifasController(LogisticaDbContext db, TarifaService tarifas) : ControllerBase
 {
-    public record TarifaGeneral(int ZonaId, string ZonaCodigo, string ZonaNombre, int? KmDesde, int? KmHasta, decimal? Precio);
-    public record FijarTarifaRequest(decimal? Precio);
+    public record TarifaGeneral(
+        int ZonaId, string ZonaCodigo, string ZonaNombre, int? KmDesde, int? KmHasta,
+        decimal? PrecioCamioneta, decimal? PrecioMoto);
+    public record FijarTarifaRequest(string TipoVehiculo, decimal? Precio);
 
     [HttpGet]
     public async Task<IActionResult> Listar(CancellationToken ct)
@@ -28,10 +30,13 @@ public class TarifasController(LogisticaDbContext db, TarifaService tarifas) : C
         var resultado = new List<TarifaGeneral>();
         foreach (var zona in zonas)
         {
-            var precio = await db.Database
-                .SqlQuery<decimal?>($"select tarifa_vigente(null, {zona.Id}, {hoy}) as \"Value\"")
+            var precioCamioneta = await db.Database
+                .SqlQuery<decimal?>($"select tarifa_vigente(null, {zona.Id}, {hoy}, 'camioneta') as \"Value\"")
                 .SingleAsync(ct);
-            resultado.Add(new TarifaGeneral(zona.Id, zona.Codigo, zona.Nombre, zona.KmDesde, zona.KmHasta, precio));
+            var precioMoto = await db.Database
+                .SqlQuery<decimal?>($"select tarifa_vigente(null, {zona.Id}, {hoy}, 'moto') as \"Value\"")
+                .SingleAsync(ct);
+            resultado.Add(new TarifaGeneral(zona.Id, zona.Codigo, zona.Nombre, zona.KmDesde, zona.KmHasta, precioCamioneta, precioMoto));
         }
 
         return Ok(resultado);
@@ -40,7 +45,8 @@ public class TarifasController(LogisticaDbContext db, TarifaService tarifas) : C
     [HttpPut("{zonaId:int}")]
     public async Task<IActionResult> Fijar(int zonaId, FijarTarifaRequest req, CancellationToken ct)
     {
-        await tarifas.FijarAsync(clienteId: null, zonaId, req.Precio, ct);
+        if (req.TipoVehiculo is not ("camioneta" or "moto")) return BadRequest("Tipo de vehículo inválido.");
+        await tarifas.FijarAsync(clienteId: null, zonaId, req.TipoVehiculo, req.Precio, ct);
         return NoContent();
     }
 }

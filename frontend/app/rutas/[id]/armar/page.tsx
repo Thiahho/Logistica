@@ -19,15 +19,25 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { leerError, leerJson } from "@/lib/api/errores";
+import { trazarRecorrido } from "@/lib/api/recorrido";
 import { sugerirOrden, type ParadaParaOrden } from "@/lib/dominio/ruteo";
 import type { Punto } from "@/lib/dominio/geo";
 import type {
   CandidatoRuta,
+  Deposito,
   ParadaArmada,
+  Recorrido,
   RutaDetalle,
   UsuarioSeleccion,
   VehiculoSeleccion,
 } from "@/lib/dominio/tipos";
+import { MapaDinamico } from "@/components/mapa/MapaDinamico";
+import type { MarcadorMapa } from "@/components/mapa/Mapa";
+import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
+import { SelectorDireccion, type DireccionResuelta } from "@/components/SelectorDireccion";
+
+/** Sentinel del combobox de origen para "tipear otra dirección" en vez de elegir del catálogo. */
+const OTRA_DIRECCION = "otra";
 
 interface ParadaConsolidada {
   calleNumero: string;
@@ -54,11 +64,18 @@ function ArmarRuta() {
   const [candidatos, setCandidatos] = useState<CandidatoRuta[] | null>(null);
   const [repartidores, setRepartidores] = useState<UsuarioSeleccion[]>([]);
   const [vehiculos, setVehiculos] = useState<VehiculoSeleccion[]>([]);
-  const [deposito, setDeposito] = useState<Punto | null>(null);
+  // Catálogo de depósitos (acta changelog 3.8) + "otra dirección" para cuando la camioneta quedó
+  // en un lugar que no está en el catálogo. Sin default implícito: el planificador siempre elige.
+  const [depositos, setDepositos] = useState<Deposito[]>([]);
+  const [origenSeleccion, setOrigenSeleccion] = useState<string | null>(null); // `deposito:{id}` | "otra" | null
+  const [origenElegido, setOrigenElegido] = useState<DireccionResuelta | null>(null);
+  const [origenInicial, setOrigenInicial] = useState<DireccionResuelta | null>(null);
 
   const [seleccionados, setSeleccionados] = useState<Set<number>>(new Set());
   const [ordenUbicaciones, setOrdenUbicaciones] = useState<number[]>([]);
   const [anclajes, setAnclajes] = useState<Set<number>>(new Set());
+  const [seleccionadaMapa, setSeleccionadaMapa] = useState<number | null>(null);
+  const [recorrido, setRecorrido] = useState<Recorrido | null>(null);
 
   const [vehiculoId, setVehiculoId] = useState<number | null>(null);
   const [repartidorId, setRepartidorId] = useState<string | null>(null);
@@ -78,6 +95,36 @@ function ArmarRuta() {
         setVehiculoId(r.vehiculoId);
         setRepartidorId(r.repartidorId);
         setCapacidadParadas(r.capacidadParadas);
+        // Reabrir un armado ya guardado: el combobox abre en la opción correcta. Si es "otra
+        // dirección", se prellena sin volver a geocodificar (SelectorDireccion la toma como
+        // `inicial`) y se setea también `origenElegido` directo (no solo `origenInicial`): si el
+        // operador no toca el selector, SelectorDireccion nunca llama a onCambio, y sin esto
+        // guardarAsignacion mandaría origenUbicacionId null pese a que la ruta ya tenía uno.
+        if (r.origenUbicacionId === null || r.origen === null) {
+          setOrigenSeleccion(null);
+          setOrigenInicial(null);
+          setOrigenElegido(null);
+        } else if (r.origen.esDeposito) {
+          setOrigenSeleccion(`deposito:${r.origen.ubicacionId}`);
+          setOrigenInicial(null);
+          setOrigenElegido(null);
+        } else {
+          setOrigenSeleccion(OTRA_DIRECCION);
+          const origenReabierto =
+            r.origen.localidadId !== null
+              ? {
+                  ubicacionId: r.origen.ubicacionId,
+                  calleNumero: r.origen.calleNumero,
+                  localidadId: r.origen.localidadId,
+                  localidadNombre: r.origen.localidad,
+                  lat: r.origen.lat,
+                  lng: r.origen.lng,
+                  geoConfianza: r.origen.geoConfianza,
+                }
+              : null;
+          setOrigenInicial(origenReabierto);
+          setOrigenElegido(origenReabierto);
+        }
       })
       .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudo cargar la ruta."));
   }, [fetchConSesion, id]);
@@ -112,10 +159,10 @@ function ArmarRuta() {
       .then((r) => leerJson<VehiculoSeleccion[]>(r))
       .then(setVehiculos)
       .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudieron cargar los vehículos."));
-    fetchConSesion("/api/ubicaciones/deposito")
-      .then((r) => leerJson<Punto>(r))
-      .then(setDeposito)
-      .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudo cargar el depósito."));
+    fetchConSesion("/api/ubicaciones/depositos")
+      .then((r) => leerJson<Deposito[]>(r))
+      .then(setDepositos)
+      .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudo cargar el catálogo de depósitos."));
   }, [fetchConSesion]);
 
   // Al elegir un vehículo del catálogo, prellena la capacidad de paradas de la ruta con la suya
@@ -163,6 +210,84 @@ function ArmarRuta() {
     })
     .filter((p): p is NonNullable<typeof p> => p !== null);
 
+  // Depósito elegido del catálogo, si la selección actual es una de esas opciones (no "otra").
+  const depositoElegido = useMemo(
+    () =>
+      origenSeleccion && origenSeleccion !== OTRA_DIRECCION
+        ? (depositos.find((d) => `deposito:${d.ubicacionId}` === origenSeleccion) ?? null)
+        : null,
+    [origenSeleccion, depositos],
+  );
+
+  // Punto desde el que arranca el recorrido: un depósito del catálogo u otra dirección elegida a
+  // mano (acta changelog 3.6/3.8) — reemplaza los usos que antes asumían siempre el depósito.
+  const puntoPartida = useMemo<Punto | null>(() => {
+    const o = depositoElegido ?? (origenSeleccion === OTRA_DIRECCION ? origenElegido : null);
+    return o && o.lat !== null && o.lng !== null ? { lat: o.lat, lng: o.lng } : null;
+  }, [depositoElegido, origenSeleccion, origenElegido]);
+
+  // Firma en string (no el array `paradas`, que es nuevo en cada render) para que el efecto de
+  // abajo dispare solo cuando el conjunto u orden de coordenadas realmente cambia — el mismo
+  // problema que ya resuelve `ordenEfectivo` con useMemo, pero para el POST de recorrido.
+  const firmaRecorrido = useMemo(() => {
+    if (!puntoPartida) return "";
+    const conCoordenada = paradas.filter((p) => p.lat !== null && p.lng !== null);
+    if (conCoordenada.length === 0) return "";
+    return [puntoPartida, ...conCoordenada].map((p) => `${p.lat},${p.lng}`).join(";");
+  }, [puntoPartida, paradas]);
+
+  // Recorrido real por calles (OSRM vía backend). Debounce + AbortController: mismo patrón que
+  // la cotización en vivo de pedidos/nuevo/page.tsx — sin esto, diez clics rápidos en ↑/↓
+  // disparan diez requests y una respuesta lenta puede pisar a una más nueva. El caso
+  // "firmaRecorrido vacía" NO llama setRecorrido acá (dispararía react-hooks/set-state-in-effect
+  // al ser síncrono); en cambio se deriva en el render de abajo (recorridoVisible).
+  useEffect(() => {
+    if (!firmaRecorrido) return;
+    const puntos: Punto[] = firmaRecorrido.split(";").map((par) => {
+      const [lat, lng] = par.split(",").map(Number);
+      return { lat, lng };
+    });
+    const abort = new AbortController();
+    const timeout = setTimeout(() => {
+      trazarRecorrido(fetchConSesion, puntos, abort.signal).then(setRecorrido);
+    }, 500);
+    return () => {
+      clearTimeout(timeout);
+      abort.abort();
+    };
+  }, [firmaRecorrido, fetchConSesion]);
+
+  const recorridoVisible = firmaRecorrido ? recorrido : null;
+
+  const marcadoresMapa = useMemo<MarcadorMapa[]>(() => {
+    const items: MarcadorMapa[] = [];
+    if (puntoPartida) {
+      items.push({
+        id: "origen",
+        punto: puntoPartida,
+        etiqueta: depositoElegido ? "D" : "P",
+        variante: "origen",
+        titulo: depositoElegido
+          ? depositoElegido.nombre
+          : `${origenElegido?.calleNumero ?? ""}${origenElegido?.localidadNombre ? `, ${origenElegido.localidadNombre}` : ""}`,
+      });
+    }
+    paradas.forEach((p, i) => {
+      if (p.lat === null || p.lng === null) return;
+      items.push({
+        id: p.ubicacionId,
+        punto: { lat: p.lat, lng: p.lng },
+        etiqueta: String(i + 1),
+        variante: "pendiente",
+        titulo: `${p.calleNumero}${p.localidad ? `, ${p.localidad}` : ""}`,
+        seleccionado: seleccionadaMapa === p.ubicacionId,
+      });
+    });
+    return items;
+  }, [puntoPartida, depositoElegido, origenElegido, paradas, seleccionadaMapa]);
+
+  const paradasSinCoordenadas = paradas.filter((p) => p.lat === null || p.lng === null).length;
+
   const candidatosPorZona = useMemo(() => {
     const mapa = new Map<string, CandidatoRuta[]>();
     for (const c of candidatos ?? []) {
@@ -200,21 +325,30 @@ function ArmarRuta() {
   }
 
   function sugerir() {
-    if (!deposito) return;
+    if (!puntoPartida) return;
+    // Sin coordenada ficticia para las paradas sin geocodificar: sugerirOrden las trata como
+    // ancladas (mantienen su posición) en vez de recibir la del origen, que las empujaba
+    // artificialmente al principio del recorrido.
     const paraOrden: ParadaParaOrden[] = paradas.map((p) => ({
       ubicacionId: p.ubicacionId,
-      lat: p.lat ?? deposito.lat,
-      lng: p.lng ?? deposito.lng,
+      lat: p.lat,
+      lng: p.lng,
       anclada: p.anclada,
     }));
-    setOrdenUbicaciones(sugerirOrden(deposito, paraOrden).map((p) => p.ubicacionId));
+    setOrdenUbicaciones(sugerirOrden(puntoPartida, paraOrden).map((p) => p.ubicacionId));
   }
 
   async function guardarAsignacion() {
     const resp = await fetchConSesion(`/api/rutas/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vehiculoId, repartidorId, capacidadParadas }),
+      body: JSON.stringify({
+        vehiculoId,
+        repartidorId,
+        capacidadParadas,
+        origenUbicacionId:
+          depositoElegido?.ubicacionId ?? (origenSeleccion === OTRA_DIRECCION ? (origenElegido?.ubicacionId ?? null) : null),
+      }),
     });
     if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
   }
@@ -364,7 +498,37 @@ function ArmarRuta() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Pedidos confirmados del {ruta.fecha}, por zona</CardTitle>
+          <CardTitle className="text-base">Punto de partida</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <ComboboxBusqueda
+            items={[
+              ...depositos.map((d) => ({
+                value: `deposito:${d.ubicacionId}`,
+                label: d.nombre,
+                detalle: `${d.calleNumero}${d.localidad ? `, ${d.localidad}` : ""}`,
+              })),
+              { value: OTRA_DIRECCION, label: "Otra dirección…" },
+            ]}
+            value={origenSeleccion}
+            onValueChange={setOrigenSeleccion}
+            placeholder="Elegí el punto de partida…"
+            mensajeVacio="Sin depósitos cargados."
+          />
+          {origenSeleccion === OTRA_DIRECCION && (
+            <SelectorDireccion inicial={origenInicial} onCambio={setOrigenElegido} idPrefijo="origen" />
+          )}
+          {origenSeleccion === OTRA_DIRECCION && origenElegido && origenElegido.lat === null && (
+            <p className="text-sm text-destructive">
+              Esta dirección no se pudo geolocalizar: se guarda igual, pero el recorrido se traza desde la primera parada.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Pedidos disponibles del {ruta.fecha}, por zona</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           {!candidatos ? (
@@ -405,11 +569,35 @@ function ArmarRuta() {
 
       <Card>
         <CardHeader>
+          <CardTitle className="text-base">Recorrido</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          {paradasSinCoordenadas > 0 && (
+            <p className="text-sm text-destructive">
+              {paradasSinCoordenadas} parada(s) sin coordenadas — no se dibujan en el mapa.
+            </p>
+          )}
+          <MapaDinamico
+            marcadores={marcadoresMapa}
+            recorrido={recorridoVisible?.linea ?? null}
+            onSeleccionar={(id) => setSeleccionadaMapa(typeof id === "number" ? id : null)}
+          />
+          {recorridoVisible && (
+            <p className="text-xs text-muted-foreground">
+              {(recorridoVisible.distanciaMetros / 1000).toFixed(1)} km ·{" "}
+              {Math.round(recorridoVisible.duracionSegundos / 60)} min
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle className="text-base flex items-center justify-between">
             <span>
               Paradas ({paradas.length} / {capacidadParadas})
             </span>
-            <Button size="sm" variant="outline" disabled={!deposito || paradas.length < 2} onClick={sugerir}>
+            <Button size="sm" variant="outline" disabled={!puntoPartida || paradas.length < 2} onClick={sugerir}>
               Sugerir orden
             </Button>
           </CardTitle>
@@ -423,8 +611,22 @@ function ArmarRuta() {
           ) : (
             <ol className="flex flex-col gap-2">
               {paradas.map((p, i) => (
-                <li key={p.ubicacionId} className="flex items-center gap-3 rounded-lg border p-3 text-sm">
-                  <span className="w-6 shrink-0 text-center font-medium text-muted-foreground">{i + 1}</span>
+                <li
+                  key={p.ubicacionId}
+                  className={`flex items-center gap-3 rounded-lg border p-3 text-sm ${
+                    seleccionadaMapa === p.ubicacionId ? "ring-2 ring-primary" : ""
+                  }`}
+                  onMouseEnter={() => setSeleccionadaMapa(p.ubicacionId)}
+                >
+                  <span className="w-6 shrink-0 text-center font-medium text-muted-foreground">
+                    {p.lat === null || p.lng === null ? (
+                      <span className="text-destructive" title="Sin coordenadas">
+                        {i + 1}
+                      </span>
+                    ) : (
+                      i + 1
+                    )}
+                  </span>
                   <div className="flex-1">
                     <p>
                       {p.calleNumero}
@@ -432,6 +634,7 @@ function ArmarRuta() {
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {p.pedidoIds.length} pedido(s): {p.pedidoIds.map((pid) => `#${pid}`).join(", ")}
+                      {(p.lat === null || p.lng === null) && " · sin coordenadas"}
                     </p>
                   </div>
                   <Button size="sm" variant="outline" disabled={p.anclada || i === 0} onClick={() => mover(i, -1)}>
