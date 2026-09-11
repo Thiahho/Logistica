@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Logistica.Auth;
 using Logistica.Datos;
 using Logistica.Dominio;
@@ -38,13 +39,21 @@ public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, 
         long? OrigenUbicacionId, OrigenRuta? Origen);
 
     public record CerrarRutaRequest(
-        int KmInicial, int KmFinal, decimal CombustibleMonto, decimal PeajesMonto,
-        decimal OtrosCostos, decimal PagoRepartidor, string? NotasCierre);
+        [Range(0, int.MaxValue, ErrorMessage = "El km inicial no puede ser negativo.")] int KmInicial,
+        [Range(0, int.MaxValue, ErrorMessage = "El km final no puede ser negativo.")] int KmFinal,
+        [Range(0, double.MaxValue, ErrorMessage = "El combustible no puede ser negativo.")] decimal CombustibleMonto,
+        [Range(0, double.MaxValue, ErrorMessage = "Los peajes no pueden ser negativos.")] decimal PeajesMonto,
+        [Range(0, double.MaxValue, ErrorMessage = "Otros costos no pueden ser negativos.")] decimal OtrosCostos,
+        [Range(0, double.MaxValue, ErrorMessage = "El pago al repartidor no puede ser negativo.")] decimal PagoRepartidor,
+        string? NotasCierre);
 
     public record ResultadoRuta(decimal Ingresos, decimal Costos, decimal Margen, int Efectivas, int Fallidas, int Reprogramadas);
 
     public record CrearRutaRequest(DateOnly Fecha);
-    public record ActualizarRutaRequest(long? VehiculoId, Guid? RepartidorId, int CapacidadParadas, long? OrigenUbicacionId);
+    public record ActualizarRutaRequest(
+        long? VehiculoId, Guid? RepartidorId,
+        [Range(1, int.MaxValue, ErrorMessage = "La capacidad de paradas debe ser mayor a cero.")] int CapacidadParadas,
+        long? OrigenUbicacionId);
     public record ParadaArmadoRequest(long UbicacionId, bool Anclada, List<long> PedidoIds);
     public record GuardarParadasRequest(List<ParadaArmadoRequest> Paradas);
     public record ParadaArmada(
@@ -334,7 +343,7 @@ public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, 
             {
                 desglosesPorPedido[pedido.Id] = await precios.CotizarAsync(
                     pedido.ClienteId, pedido.ZonaId.Value, pedido.FechaEntrega, pedido.Urgente,
-                    pedido.Peajes, descuentoRuta: false, tipoVehiculo, ct);
+                    pedido.Peajes, descuentoRuta: false, tipoVehiculo, pedido.PrecioManual, ct);
             }
             catch (InvalidOperationException ex)
             {
@@ -386,6 +395,9 @@ public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, 
         if (ruta.Estado == "cerrada") return Conflict("La ruta ya está cerrada.");
         if (ruta.Estado != "en_curso")
             return Conflict("La ruta todavía no cerró su planificación (RF-17); no se puede cerrar económicamente.");
+        // Regla cruzada, no expresable con [Range]: el km final no puede ser anterior al inicial.
+        if (req.KmFinal < req.KmInicial)
+            return BadRequest("El km final no puede ser menor al km inicial.");
 
         // Sin freeze que hacer acá: CerrarPlanificacion (RF-17) ya exige el origen elegido antes
         // de pasar a en_curso (acta changelog 3.8), así que si esta ruta llegó hasta acá, su

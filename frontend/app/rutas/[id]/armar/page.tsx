@@ -558,6 +558,11 @@ function ArmarRuta() {
                       {!c.direccionApta && (
                         <span className="text-xs font-medium text-destructive">dirección dudosa, no se puede rutear</span>
                       )}
+                      {c.direccionApta && c.requiereCotizacion && (
+                        <span className="text-xs font-medium text-amber-600">
+                          zona sin tarifa — cerrar planificación va a rechazar la ruta si no se fija un precio manual
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>

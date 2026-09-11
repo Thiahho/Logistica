@@ -216,7 +216,11 @@ public class LocalidadesController(LogisticaDbContext db, GeocodificacionService
                 {
                     var metros = Geo.DistanciaMetros(deposito.Lat.Value, deposito.Lng.Value, referencia.Lat!.Value, referencia.Lng!.Value);
                     distanciaKm = Math.Round(metros / 1000m, 1);
-                    var zona = zonas.FirstOrDefault(z => distanciaKm >= z.KmDesde! && (z.KmHasta == null || distanciaKm <= z.KmHasta));
+                    // Semiabierto [KmDesde, KmHasta) — auditoría §7: antes era inclusivo en los
+                    // dos extremos, así que una distancia justo en la frontera (ej. 10km entre
+                    // A=0-10 y B=10-20) matcheaba las dos zonas y ganaba la primera por orden de
+                    // iteración. Ahora la frontera es siempre de la zona de arriba.
+                    var zona = zonas.FirstOrDefault(z => distanciaKm >= z.KmDesde! && (z.KmHasta == null || distanciaKm < z.KmHasta));
                     if (zona is not null)
                     {
                         zonaSugeridaId = zona.Id;

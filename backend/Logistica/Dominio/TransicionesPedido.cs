@@ -10,7 +10,7 @@ namespace Logistica.Dominio;
 ///
 ///   Borrador     → Cancelado
 ///   Confirmado   → EnRuta, Cancelado
-///   EnRuta       → Entregado, Fallido
+///   EnRuta       → Entregado, Fallido, Cancelado
 ///   Fallido      → Reprogramado, Devuelto
 ///   Reprogramado → Confirmado
 ///
@@ -19,6 +19,13 @@ namespace Logistica.Dominio;
 /// RutasController.CerrarPlanificacion cierra la planificación de la ruta que lleva el pedido —
 /// esa es la ÚNICA vía a Confirmado desde Borrador, nunca esta transición genérica. Permitirla acá
 /// dejaría confirmar (y por lo tanto rutear) un pedido con precio_base/total todavía en null.
+///
+/// EnRuta → Cancelado (E1, §10.2-I): CerrarPlanificacion pasa cada pedido de Confirmado a EnRuta
+/// en la misma escritura (RutasController.cs) — un pedido nunca queda observable "solo
+/// Confirmado" para que alguien lo cancele ahí. El estado real y externamente alcanzable con
+/// precio ya congelado es EnRuta, así que la regla de negocio ("cancelar un pedido ya confirmado
+/// cuesta el 100%") tiene que poder aplicarse desde ahí — si no, cancelar un pedido en camino
+/// simplemente no tendría ningún botón que lo permita.
 /// </summary>
 public static class TransicionesPedido
 {
@@ -26,7 +33,7 @@ public static class TransicionesPedido
     {
         [EstadoPedido.Borrador] = [EstadoPedido.Cancelado],
         [EstadoPedido.Confirmado] = [EstadoPedido.EnRuta, EstadoPedido.Cancelado],
-        [EstadoPedido.EnRuta] = [EstadoPedido.Entregado, EstadoPedido.Fallido],
+        [EstadoPedido.EnRuta] = [EstadoPedido.Entregado, EstadoPedido.Fallido, EstadoPedido.Cancelado],
         [EstadoPedido.Fallido] = [EstadoPedido.Reprogramado, EstadoPedido.Devuelto],
         [EstadoPedido.Reprogramado] = [EstadoPedido.Confirmado],
     };

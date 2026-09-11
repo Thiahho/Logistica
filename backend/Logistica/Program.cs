@@ -48,6 +48,7 @@ builder.Services.AddScoped<UbicacionService>();
 builder.Services.AddScoped<OrigenRutaService>();
 builder.Services.AddScoped<TarifaService>();
 builder.Services.AddScoped<AlmacenamientoFotos>();
+builder.Services.AddScoped<CuentaCorrienteService>();
 
 // RuteoService cachea recorridos en memoria (acta changelog 3.4) — sin tabla nueva.
 builder.Services.AddMemoryCache();
@@ -154,6 +155,30 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddControllers();
+
+// Auditoría §7 (pisos numéricos): sin esto, un [Range] fallido sale como ValidationProblemDetails
+// SIN `detail` — lib/api/errores.ts:leerError cae a `problema.title`, "One or more validation
+// errors occurred." en inglés y sin decir qué campo. Con esto, el mensaje en español del
+// ErrorMessage de cada atributo llega a la pantalla igual que un error de trigger
+// (ManejadorExcepciones), sin abrir una segunda convención de error.
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+{
+    options.InvalidModelStateResponseFactory = context =>
+    {
+        var detalle = string.Join(" ", context.ModelState.Values
+            .SelectMany(v => v.Errors)
+            .Select(e => e.ErrorMessage)
+            .Where(m => !string.IsNullOrWhiteSpace(m)));
+
+        return new BadRequestObjectResult(new ProblemDetails
+        {
+            Status = StatusCodes.Status400BadRequest,
+            Title = "Solicitud inválida",
+            Detail = string.IsNullOrWhiteSpace(detalle) ? "Uno o más campos son inválidos." : detalle,
+        });
+    };
+});
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {

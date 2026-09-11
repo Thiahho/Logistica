@@ -8,10 +8,14 @@ import type { EstadoPedido } from "./tipos";
 // Borrador -> Confirmado no está acá a propósito (acta changelog 3.11): confirmar es cotizar,
 // y eso exige conocer el tipo de vehículo real — solo pasa cuando la ruta que lleva el pedido
 // cierra su planificación (RutasController.CerrarPlanificacion), nunca a mano.
+// EnRuta -> Cancelado (E1, §10.2-I): CerrarPlanificacion pasa cada pedido de Confirmado a EnRuta
+// en la misma escritura, así que "Confirmado" nunca queda observable para cancelarlo ahí —
+// EnRuta es el primer estado externamente alcanzable con precio ya congelado, y cancelarlo desde
+// ahí cuesta el 100% del servicio (ver CuentaCorrienteService.AgregarItemDePedido).
 const TRANSICIONES: Record<EstadoPedido, EstadoPedido[]> = {
   Borrador: ["Cancelado"],
   Confirmado: ["EnRuta", "Cancelado"],
-  EnRuta: ["Entregado", "Fallido"],
+  EnRuta: ["Entregado", "Fallido", "Cancelado"],
   Entregado: [],
   Fallido: ["Reprogramado", "Devuelto"],
   Reprogramado: ["Confirmado"],

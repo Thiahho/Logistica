@@ -15,7 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { leerJson } from "@/lib/api/errores";
-import type { Vehiculo } from "@/lib/dominio/tipos";
+import { etiquetaTipoVehiculo, type Vehiculo } from "@/lib/dominio/tipos";
 
 export default function VehiculosPage() {
   return (
@@ -99,7 +99,7 @@ function ListaVehiculos() {
                   </Link>
                 </TableCell>
                 <TableCell>{v.descripcion ?? "—"}</TableCell>
-                <TableCell className="capitalize">{v.tipo}</TableCell>
+                <TableCell>{etiquetaTipoVehiculo(v.tipo)}</TableCell>
                 <TableCell>
                   {v.marca || v.modelo ? [v.marca, v.modelo].filter(Boolean).join(" ") : "—"}
                 </TableCell>

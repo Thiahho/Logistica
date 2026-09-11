@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Logistica.Auth;
 using Logistica.Datos;
 using Logistica.Dominio;
@@ -21,18 +22,28 @@ namespace Logistica.Controllers;
 [Authorize(Roles = "administracion,operacion,cliente")]
 public class PedidosController(
     LogisticaDbContext db, PrecioService precios, IOptions<OpcionesPruebaEntrega> opcionesPruebaEntrega,
-    OrigenRutaService origenes) : ControllerBase
+    OrigenRutaService origenes, CuentaCorrienteService cuentaCorriente) : ControllerBase
 {
     public record PedidoResumen(
         long Id, string DestinatarioNombre, string Estado, decimal? Total,
-        DateOnly FechaEntrega, int ClienteId, string ClienteRazonSocial, bool DireccionDudosa);
+        DateOnly FechaEntrega, int ClienteId, string ClienteRazonSocial, bool DireccionDudosa,
+        bool RequiereCotizacion = false);
+
+    public record PrecioManualInfo(decimal Precio, string? FijadoPor, DateTimeOffset FijadoEn);
 
 
-    public record CotizarRequest(int ClienteId, int LocalidadId, DateOnly FechaEntrega, bool Urgente, decimal Peajes = 0m);
+    public record CotizarRequest(
+        int ClienteId, int LocalidadId, DateOnly FechaEntrega, bool Urgente,
+        [Range(0, double.MaxValue, ErrorMessage = "Los peajes no pueden ser negativos.")] decimal Peajes = 0m);
 
     /// <summary>Estimado informativo (acta changelog 3.11): null en un tipo = todavía no se cargó
-    /// tarifa para esa zona en ese tipo de vehículo, no un error.</summary>
-    public record CotizacionEstimada(DesglosePrecio? Camioneta, DesglosePrecio? Moto);
+    /// tarifa para esa zona en ese tipo de vehículo, no un error. RequiereCotizacion (Anexo I B9):
+    /// true cuando la zona no resuelve tarifa en NINGÚN tipo de vehículo — el alta se completa
+    /// igual, pero el pedido va a necesitar un precio manual antes de poder rutearse.</summary>
+    public record CotizacionEstimada(DesglosePrecio? Camioneta, DesglosePrecio? Moto, bool RequiereCotizacion);
+
+    public record FijarPrecioManualRequest(
+        [Range(0.01, double.MaxValue, ErrorMessage = "El precio debe ser mayor a cero.")] decimal Precio);
 
     public record CrearPedidoRequest(
         int ClienteId,
@@ -40,12 +51,12 @@ public class PedidosController(
         string DestinatarioNombre,
         string DestinatarioTelefono,
         long DestinoUbicacionId,
-        int Bultos,
-        decimal? PesoKg,
-        decimal? ValorDeclarado,
+        [Range(1, int.MaxValue, ErrorMessage = "Los bultos deben ser al menos 1.")] int Bultos,
+        [Range(0, double.MaxValue, ErrorMessage = "El peso no puede ser negativo.")] decimal? PesoKg,
+        [Range(0, double.MaxValue, ErrorMessage = "El valor declarado no puede ser negativo.")] decimal? ValorDeclarado,
         DateOnly FechaEntrega,
         bool Urgente,
-        decimal Peajes,
+        [Range(0, double.MaxValue, ErrorMessage = "Los peajes no pueden ser negativos.")] decimal Peajes,
         string? Observaciones);
 
     public record HistorialEvento(
@@ -62,9 +73,27 @@ public class PedidosController(
         decimal? PrecioBase, decimal? RecargoUrgencia, decimal? DescuentoRuta, decimal Peajes, decimal? Total,
         DateTimeOffset? PrecioCongeladoEn,
         string Estado, string OrigenCarga, string? Observaciones, DateTimeOffset CreadoEn,
-        bool DireccionDudosa, List<HistorialEvento> Historial);
+        bool DireccionDudosa, bool RequiereCotizacion, PrecioManualInfo? PrecioManual,
+        int VecesReprogramado, bool Facturado, List<HistorialEvento> Historial);
 
     public record CambiarEstadoRequest(string EstadoNuevo, string? Motivo, DateOnly? NuevaFechaEntrega);
+
+    /// <summary>E1/§10.2-M: se devuelve cuando la 4ta reprogramación redirige a un pedido nuevo
+    /// tipo='reintento' en vez de reprogramar la fila original (que queda en Fallido).</summary>
+    public record ReintentoCreado(long PedidoOriginalId, long ReintentoId, int Reprogramaciones);
+
+    // ---- E1 / B16: ajustes de un pedido (bultos reales vs. declarados al retiro físico) ----
+
+    public record AjusteResumen(
+        long Id, string Tipo, string Descripcion, decimal? Monto, string Estado,
+        string? CreadoPorNombre, DateTimeOffset CreadoEn,
+        string? ResueltoPorNombre, DateTimeOffset? ResueltoEn);
+
+    public record SolicitarAjusteRequest(int BultosReales, string Descripcion);
+    public record AprobarAjusteRequest(
+        [Range(0.01, double.MaxValue, ErrorMessage = "El monto debe ser mayor a cero.")] decimal Monto,
+        [Range(0.01, double.MaxValue, ErrorMessage = "El cargo de gestión debe ser mayor a cero.")] decimal? CargoGestion);
+    public record RechazarAjusteRequest(string Motivo);
 
     public record PruebaEntregaResumen(
         long Id, string Resultado, string? MotivoFallo, string? ReceptorNombre, bool IdentidadVerificada,
@@ -74,7 +103,8 @@ public class PedidosController(
     public record CandidatoRuta(
         long PedidoId, string ClienteRazonSocial, string DestinatarioNombre, int Bultos, bool Urgente,
         string? ZonaCodigo, long DestinoUbicacionId, string DestinoCalleNumero, string? DestinoLocalidad,
-        decimal? Lat, decimal? Lng, bool DireccionApta, bool YaEnEstaRuta);
+        decimal? Lat, decimal? Lng, bool DireccionApta, bool YaEnEstaRuta,
+        bool RequiereCotizacion, decimal? PrecioManual);
 
     /// <summary>Destinatario ya usado por este cliente, con la dirección que se le entregó. Los
     /// campos de ubicación tienen el mismo shape que UbicacionesController.UbicacionResuelta: el
@@ -168,12 +198,23 @@ public class PedidosController(
                 p.ClienteId,
                 ClienteRazonSocial = p.Cliente.RazonSocial,
                 DireccionDudosa = !LogisticaDbContext.UbicacionApta(p.DestinoUbicacionId),
+                p.ZonaId,
+                p.PrecioManual,
             })
             .ToListAsync(ct);
 
+        // B9 (Anexo I §4): mismo criterio que CandidatosRuta — zonas activas sin ninguna tarifa
+        // cargada (ni camioneta ni moto). Se calcula una sola vez por página, no por fila.
+        var zonasSinTarifa = (await db.Zonas.AsNoTracking()
+            .Where(z => !db.Tarifas.Any(t => t.ZonaId == z.Id && t.VigenteHasta == null))
+            .Select(z => z.Id)
+            .ToListAsync(ct)).ToHashSet();
+
         var resultado = filas.Select(p => new PedidoResumen(
             p.Id, p.DestinatarioNombre, p.Estado.ToString(), p.Total, p.FechaEntrega,
-            p.ClienteId, p.ClienteRazonSocial, p.DireccionDudosa)).ToList();
+            p.ClienteId, p.ClienteRazonSocial, p.DireccionDudosa,
+            RequiereCotizacion: p.Estado == EstadoPedido.Borrador && p.PrecioManual is null
+                && p.ZonaId is not null && zonasSinTarifa.Contains(p.ZonaId.Value))).ToList();
 
         return Ok(new ListaPaginada<PedidoResumen>(resultado, total));
     }
@@ -215,6 +256,7 @@ public class PedidosController(
                 p.DestinatarioNombre,
                 p.Bultos,
                 p.Urgente,
+                p.ZonaId,
                 ZonaCodigo = p.Zona != null ? p.Zona.Codigo : null,
                 p.DestinoUbicacionId,
                 p.DestinoUbicacion.CalleNumero,
@@ -222,13 +264,24 @@ public class PedidosController(
                 p.DestinoUbicacion.Lat,
                 p.DestinoUbicacion.Lng,
                 DireccionApta = LogisticaDbContext.UbicacionApta(p.DestinoUbicacionId),
+                p.PrecioManual,
             })
             .ToListAsync(ct);
+
+        // Zonas sin ninguna tarifa cargada (ni camioneta ni moto) — B9: el candidato va a
+        // necesitar precio manual para poder cerrar la planificación, y conviene que el
+        // planificador lo vea acá, antes de armar, no recién con el 400 al cerrar.
+        var zonasSinTarifa = (await db.Zonas.AsNoTracking()
+            .Where(z => !db.Tarifas.Any(t => t.ZonaId == z.Id && t.VigenteHasta == null))
+            .Select(z => z.Id)
+            .ToListAsync(ct)).ToHashSet();
 
         var resultado = filas.Select(p => new CandidatoRuta(
             p.Id, p.ClienteRazonSocial, p.DestinatarioNombre, p.Bultos, p.Urgente, p.ZonaCodigo,
             p.DestinoUbicacionId, p.CalleNumero, p.DestinoLocalidad, p.Lat, p.Lng, p.DireccionApta,
-            idsEnEstaRuta.Contains(p.Id)));
+            idsEnEstaRuta.Contains(p.Id),
+            RequiereCotizacion: p.PrecioManual is null && p.ZonaId is not null && zonasSinTarifa.Contains(p.ZonaId.Value),
+            p.PrecioManual));
 
         return Ok(resultado);
     }
@@ -312,7 +365,8 @@ public class PedidosController(
             try
             {
                 return await precios.CotizarAsync(
-                    req.ClienteId, zonaId.Value, req.FechaEntrega, req.Urgente, req.Peajes, descuentoRuta: false, tipoVehiculo, ct);
+                    req.ClienteId, zonaId.Value, req.FechaEntrega, req.Urgente, req.Peajes,
+                    descuentoRuta: false, tipoVehiculo, ct: ct);
             }
             catch (InvalidOperationException)
             {
@@ -320,7 +374,9 @@ public class PedidosController(
             }
         }
 
-        return Ok(new CotizacionEstimada(await Intentar("camioneta"), await Intentar("moto")));
+        var camioneta = await Intentar("camioneta");
+        var moto = await Intentar("moto");
+        return Ok(new CotizacionEstimada(camioneta, moto, RequiereCotizacion: camioneta is null && moto is null));
     }
 
     /// <summary>
@@ -335,6 +391,30 @@ public class PedidosController(
     [Authorize(Policy = "BackOffice")]
     public async Task<IActionResult> Crear(CrearPedidoRequest req, CancellationToken ct)
     {
+        // E1 (§10.2-L1/L3): el corte de servicio por deuda vencida solo bloquea altas nuevas —
+        // se chequea primero porque es lo más barato y evita geocodificar para un cliente
+        // bloqueado. De paso corrige que Crear nunca validó que el cliente existiera ni
+        // estuviera activo: antes de esto, un ClienteId inexistente reventaba como FK violation
+        // traducida a 409 con el texto de Postgres en inglés.
+        var cliente = await db.Clientes.AsNoTracking()
+            .Where(c => c.Id == req.ClienteId)
+            .Select(c => new { c.RazonSocial, c.Activo, c.CorteSuspendidoHasta })
+            .SingleOrDefaultAsync(ct);
+        if (cliente is null) return BadRequest("El cliente no existe.");
+        if (!cliente.Activo) return Conflict($"{cliente.RazonSocial} está inactivo; no admite pedidos nuevos.");
+
+        var hoy = Reloj.HoyLocal();
+        var suspendido = cliente.CorteSuspendidoHasta is { } h && h >= hoy;
+        if (!suspendido)
+        {
+            var deuda = await cuentaCorriente.DeudaVencidaAsync(req.ClienteId, hoy, ct);
+            if (deuda > 0)
+                return Conflict(
+                    $"Servicio cortado por deuda vencida: {cliente.RazonSocial} adeuda ${deuda:N2} de " +
+                    "comprobantes vencidos. Los pedidos ya confirmados o en ruta no se ven afectados " +
+                    "(§10.2-L1). Se rehabilita solo al pagar el total (§10.2-L5) o con un plan de cuotas.");
+        }
+
         var destino = await db.Ubicaciones.Include(u => u.Localidad)
             .SingleOrDefaultAsync(u => u.Id == req.DestinoUbicacionId, ct);
         if (destino is null) return BadRequest("La ubicación de destino no existe.");
@@ -376,13 +456,16 @@ public class PedidosController(
         db.Pedidos.Add(pedido);
         await db.GuardarComoAsync(User.UsuarioId(), ct: ct);
 
-        var clienteRazonSocial = await db.Clientes.Where(c => c.Id == req.ClienteId)
-            .Select(c => c.RazonSocial).SingleAsync(ct);
+        // B9: no hay tarifa para esta zona en ningún tipo de vehículo — mismo chequeo puntual que
+        // Cotizar(), acá sobre una sola zona en vez de precalcular el set completo (Listar,
+        // CandidatosRuta), que no tendría sentido para un solo pedido recién creado.
+        var zonaSinTarifa = !await db.Tarifas.AnyAsync(t => t.ZonaId == zonaId && t.VigenteHasta == null, ct);
 
         return CreatedAtAction(nameof(Listar), new { }, new PedidoResumen(
             pedido.Id, pedido.DestinatarioNombre, pedido.Estado.ToString(), pedido.Total,
-            pedido.FechaEntrega, pedido.ClienteId, clienteRazonSocial,
-            DireccionDudosa: destino.GeoConfianza is not ("alta" or "media") && !destino.Verificada));
+            pedido.FechaEntrega, pedido.ClienteId, cliente.RazonSocial,
+            DireccionDudosa: destino.GeoConfianza is not ("alta" or "media") && !destino.Verificada,
+            RequiereCotizacion: zonaSinTarifa));
     }
 
     /// <summary>Detalle completo + historial de pedido_eventos (RF-28, criterio de aceptación 5:
@@ -427,6 +510,10 @@ public class PedidosController(
                 p.Observaciones,
                 p.CreadoEn,
                 DireccionDudosa = !LogisticaDbContext.UbicacionApta(p.DestinoUbicacionId),
+                p.PrecioManual,
+                PrecioManualPorNombre = p.PrecioManualPorUsuario != null ? p.PrecioManualPorUsuario.Nombre : null,
+                p.PrecioManualEn,
+                ZonaTieneTarifa = p.ZonaId != null && db.Tarifas.Any(t => t.ZonaId == p.ZonaId && t.VigenteHasta == null),
             })
             .SingleOrDefaultAsync(ct);
         if (fila is null) return NotFound();
@@ -451,6 +538,16 @@ public class PedidosController(
             e.Id, e.EstadoAnterior?.ToString(), e.EstadoNuevo.ToString(), e.Motivo,
             e.ActorTipo, e.ActorNombre ?? e.ActorTexto, e.OcurridoEn)).ToList();
 
+        var precioManualInfo = fila.PrecioManual is not null && fila.PrecioManualEn is not null
+            ? new PrecioManualInfo(fila.PrecioManual.Value, fila.PrecioManualPorNombre, fila.PrecioManualEn.Value)
+            : null;
+
+        // E1: derivado del log inmutable (pedido_eventos), no una columna — mismo criterio que
+        // el tope de 3 en CambiarEstado. "Facturado" es barato de chequear (índice único
+        // ux_factura_items_pedido) y le evita al frontend pedir /ajustes solo para saber esto.
+        var vecesReprogramado = eventos.Count(e => e.EstadoNuevo.ToString() == "Reprogramado");
+        var facturado = await db.FacturaItems.AnyAsync(i => i.PedidoId == id && i.Tipo == "pedido", ct);
+
         return Ok(new PedidoDetalle(
             fila.Id, fila.ClienteId, fila.ClienteRazonSocial, fila.ReferenciaCliente,
             fila.Tipo, fila.PedidoOrigenId,
@@ -460,7 +557,33 @@ public class PedidosController(
             fila.FechaEntrega, fila.Urgente,
             fila.PrecioBase, fila.RecargoUrgencia, fila.DescuentoRuta, fila.Peajes, fila.Total, fila.PrecioCongeladoEn,
             fila.Estado.ToString(), fila.OrigenCarga, fila.Observaciones, fila.CreadoEn,
-            fila.DireccionDudosa, historial));
+            fila.DireccionDudosa, RequiereCotizacion: fila.PrecioManual is null && !fila.ZonaTieneTarifa,
+            precioManualInfo, vecesReprogramado, facturado, historial));
+    }
+
+    /// <summary>
+    /// B9 (Anexo I §4, "+40 km → Cotización"): fija a mano el precio_base de un pedido cuya zona
+    /// no tiene tarifa cargada. Más estricta que la clase (Administracion sobre BackOffice) —
+    /// combinación AND, construccion_v1.md §3 regla 8, mismo criterio que ZonasController.
+    /// ActualizarKm y el ABM de depósitos: fijar precio es decisión de empresa, no del día a día
+    /// de operación. Solo en Borrador — una vez confirmado, fn_congelar_pedido lo protege igual
+    /// que el resto del precio (P1).
+    /// </summary>
+    [HttpPut("{id:long}/precio-manual")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> FijarPrecioManual(long id, FijarPrecioManualRequest req, CancellationToken ct)
+    {
+        var pedido = await db.Pedidos.SingleOrDefaultAsync(p => p.Id == id, ct);
+        if (pedido is null) return NotFound();
+        if (pedido.Estado != EstadoPedido.Borrador)
+            return Conflict("El pedido ya no está en borrador; el precio se congeló al confirmarse (P1).");
+
+        pedido.PrecioManual = req.Precio;
+        pedido.PrecioManualPor = User.UsuarioId();
+        pedido.PrecioManualEn = DateTimeOffset.UtcNow;
+
+        await db.GuardarComoAsync(User.UsuarioId(), "Precio manual fijado (zona sin tarifa).", ct);
+        return NoContent();
     }
 
     /// <summary>
@@ -484,11 +607,70 @@ public class PedidosController(
         if (TransicionesPedido.MotivoObligatorio(nuevo) && string.IsNullOrWhiteSpace(req.Motivo))
             return BadRequest("El motivo es obligatorio para esta transición.");
 
+        // E1 (§10.2-I): cancelar es gratis en Borrador (nunca tuvo precio). Un Confirmado ya
+        // consumió planificación y tiene precio congelado (P1) — cancelarlo se factura al 100%,
+        // igual que si se hubiera entregado.
+        if (nuevo == EstadoPedido.Cancelado && pedido.Estado != EstadoPedido.Borrador)
+        {
+            if (pedido.Total is null)
+                return Conflict($"El pedido {pedido.Id} no tiene precio congelado; no se puede facturar su cancelación.");
+
+            cuentaCorriente.AgregarItemDePedido(
+                pedido,
+                $"Cancelación del pedido #{pedido.Id} ya confirmado — 100% del servicio (§10.2-I).",
+                pedido.Total.Value,
+                User.UsuarioId());
+            // sigue el flujo normal: cae a pedido.Estado = nuevo más abajo, un único GuardarComoAsync.
+        }
+
         if (nuevo == EstadoPedido.Reprogramado)
         {
-            // Primer reintento por ausente: sin cargo, misma fila, nueva fecha (acta §7).
             if (req.NuevaFechaEntrega is null) return BadRequest("Falta la nueva fecha de entrega.");
-            pedido.FechaEntrega = req.NuevaFechaEntrega.Value;
+
+            // E1/D13 (§10.2-M): 3 reprogramaciones gratis por pedido — antes era 1. Derivado de
+            // pedido_eventos (insert-only, trg_log_inmutable), no una columna que pueda
+            // desincronizarse de lo que el trigger ya registró.
+            var reprogramaciones = await db.PedidoEventos.CountAsync(
+                e => e.PedidoId == pedido.Id && e.EstadoNuevo == EstadoPedido.Reprogramado, ct);
+
+            if (reprogramaciones >= 3)
+            {
+                // Agotadas las 3 gratis: en vez de reprogramar una 4ta vez, genera un pedido
+                // nuevo tipo='reintento' con precio propio — mismo patrón que la rama Devuelto
+                // (tipo='retorno') de abajo, pero SIN invertir origen/destino: es un segundo
+                // intento al mismo domicilio, no una vuelta al depósito. Nace en Borrador, sin
+                // precio (acta changelog 3.11): su vehículo no se conoce hasta que se arme su
+                // propia ruta.
+                var reintento = new Pedido
+                {
+                    ClienteId = pedido.ClienteId,
+                    ReferenciaCliente = pedido.ReferenciaCliente,
+                    Tipo = "reintento",
+                    PedidoOrigenId = pedido.Id,
+                    OrigenUbicacionId = pedido.OrigenUbicacionId,
+                    DestinoUbicacionId = pedido.DestinoUbicacionId,
+                    DestinatarioNombre = pedido.DestinatarioNombre.Trim(),
+                    DestinatarioTelefono = pedido.DestinatarioTelefono.Trim(),
+                    Bultos = pedido.Bultos,
+                    PesoKg = pedido.PesoKg,
+                    ValorDeclarado = pedido.ValorDeclarado,
+                    FechaEntrega = req.NuevaFechaEntrega.Value,
+                    ZonaId = pedido.ZonaId,
+                    Estado = EstadoPedido.Borrador,
+                    Observaciones = $"Reintento del pedido #{pedido.Id}: agotadas las 3 reprogramaciones sin cargo (D13).",
+                    CreadoEn = DateTimeOffset.UtcNow,
+                };
+                db.Pedidos.Add(reintento);
+
+                // El original QUEDA EN Fallido — no pasa a Reprogramado. Por eso se corta acá con
+                // un return explícito en vez de caer al pedido.Estado = nuevo del final del método.
+                await db.GuardarComoAsync(User.UsuarioId(),
+                    req.Motivo ?? $"4ta reprogramación del pedido #{pedido.Id}: se generó un reintento con cargo.", ct);
+
+                return Ok(new ReintentoCreado(pedido.Id, reintento.Id, reprogramaciones));
+            }
+
+            pedido.FechaEntrega = req.NuevaFechaEntrega.Value; // 1ra, 2da o 3ra: sin cargo, misma fila
         }
 
         if (nuevo == EstadoPedido.Devuelto)
@@ -528,6 +710,118 @@ public class PedidosController(
         pedido.Estado = nuevo;
         await db.GuardarComoAsync(User.UsuarioId(), req.Motivo, ct);
 
+        return NoContent();
+    }
+
+    /// <summary>E1 / B16: historial de ajustes de un pedido — pendientes, aprobados y
+    /// rechazados, más antiguo primero (igual que el Historial de estados).</summary>
+    [HttpGet("{id:long}/ajustes")]
+    [Authorize(Policy = "BackOffice")]
+    public async Task<IActionResult> ListarAjustes(long id, CancellationToken ct)
+    {
+        if (!await db.Pedidos.AnyAsync(p => p.Id == id, ct)) return NotFound();
+
+        var ajustes = await db.FacturaItems.AsNoTracking()
+            .Where(i => i.PedidoId == id && i.Tipo != "pedido")
+            .OrderBy(i => i.CreadoEn)
+            .Select(i => new AjusteResumen(
+                i.Id, i.Tipo, i.Descripcion, i.Monto, i.Estado,
+                i.CreadoPorUsuario != null ? i.CreadoPorUsuario.Nombre : null, i.CreadoEn,
+                i.ResueltoPorUsuario != null ? i.ResueltoPorUsuario.Nombre : null, i.ResueltoEn))
+            .ToListAsync(ct);
+
+        return Ok(ajustes);
+    }
+
+    /// <summary>
+    /// E1 / B16 (sumado por decisión del usuario): al retiro físico, operación marca la cantidad
+    /// real de bultos cuando difiere de lo declarado. Queda pendiente hasta que un admin lo
+    /// apruebe con un monto — no toca `pedidos` (frozen por P1), el ajuste vive aparte en
+    /// factura_items y entra en la SIGUIENTE factura.
+    /// </summary>
+    [HttpPost("{id:long}/ajustes")]
+    [Authorize(Policy = "BackOffice")]
+    public async Task<IActionResult> SolicitarAjuste(long id, SolicitarAjusteRequest req, CancellationToken ct)
+    {
+        var pedido = await db.Pedidos.SingleOrDefaultAsync(p => p.Id == id, ct);
+        if (pedido is null) return NotFound();
+
+        db.FacturaItems.Add(new FacturaItem
+        {
+            PedidoId = id,
+            Tipo = "ajuste",
+            Descripcion = $"Bultos declarados: {pedido.Bultos}. Bultos reales: {req.BultosReales}. {req.Descripcion}".Trim(),
+            Monto = null,
+            Estado = "pendiente",
+            CreadoPor = User.UsuarioId(),
+            CreadoEn = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync(ct);
+
+        return NoContent();
+    }
+
+    /// <summary>Más estricta que la clase (Administracion sobre BackOffice) — combinación AND,
+    /// mismo criterio que precio-manual (B9): fijar un monto que afecta lo que se cobra es
+    /// decisión de empresa. Tope de 3 ajustes/notas por pedido sin cargo extra (§10.2 sumado a
+    /// E1); a partir del 4to, `cargoGestion` es obligatorio y entra como un ítem SEPARADO — sin
+    /// porcentaje inventado, el admin lo tipea a mano, igual que precio_manual.</summary>
+    [HttpPut("{id:long}/ajustes/{ajusteId:long}/aprobar")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> AprobarAjuste(long id, long ajusteId, AprobarAjusteRequest req, CancellationToken ct)
+    {
+        var ajuste = await db.FacturaItems.SingleOrDefaultAsync(i => i.Id == ajusteId && i.PedidoId == id, ct);
+        if (ajuste is null) return NotFound();
+        if (ajuste.Estado != "pendiente") return Conflict("Este ajuste ya fue resuelto.");
+
+        var previos = await db.FacturaItems.CountAsync(i =>
+            i.PedidoId == id && i.Tipo != "pedido" && i.Estado == "aprobado", ct);
+
+        if (previos >= 3 && req.CargoGestion is null)
+            return BadRequest("Este pedido ya tiene 3 ajustes aprobados; el 4to exige que fijes también un cargo de gestión.");
+
+        var actor = User.UsuarioId();
+        var ahora = DateTimeOffset.UtcNow;
+
+        ajuste.Monto = req.Monto;
+        ajuste.Estado = "aprobado";
+        ajuste.ResueltoPor = actor;
+        ajuste.ResueltoEn = ahora;
+
+        if (previos >= 3 && req.CargoGestion is not null)
+        {
+            db.FacturaItems.Add(new FacturaItem
+            {
+                PedidoId = id,
+                Tipo = "ajuste",
+                Descripcion = $"Cargo de gestión por 4º ajuste sobre el pedido #{id}.",
+                Monto = req.CargoGestion.Value,
+                Estado = "aprobado",
+                CreadoPor = actor,
+                CreadoEn = ahora,
+                ResueltoPor = actor,
+                ResueltoEn = ahora,
+            });
+        }
+
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+
+    [HttpPut("{id:long}/ajustes/{ajusteId:long}/rechazar")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> RechazarAjuste(long id, long ajusteId, RechazarAjusteRequest req, CancellationToken ct)
+    {
+        var ajuste = await db.FacturaItems.SingleOrDefaultAsync(i => i.Id == ajusteId && i.PedidoId == id, ct);
+        if (ajuste is null) return NotFound();
+        if (ajuste.Estado != "pendiente") return Conflict("Este ajuste ya fue resuelto.");
+
+        ajuste.Estado = "rechazado";
+        ajuste.Descripcion += $"\nRechazado: {req.Motivo}";
+        ajuste.ResueltoPor = User.UsuarioId();
+        ajuste.ResueltoEn = DateTimeOffset.UtcNow;
+
+        await db.SaveChangesAsync(ct);
         return NoContent();
     }
 

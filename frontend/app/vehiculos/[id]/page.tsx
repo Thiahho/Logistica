@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { leerJson } from "@/lib/api/errores";
-import type { TipoVehiculo, Vehiculo } from "@/lib/dominio/tipos";
+import { etiquetaTipoVehiculo, type TipoVehiculo, type Vehiculo } from "@/lib/dominio/tipos";
 
 export default function VehiculoDetallePage() {
   return (
@@ -143,8 +143,8 @@ function DatosVehiculo({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="camioneta">Camioneta</SelectItem>
-              <SelectItem value="moto">Moto</SelectItem>
+              <SelectItem value="camioneta">{etiquetaTipoVehiculo("camioneta")}</SelectItem>
+              <SelectItem value="moto">{etiquetaTipoVehiculo("moto")}</SelectItem>
             </SelectContent>
           </Select>
         </div>

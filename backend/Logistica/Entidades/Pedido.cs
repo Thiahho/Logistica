@@ -42,6 +42,15 @@ public class Pedido
     public decimal? Total { get; set; }
     public DateTimeOffset? PrecioCongeladoEn { get; set; }
 
+    // B9 (Anexo I §4): zona sin tarifa cargada ("+40 km → Cotización"). Precio fijado a mano por
+    // administración en vez de tarifa_vigente — sustituye solo el origen de precio_base, la
+    // fórmula de §6 (recargo, descuento, peajes) sigue igual encima. Solo editable en Borrador;
+    // fn_congelar_pedido protege esta columna igual que el resto del precio (P1).
+    public decimal? PrecioManual { get; set; }
+    public Guid? PrecioManualPor { get; set; }
+    public Usuario? PrecioManualPorUsuario { get; set; }
+    public DateTimeOffset? PrecioManualEn { get; set; }
+
     public EstadoPedido Estado { get; set; } = EstadoPedido.Borrador;
 
     /// <summary>interno | importado | portal | api</summary>

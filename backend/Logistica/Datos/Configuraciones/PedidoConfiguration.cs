@@ -16,6 +16,7 @@ public class PedidoConfiguration : IEntityTypeConfiguration<Pedido>
             t.HasCheckConstraint("ck_pedidos_bultos", "bultos > 0");
             t.HasCheckConstraint("ck_pedidos_origen_coherente",
                 "tipo = 'entrega' or pedido_origen_id is not null");
+            t.HasCheckConstraint("ck_pedidos_precio_manual", "precio_manual is null or precio_manual > 0");
         });
 
         b.HasKey(x => x.Id);
@@ -43,6 +44,10 @@ public class PedidoConfiguration : IEntityTypeConfiguration<Pedido>
         b.Property(x => x.Total).HasColumnName("total").HasColumnType("numeric(12,2)");
         b.Property(x => x.PrecioCongeladoEn).HasColumnName("precio_congelado_en").HasDefaultValueSql("now()");
 
+        b.Property(x => x.PrecioManual).HasColumnName("precio_manual").HasColumnType("numeric(12,2)");
+        b.Property(x => x.PrecioManualPor).HasColumnName("precio_manual_por");
+        b.Property(x => x.PrecioManualEn).HasColumnName("precio_manual_en");
+
         b.Property(x => x.Estado).HasColumnName("estado").HasColumnType("estado_pedido").HasDefaultValue(EstadoPedido.Borrador);
         b.Property(x => x.OrigenCarga).HasColumnName("origen_carga").HasDefaultValue("interno");
         b.Property(x => x.Observaciones).HasColumnName("observaciones");
@@ -58,6 +63,8 @@ public class PedidoConfiguration : IEntityTypeConfiguration<Pedido>
             .HasForeignKey(x => x.DestinoUbicacionId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.Zona).WithMany()
             .HasForeignKey(x => x.ZonaId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne(x => x.PrecioManualPorUsuario).WithMany()
+            .HasForeignKey(x => x.PrecioManualPor).OnDelete(DeleteBehavior.Restrict);
 
         b.HasIndex(x => new { x.FechaEntrega, x.Estado });
         b.HasIndex(x => new { x.ClienteId, x.FechaEntrega });

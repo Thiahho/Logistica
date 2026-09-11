@@ -198,6 +198,15 @@ create table pedidos (
   total                 numeric(12,2),
   precio_congelado_en   timestamptz,
 
+  -- B9 (Anexo I §4, "+40 km → Cotización"): precio fijado a mano cuando la zona no tiene tarifa
+  -- cargada en ningún tipo de vehículo. Sustituye solo el origen de precio_base — la fórmula de
+  -- §6 no cambia. Solo editable en Borrador; fn_congelar_pedido lo protege igual que el resto
+  -- del precio una vez confirmado (P1). Criterio subjetivo que afecta precio: rastro escrito
+  -- (quién, cuándo), igual que el resto de acciones que dejan un `_por`/`_en`.
+  precio_manual         numeric(12,2) check (precio_manual is null or precio_manual > 0),
+  precio_manual_por     uuid references usuarios(id),
+  precio_manual_en      timestamptz,
+
   estado                estado_pedido not null default 'borrador',
   origen_carga          text not null default 'interno'
                         check (origen_carga in ('interno','importado','portal','api')),
@@ -378,6 +387,8 @@ create trigger trg_log_inmutable
   for each row execute function fn_log_inmutable();
 
 -- 3. El precio y el destino se congelan al confirmar (P1 / RF-02 / criterio 7)
+-- precio_manual entra a este conjunto desde Anexo I B9: sin esto sería el único campo de
+-- precio editable después de confirmar.
 create or replace function fn_congelar_pedido()
 returns trigger language plpgsql as $$
 begin
@@ -387,6 +398,7 @@ begin
     or new.descuento_ruta   is distinct from old.descuento_ruta
     or new.peajes           is distinct from old.peajes
     or new.total            is distinct from old.total
+    or new.precio_manual    is distinct from old.precio_manual
     or new.destino_ubicacion_id is distinct from old.destino_ubicacion_id
   ) then
     raise exception

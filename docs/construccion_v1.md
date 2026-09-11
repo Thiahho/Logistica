@@ -39,6 +39,8 @@ Regla de corte: acá no se justifica ninguna decisión de negocio. Si aparece un
 
 **Restricción de disciplina:** las 13 tablas del esquema son el techo hasta el tercer cliente. Cada tabla nueva necesita una línea en el acta antes que una línea en el SQL. **Excepción registrada:** `clientes_usuarios` (acta §11.1, changelog 3.3) sube el conteo a 14 — el login de cliente no puede compartir tabla con el personal interno, no es crecimiento por catálogo (P6).
 
+**Techo en 17, alcanzado (E1, 11/09/2026):** reservado desde E0 (acta v4.0/v4.1, `cuentas_cobrar` saliendo de "fuera del modelo inicial" por el ciclo semanal de §9.3, no por catálogo — P6). E1 lo materializa con `facturas`, `factura_items` y `pagos` (migración `AgregarCuentaCorriente`) — sin una cuarta tabla de "imputaciones": el saldo y el FIFO de pagos parciales se derivan en lectura (`v_facturas_saldo`, ver §6), no se persisten. `factura_items` es la tabla puente que reemplaza a un `pedidos.factura_id`, porque una factura admite ítems que no son un pedido (ajustes de B16, notas de crédito). **`cuentas_cobrar` como tabla propia nunca se construyó** — el concepto de negocio del acta §4 se realiza con estas tres tablas juntas, no con una tabla que lleve ese nombre.
+
 ---
 
 ## 2. Estructura del repositorio
@@ -146,13 +148,13 @@ División de roles entre administración y operación (no estaba resuelta en la 
 |---|---|---|---|
 | Pedidos del día | admin + operación | Filtro fecha/estado. Marca roja en direcciones dudosas. Cada fila linkea al detalle. | 05, 10 |
 | Alta de pedido | admin + operación | Cliente (combobox con búsqueda, sin colores ni tarifas), referencia, destinatario (autocompletado sobre el historial del propio cliente — elegir una sugerencia prellena teléfono, localidad y dirección, reusando la ubicación ya geocodificada), dirección de entrega (localidad como combobox con búsqueda, calle), bultos, fecha, urgente. Geocodifica con debounce al terminar de tipear la dirección o al cambiar la localidad (ya no solo `onBlur`), con el error visible si falla. Precio en vivo. | 01–07, 09 |
-| Detalle de pedido | admin + operación | Datos, desglose de precio congelado, historial completo de estados (actor, motivo, hora — RF-28), botones de transición según `Dominio/TransicionesPedido.cs`. | 02, 28; criterios de aceptación 5 y 7 |
+| Detalle de pedido | admin + operación | Datos, desglose de precio congelado, historial completo de estados (actor, motivo, hora — RF-28), botones de transición según `Dominio/TransicionesPedido.cs`. Mientras el pedido está en Borrador y su zona no tiene tarifa cargada (B9, Anexo I §4), admin ve un input de precio manual con quién y cuándo lo fijó. | 02, 28; criterios de aceptación 5 y 7 |
 | Rutas | admin + operación | Listado por fecha. Acción por fila según estado: *Armar* (`planificada`), *Cerrar* (`en_curso`, solo admin), *Ver cierre* (`cerrada`, solo admin). | 10 |
 | Nueva ruta | admin + operación | Alta mínima (solo fecha) → redirige a armar. | — |
-| Armar ruta | admin + operación | Candidatos confirmados de la fecha, agrupados por zona; consolidación automática por destino (RF-14); punto de partida de la jornada — combobox con el catálogo de depósitos (`GET /api/ubicaciones/depositos`) más "Otra dirección…" (mismo selector localidad+calle y misma geocodificación con debounce del alta de pedido); ya no hay opción "por default", el planificador siempre elige, `CerrarPlanificacion` lo exige (acta changelog 3.8); botón "sugerir orden" (`lib/dominio/ruteo.ts`); reordenamiento manual con flechas ↑/↓ y anclar/desanclar (RF-12/13, no drag & drop — decisión tomada, ver más abajo); contador contra `capacidad_paradas` (RF-16, aviso, nunca bloqueo); seleccionar vehículo del catálogo y repartidor; cerrar planificación. | 11–17 |
+| Armar ruta | admin + operación | Candidatos confirmados de la fecha, agrupados por zona; consolidación automática por destino (RF-14); punto de partida de la jornada — combobox con el catálogo de depósitos (`GET /api/ubicaciones/depositos`) más "Otra dirección…" (mismo selector localidad+calle y misma geocodificación con debounce del alta de pedido); ya no hay opción "por default", el planificador siempre elige, `CerrarPlanificacion` lo exige (acta changelog 3.8); botón "sugerir orden" (`lib/dominio/ruteo.ts`); reordenamiento manual con flechas ↑/↓ y anclar/desanclar (RF-12/13, no drag & drop — decisión tomada, ver más abajo); contador contra `capacidad_paradas` (RF-16, aviso, nunca bloqueo); marca sobre los candidatos cuya zona no tiene tarifa (B9); seleccionar vehículo del catálogo y repartidor; cerrar planificación. | 11–17 |
 | Cierre de ruta | solo admin | Km, combustible, peajes, otros costos, pago al repartidor → margen del día y conteo de entregas efectivas/fallidas/reprogramadas. Solo disponible una vez cerrada la planificación (`Estado == "en_curso"`). | 26, 27 |
 | Clientes | solo admin | Alta, datos, tres colores (semáforos, RF-32/33), tarifas por zona. | 09, 31–33 |
-| Tarifas | solo admin | Lista general de precios por zona (`tarifas.cliente_id` null), con el rango de km de cada zona editable al lado. Encima, "Localidades sin zona": pendientes de asignar, con zona sugerida por distancia al depósito (acta changelog 3.10). | 09 |
+| Tarifas | solo admin | Lista general de precios por zona (`tarifas.cliente_id` null), con el rango de km de cada zona editable al lado. Encima, "Localidades sin zona": pendientes de asignar, con zona sugerida por distancia al depósito (acta changelog 3.10). Aviso no bloqueante de tramos de km sin ninguna zona activa que los cubra (auditoría §7). | 09 |
 | Usuarios | solo admin | Alta, edición, activo/inactivo, reset de contraseña. Sin esto no se puede dar de alta al repartidor. | RNF-08 |
 | Depósitos | solo admin | ABM del catálogo de depósitos: alta (nombre + mismo selector localidad+calle del alta de pedido), cambio de nombre, baja. Ninguno es "el" default — renombrar o dar de baja no reescribe rutas ya cerradas — acta changelog 3.8. | RNF-08 |
 | Vehículos | solo admin | Alta, edición, activo/inactivo. Ficha de flota: patente, descripción, marca/modelo/año, km, vencimientos de VTV y seguro, costo/km, capacidad de paradas (prellena la de la ruta al elegirlo en Armar ruta). | — |
@@ -181,7 +183,7 @@ División de roles entre administración y operación (no estaba resuelta en la 
 ## 5. Máquina de estados
 
 ```
-borrador ──confirmar──► confirmado ──asignar a ruta──► en_ruta
+borrador ──confirmar──► confirmado ──asignar a ruta──► en_ruta ──cancelar──► cancelado
    │                         │                            │
 cancelado                cancelado              ┌─────────┴─────────┐
                                                 ▼                   ▼
@@ -190,37 +192,120 @@ cancelado                cancelado              ┌─────────�
                                                      ┌──────────────┴───────────┐
                                                      ▼                          ▼
                                                reprogramado                 devuelto
+                                                (hasta 3 veces)                 │
                                                      │                          │
                                             confirmado (nueva fecha)    pedido tipo 'retorno'
+                                                     │
+                                         (4ta reprogramación)
+                                                     ▼
+                                          pedido tipo 'reintento'
 ```
 
 | Transición | Condición |
 |---|---|
-| `borrador → confirmado` | Precio calculado y congelado — **exclusivamente** en `RutasController.CerrarPlanificacion` (RF-17), nunca a mano por `POST /api/pedidos/{id}/estado`: cotizar exige conocer el tipo de vehículo real de la ruta (acta changelog 3.11), que no existe hasta ese momento. `TransicionesPedido.Permitidas[Borrador]` no incluye `Confirmado` a propósito — dejarlo confirmaría un pedido con precio en null. Dirección apta o el trigger la rechaza al rutear. |
+| `borrador → confirmado` | Precio calculado y congelado — **exclusivamente** en `RutasController.CerrarPlanificacion` (RF-17), nunca a mano por `POST /api/pedidos/{id}/estado`: cotizar exige conocer el tipo de vehículo real de la ruta (acta changelog 3.11), que no existe hasta ese momento. `TransicionesPedido.Permitidas[Borrador]` no incluye `Confirmado` a propósito — dejarlo confirmaría un pedido con precio en null. Dirección apta o el trigger la rechaza al rutear. Si la zona no tiene tarifa cargada (B9, Anexo I §4) y el pedido tampoco tiene `precio_manual`, cotizar rechaza y `CerrarPlanificacion` devuelve 400 sin tocar nada — admin tiene que fijar el precio manual primero. |
 | `confirmado → en_ruta` | Existe fila en `parada_pedidos`. |
-| `en_ruta → entregado` | Prueba de entrega sincronizada. |
+| `en_ruta → entregado` | Prueba de entrega sincronizada — acuña el `factura_items` de la entrega (E1, `CuentaCorrienteService.AgregarItemDePedido`, `MisParadasController.Cerrar`). |
 | `en_ruta → fallido` | Motivo obligatorio de lista cerrada. |
-| `fallido → reprogramado` | Primer reintento: sin cargo, misma fila, nueva fecha. |
+| `en_ruta → cancelado` | **E1 (§10.2-I).** `CerrarPlanificacion` pasa cada pedido de Confirmado a EnRuta en la misma escritura, así que Confirmado nunca queda observable para cancelarlo ahí — EnRuta es el primer estado externamente alcanzable con precio ya congelado. Cancelar desde acá factura el 100% del precio (mismo mecanismo que una entrega). Cancelar desde Borrador sigue siendo gratis (no genera `factura_items`). |
+| `fallido → reprogramado` | **3 gratis por pedido** (E1/D13, antes era 1) — sin cargo, misma fila, nueva fecha. Contador derivado de `pedido_eventos` (insert-only), no una columna. |
 | `fallido → devuelto` | Genera pedido nuevo `tipo='retorno'` con `pedido_origen_id`. |
-| Segundo reintento | Pedido nuevo `tipo='reintento'`, precio propio. |
+| 4ta reprogramación | **E1.** No reprograma: genera un pedido nuevo `tipo='reintento'` con `pedido_origen_id`, mismo destino (no invierte origen/destino como `retorno`), precio propio a cotizar en su propia ruta. El original queda en `Fallido`. `PedidosController.CambiarEstado` devuelve `200 + ReintentoCreado` en vez del `204` habitual en este único camino. |
 
 **Actualizado tras H0/H1:** la fuente de verdad es el backend, no el frontend. `Dominio/TransicionesPedido.cs` (`Permitida(actual, nuevo)`, `MotivoObligatorio(nuevo)`) es quien decide, aplicada en `POST /api/pedidos/{id}/estado`; `lib/dominio/estados.ts` es un espejo de solo lectura que el frontend usa únicamente para decidir qué botones mostrar. Un intento inválido lo rechaza el servidor igual, con o sin ese espejo. La razón del cambio: sin Supabase no hay lógica de negocio confiable del lado del navegador (§1), el servidor tiene que ser quien imponga.
 
-Implementadas hoy todas las transiciones **excepto** `en_ruta → entregado`, que depende de una prueba de entrega sincronizada (H2/F3, sin construir). `fallido → devuelto` genera el pedido `tipo='retorno'` con precio propio cotizado en el momento; el segundo reintento (`tipo='reintento'`) todavía no tiene camino en la UI.
+`fallido → devuelto` genera el pedido `tipo='retorno'` con precio propio cotizado en el momento. El reintento (`tipo='reintento'`) ya tiene camino completo en la UI desde E1 — antes de esto el check constraint lo preveía pero ningún controller lo usaba.
 
 ---
 
 ## 6. Cálculo de precio
 
 ```
-precio_base       = tarifa_vigente(cliente_id, zona_id, fecha)
+precio_base       = pedidos.precio_manual ?? tarifa_vigente(cliente_id, zona_id, fecha, tipo_vehiculo)
 recargo_urgencia  = urgente ? precio_base × factor_urgencia : 0
 descuento_ruta    = pedido agregado a ruta existente ? precio_base × factor_desc : 0
 peajes            = valor cargado
 total             = precio_base + recargo_urgencia − descuento_ruta + peajes
 ```
 
-Los dos factores son parámetros de configuración, no constantes en el código. Al confirmar, los cinco valores quedan escritos en la fila y `precio_congelado_en` se sella. El trigger `trg_congelar_pedido` impide tocarlos después.
+Los dos factores son parámetros de configuración, no constantes en el código. Al confirmar, los cinco valores (`precio_base`, `recargo_urgencia`, `descuento_ruta`, `peajes`, `total`) quedan escritos en la fila y `precio_congelado_en` se sella. El trigger `trg_congelar_pedido` impide tocarlos después.
+
+**`precio_manual` (B9, Anexo I §4, "+40 km → Cotización"):** sustituye solo el origen de `precio_base` cuando la zona no tiene tarifa cargada en ningún tipo de vehículo — la fórmula de arriba no cambia, sigue aplicando recargo/descuento/peajes encima igual. Se fija a mano desde el detalle del pedido (`PUT /api/pedidos/{id}/precio-manual`, solo Administracion, solo en Borrador) y queda protegido por `trg_congelar_pedido` una vez confirmado, igual que el resto del precio. `PrecioService.CotizarAsync` lo recibe como parámetro opcional; si viene, no consulta `tarifa_vigente`.
+
+---
+
+## 6.1 Cuenta corriente y facturación (E1)
+
+**Libro contable derivado, no un motor de estados.** `facturas` y `pagos` son insert-only
+(`trg_facturas_inmutable`/`trg_pagos_inmutable`); el saldo, y qué factura está pendiente, parcial,
+pagada o vencida, se calcula en lectura vía la vista `v_facturas_saldo` (window function FIFO
+sobre `facturas.fecha_emision`, restando `pagos.monto` acumulado) — nunca se persiste como
+columna mutable. Un pago **no** tiene `factura_id`: D12 (Anexo I §10.2-B) dice que el cliente no
+elige a qué factura se imputa, y no hay ningún escritor legítimo de esa columna.
+
+**`saldo_cliente(cliente_id)` vs. `deuda_vencida_cliente(cliente_id, fecha)` — no son
+intercambiables.** El primero es para pantalla (incluye deuda todavía no vencida). El segundo es
+el único que gatea el corte de servicio (`PedidosController.Crear`, antes de resolver la
+dirección): un cliente con una factura recién emitida y no vencida tiene `saldo_cliente > 0` pero
+`deuda_vencida_cliente = 0`, y tiene que poder seguir cargando pedidos (§10.2-L3). Usar el
+primero ahí habría cortado a cualquier cliente con una factura abierta normal.
+
+**Qué acuña un `factura_items`.** Todo lo facturable nace como ítem en el momento exacto en que
+se vuelve facturable — nunca se "descubre" escaneando `pedidos` al cerrar el ciclo:
+- Entrega: `MisParadasController.Cerrar`, por pedido (una parada consolidada por RF-14 puede
+  traer más de uno).
+- Cancelación de un pedido ya `EnRuta` (§10.2-I): `PedidosController.CambiarEstado`, 100% del
+  precio congelado. Cancelar desde `Borrador` sigue gratis.
+- Ajuste aprobado (B16, ver abajo).
+
+Único punto de escritura de estos tres: `Servicios/CuentaCorrienteService.AgregarItemDePedido` —
+sin él, los dos controllers que lo llaman se desincronizarían en la primera corrección.
+`ux_factura_items_pedido` (único parcial, `tipo='pedido'`) garantiza a nivel de base que un
+pedido se factura una sola vez.
+
+**Ajustes (B16, sumado a E1 por decisión del usuario).** Al retiro físico, si los bultos reales
+no coinciden con los declarados, operación lo solicita (`POST /api/pedidos/{id}/ajustes`,
+`FacturaItem` con `Estado='pendiente'`, `Monto=null`). Un admin lo aprueba fijando el monto a
+mano — mismo patrón que `precio_manual` (B9) — o lo rechaza. **Tope de 3 ajustes por pedido sin
+cargo extra**; el 4to exige que el admin fije además un `cargoGestion`, que entra como un
+**segundo** `factura_items` separado (no sumado al primero) — sin porcentaje inventado, se tipea
+a mano.
+
+**Reprogramaciones con tope de 3 (D13, §10.2-M) y el reintento en la 4ta.** El contador se deriva
+de `pedido_eventos` (`count(estado_nuevo='reprogramado')`), no de una columna — el log ya es
+insert-only. Al 4to intento de `Fallido → Reprogramado`, `CambiarEstado` no reprograma: genera un
+pedido `tipo='reintento'` (mismo patrón que `Devuelto`/`tipo='retorno'`, pero **sin** invertir
+origen/destino — es un segundo intento al mismo domicilio) y el original queda en `Fallido`. Este
+único camino responde `200` con el pedido nuevo en vez del `204` habitual — ver §5.
+
+**Cierre de ciclo, manual, sin scheduler.** No hay Hangfire/Quartz/`IHostedService` en el
+proyecto. `Dominio/CiclosFacturacion.cs` enumera los cierres pendientes de un cliente entre su
+último `periodo_hasta` y la fecha pedida, en vez de preguntar "¿cierra hoy?" — así correr
+`POST /api/facturas/cierre` tarde (o saltearse un día) se recupera solo. Fechas fijas de
+calendario (§10.2-A): quincenal cierra el 15 y el último día del mes; mensual, solo el último.
+`fecha_vencimiento = periodo_hasta + plazo` (7 días quincenal, 10 mensual) — **nunca**
+`fecha_emision + plazo`, para que correr el cierre tarde no regale días de crédito.
+`ux_facturas_periodo` (único `cliente_id, periodo_hasta`) hace el cierre idempotente a nivel de
+base. `GET /api/facturas/cierre/previsualizacion` hace el mismo cómputo y revierte la
+transacción — imprescindible: una factura emitida es inmutable, no hay deshacer.
+
+**Plan de cuotas (§10.2-L4), sin tabla propia.** `clientes.corte_suspendido_hasta/motivo/por/en`
+— el gate ignora la deuda vencida mientras `corte_suspendido_hasta >= hoy`. Admin extiende la
+fecha con cada cuota que entra; si una no entra, el corte vuelve solo, sin job. **No guarda el
+cronograma** (cuántas cuotas, de cuánto) — con dos clientes cerrados eso es papel (P6). Si hace
+falta un cronograma real, se agrega una tabla `planes_pago` después, sin migrar nada de esto.
+
+**`Dominio/Reloj.cs`, único punto de conversión a hora local.** Todo el resto del sistema calcula
+"hoy" con `DateTime.UtcNow`; para el gate de corte y el barrido del cierre eso alcanzaba a mover
+una entrega de las 22:00 (AR) de un período al siguiente. `Reloj.HoyLocal()`/`ALaFechaLocal()`
+sobre `America/Argentina/Buenos_Aires` es la única conversión de todo el backend.
+
+**Lo que §10.2-L2 deja pendiente.** El alcance de qué pasa con mercadería de terceros ya retirada
+al momento del corte requiere dictamen legal de la Empresa — no se construyó nada de retención.
+Como el corte solo alcanza altas nuevas (§10.2-L1), el punto queda inerte por ahora: la mercadería
+ya retirada se entrega igual porque su pedido ya está confirmado.
+
+Detalle técnico completo (DDL, controllers, casos de prueba) en el changelog 1.18.
 
 ---
 
@@ -278,6 +363,18 @@ Cada hito termina cuando pasa su prueba, no cuando el código está escrito.
 
 **En paralelo, no después:** consulta legal (contrato del repartidor, límite de responsabilidad por bulto, datos del destinatario), costo real por km de la camioneta, y conversión de al menos un prospecto.
 
+### 8.1 Hitos (H) y etapas contractuales (E) — dos vocabularios, un mapeo
+
+`H0`–`H4` son el orden de construcción de *este* documento, pensado antes de que existiera el Anexo I. `E0`–`E5` (`Anexo_I_Alcance_V2.docx` §5) son el cronograma que la Empresa firmó. No son la misma lista — E0 no tenía hito propio (es deuda de auditoría y nomenclatura, no una pantalla nueva) y H2 es, palabra por palabra, el contenido de E5.
+
+| Hito | Etapa equivalente | Nota |
+|---|---|---|
+| H0, H1, H3 | — (anteriores al Anexo) | Administración y operación de escritorio, ya hechas. El Anexo §3 las lista como "alcance ya construido y verificado". |
+| — | **E0** | Sin hito propio: nomenclatura, hallazgos de auditoría (pisos numéricos, coherencia de km), B9. Ver §1 (techo de tablas) y §4.1/§6 (precio manual) de este documento. |
+| — | **E1** | **Hecha.** Sin hito propio tampoco — cuenta corriente y facturación (B1). Ver §6.1 de este documento. |
+| H2 | **E5** | Mismo contenido exacto: PWA con cola offline. Sigue sin construir en las dos numeraciones. |
+| — | E2–E4 | Sin hito asignado todavía — construidas etapa por etapa según el Anexo, no por el orden H de este documento. Dependen de E1, ya cerrada. |
+
 ---
 
 ## 9. Configuración
@@ -300,7 +397,7 @@ Cada hito termina cuando pasa su prueba, no cuando el código está escrito.
 - [ ] `tarifas`: una fila por zona con `cliente_id` null, más las de cada cliente si difieren
 - [ ] `localidades`: área de cobertura con su zona asignada — es decisión comercial, cada localidad zonificada es un lugar al que te comprometés a llegar
 - [ ] `capacidad_paradas`: número real, hoy está en 24 por defecto
-- [ ] RF-08: definir si los `borrador` del día siguiente se cancelan o se postergan a las 18:00 (hoy no aplica: `PedidosController.Crear` da de alta todo pedido directo en `confirmado`, no existe camino a `borrador` — el job de cierre de carga se retoma cuando exista uno, ver §2)
+- [ ] RF-08: definir si los `borrador` del día siguiente se cancelan o se postergan a las 18:00 (desactualizado desde el changelog 1.10: `PedidosController.Crear` da de alta todo pedido en `borrador`, no directo en `confirmado` — el camino a `borrador` sí existe hoy, lo que falta es el job de cierre de carga en sí, ver §2)
 - [ ] `FACTOR_URGENCIA` y `FACTOR_DESCUENTO_RUTA`
 - [ ] Motivos de entrega fallida: lista cerrada, escrita
 - [ ] Respaldo diario configurado **y una restauración probada** (RNF-10)
@@ -335,3 +432,5 @@ Diseño visual, textos de interfaz, esquema de pruebas automatizadas, monitoreo 
 | **1.14** | **31/08/2026** | Detalle de pedido en dialog en vez de navegación — sin cambio de API. El contenido de `pedidos/[id]/page.tsx` (Datos, Precio, Cambiar estado, Historial) se extrae a `components/PedidoDetalleContenido.tsx`, reusado por la página standalone (que sigue existiendo, para acceso directo por URL) y por un `Dialog` nuevo en `/pedidos`: clic en cualquier parte de la fila (antes solo ID y Destinatario eran `<Link>`) abre el detalle sin abandonar la lista — filtros, orden y página actual quedan intactos al cerrar. `components/ui/dialog.tsx` (nuevo) envuelve `@base-ui/react/dialog` con el mismo criterio visual que `combobox.tsx`/`select.tsx` (animaciones `data-open`/`data-closed`, radios y sombras ya usados en el resto del sistema). El link "Retorno de #X"/"Reintento de #X" pasa a ser un botón que cambia de pedido *dentro* del mismo dialog (`onAbrirPedidoOrigen`) cuando está embebido, y sigue siendo un link a `/pedidos/{id}` en la página standalone. `key={pedidoId}` en `PedidoDetalleContenido` fuerza un remonte completo al cambiar de pedido — todo el estado de la transición en curso se resetea solo, sin un efecto manual (que hubiera disparado `react-hooks/set-state-in-effect`). |
 | **1.15** | **31/08/2026** | Fix: `Borrador → Confirmado` ya no es una transición manual. Encontrado al probar 1.14: `TransicionesPedido.Permitidas[Borrador]` todavía incluía `Confirmado` desde antes de acta changelog 3.11, así que `POST /api/pedidos/{id}/estado` dejaba confirmar (y por lo tanto rutear) un pedido con `precio_base`/`total` en `null` — el trigger `fn_congelar_pedido` no lo impide porque no valida que haya precio, solo que no cambie una vez fuera de Borrador. `TransicionesPedido.Permitidas[Borrador]` pasa a `[Cancelado]` únicamente; `lib/dominio/estados.ts` (espejo) igual. La única vía real a `Confirmado` desde `Borrador` sigue siendo `RutasController.CerrarPlanificacion`, que ya cotiza con el tipo de vehículo real antes de escribir el estado. Verificado que el botón "Confirmar" ya no aparece en el dialog/página de un pedido en Borrador, y que `POST /api/pedidos/{id}/estado` con `estadoNuevo=Confirmado` sobre un pedido en Borrador devuelve 400 llamado directo por curl. |
 | **1.16** | **31/08/2026** | Rate limiting en `/api/auth/login` — hallazgo de una auditoría de seguridad pedida por el usuario sobre el sistema completo: sin límite de intentos, era fuerza bruta viable contra el login (nada de negocio lo frenaba). `Program.cs` agrega `AddRateLimiter` con una policy `"login"` — `FixedWindowRateLimiter`, 5 intentos por minuto, particionada **por IP** (`HttpContext.Connection.RemoteIpAddress`), no por email: particionar por email dejaría que cualquiera bloqueara el login de otro con solo mandar intentos fallidos a su nombre (un DoS disfrazado de "protección"). `AuthController.Login` lleva `[EnableRateLimiting("login")]`. El rechazo (429) devuelve un `ProblemDetails` con `Retry-After: 60` vía el mismo `IProblemDetailsService` que usa `ManejadorExcepciones` — mismo formato que ya sabe leer `leerError` del frontend, sin caso especial. `AuthProvider.login` distingue 429 del resto de los `!ok` (que siguen mostrando el genérico "Email o contraseña incorrectos", a propósito: no hay que filtrar si el email existe o no) y propaga el detalle real; `login/page.tsx` deja de pisarlo con un mensaje hardcodeado en el `catch`. Verificado con curl: intentos 1-5 pasan, 6to en adelante devuelve 429 con `Retry-After`, y pasado el minuto un login válido vuelve a funcionar normal. |
+| **1.17** | **11/09/2026** | **E0 completa** (`Anexo_I_Alcance_V2.docx` §5) — ver §8.1 para el mapeo de hitos/etapas. Tres piezas: **B9** ("+40 km → Cotización", Anexo I §4): `pedidos` gana `precio_manual`/`precio_manual_por`/`precio_manual_en` (migración `AgregarPrecioManual`) — precio fijado a mano cuando la zona no tiene tarifa cargada en ningún tipo de vehículo, sustituye solo el origen de `precio_base` en `PrecioService.CotizarAsync` (§6), protegido por `fn_congelar_pedido` una vez confirmado igual que el resto del precio (P1). `PUT /api/pedidos/{id}/precio-manual`, solo `Administracion`, solo en Borrador — mismo criterio de "más estricto que la clase" que `ZonasController.ActualizarKm` (regla §3.8). `Cotizar`, `Crear`, `Listar` y `CandidatosRuta` exponen `requiereCotizacion` para que se vea antes del 400 al cerrar planificación, no después. **Pisos numéricos** (hallazgos de auditoría — ver nota más abajo): `[Range]` en los request records que aceptaban negativos sin control (`RutasController.CerrarRutaRequest`/`ActualizarRutaRequest`, `VehiculosController`, `PedidosController.CrearPedidoRequest`, `TarifasController`/`ClientesController.FijarTarifaRequest`, `ZonasController.ActualizarKmRequest`) más un chequeo cruzado explícito donde `[Range]` no alcanza (`RutasController.Cerrar`: km final ≥ inicial). **Importante para quien repita el patrón:** el atributo va directo sobre el parámetro posicional del record (`[Range(...)] decimal X`), **no** con el target `[property: Range(...)]` — ASP.NET Core devuelve un 400 en runtime ("validation metadata... must be associated with the constructor parameter") si la metadata queda solo en la propiedad autogenerada. `Program.cs` suma `ApiBehaviorOptions.InvalidModelStateResponseFactory` para que un `[Range]` fallido salga como `ProblemDetails` con `Detail` en español (antes: `ValidationProblemDetails` sin `detail`, `leerError` caía al `title` en inglés). **Coherencia de km**: `ZonasController.ActualizarKm` rechaza con 400 si el rango nuevo se solapa con otra zona activa (semiabierto `[desde, hasta)`, mismo criterio que la frontera de `UbicacionesController.LocalidadesPendientes`, ahora corregida de inclusiva en los dos extremos a semiabierta); el hueco entre zonas **no** bloquea, solo se reporta (`TarifasController.CalcularHuecos`, `GET /api/tarifas` cambia de array a `{ zonas, huecos }` — frontend ajustado). Nomenclatura: `frontend/lib/dominio/tipos.ts` suma `etiquetaTipoVehiculo()` (`camioneta` → "Auto" en pantalla, el valor de base no se toca) usado en `/tarifas`, `/clientes/[id]`, `/vehiculos`, alta y detalle de pedido. Techo de tablas 14 → 17, ver §1. Verificado end-to-end con curl: `Cotizar`/`Crear`/`Detalle` en una zona sin tarifa marcan `requiereCotizacion`; `PUT precio-manual` en 403 para operación/repartidor, 400 con precio ≤0, 204 con precio válido, 409 sobre un pedido ya confirmado; overlap de zonas rechaza con 400 y el mensaje nombra la zona en conflicto, un hueco no bloquea el guardado; `Cerrar` de ruta rechaza km/montos negativos y km final menor al inicial, todos con mensaje en español. |
+| **1.18** | **11/09/2026** | **E1 completa** (Anexo I §5, B1) — cuenta corriente y facturación. Bloqueada por seis definiciones del Anexo §10.2 (A residual, B, I, L, M, N), todas resueltas por decisión explícita del usuario **excepto §10.2-L(2)**, que sigue pendiente de dictamen legal (retención de mercadería de terceros ante el corte — inerte por ahora, el corte solo alcanza altas nuevas). Detalle técnico completo en §6.1 de este mismo documento; acá solo la superficie nueva. **Datos:** techo de tablas alcanzado en 17 (`facturas`, `factura_items`, `pagos`, migración `AgregarCuentaCorriente`) + `clientes.ciclo_facturacion`/`corte_suspendido_*`. **Backend nuevo:** `Dominio/{CiclosFacturacion,Reloj}.cs`, `Servicios/CuentaCorrienteService.cs`, `Controllers/{Facturas,MiCuenta}Controller.cs`. **Backend modificado:** `PedidosController` (gate de corte en `Crear`, ramas de cancelación al 100% y reprogramación con tope de 3 + reintento en `CambiarEstado`, 4 endpoints de ajustes), `MisParadasController.Cerrar` (ítem de entrega), `ClientesController` (cuenta-corriente, pagos, corte-suspendido, ciclo), `TransicionesPedido` (`EnRuta → Cancelado` nueva — ver §5). **Frontend nuevo:** `lib/hooks/useListadoPaginado.ts` + `components/ControlesPaginacion.tsx` (extraídos de `/pedidos` y `/rutas`, que ya duplicaban ~120 líneas literales — regla de tres, tercera copia habría sido `/facturas`), `app/facturas/page.tsx` (listado + cierre de ciclo con previsualización obligatoria), `components/FacturaDetalleContenido.tsx`. **Frontend modificado:** `PedidoDetalleContenido.tsx` (Card "Facturación y ajustes", aviso de cancelación al 100%, manejo del `200 + body` del reintento), `app/clientes/[id]/page.tsx` (Card `CuentaCorrienteCliente`, ciclo en `DatosCliente`), `app/mis-envios/page.tsx` (Card "Mi cuenta", sin nav nueva — el rol `cliente` no recibe `Shell`, construirla es alcance de E4). Verificado end-to-end con curl (roles, triggers de inmutabilidad, FIFO de pagos parciales, idempotencia del cierre) y `next build` limpio. |

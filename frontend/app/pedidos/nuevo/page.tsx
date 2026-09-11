@@ -14,7 +14,7 @@ import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
 import { SelectorLocalidad, type LocalidadConocida } from "@/components/SelectorLocalidad";
 import { SugerenciaDestinatario } from "@/components/SugerenciaDestinatario";
 import { leerError, leerJson } from "@/lib/api/errores";
-import type { ClienteSeleccion, CotizacionEstimada, DestinatarioFrecuente } from "@/lib/dominio/tipos";
+import { etiquetaTipoVehiculo, type ClienteSeleccion, type CotizacionEstimada, type DestinatarioFrecuente } from "@/lib/dominio/tipos";
 
 interface UbicacionResuelta {
   id: number;
@@ -428,16 +428,25 @@ function FormularioAlta() {
                 <p className="text-muted-foreground">Calculando…</p>
               ) : errorCotizar ? (
                 <p className="text-sm text-destructive">{errorCotizar}</p>
+              ) : cotizacionVisible?.requiereCotizacion ? (
+                <div>
+                  <p className="text-lg font-semibold text-amber-600">Requiere cotización manual</p>
+                  <p className="text-xs text-muted-foreground">
+                    Esta zona todavía no tiene tarifa cargada en ningún tipo de vehículo (Anexo I,
+                    B9). El pedido se crea igual, en borrador — administración va a tener que
+                    fijarle un precio manual antes de poder armarlo en una ruta.
+                  </p>
+                </div>
               ) : cotizacionVisible ? (
                 <div>
                   <p className="text-lg font-semibold">
                     {cotizacionVisible.camioneta
-                      ? `$${cotizacionVisible.camioneta.total.toLocaleString("es-AR")} en camioneta`
-                      : "Sin tarifa de camioneta"}
+                      ? `$${cotizacionVisible.camioneta.total.toLocaleString("es-AR")} en ${etiquetaTipoVehiculo("camioneta")}`
+                      : `Sin tarifa de ${etiquetaTipoVehiculo("camioneta")}`}
                     {" · "}
                     {cotizacionVisible.moto
-                      ? `$${cotizacionVisible.moto.total.toLocaleString("es-AR")} en moto`
-                      : "sin tarifa de moto"}
+                      ? `$${cotizacionVisible.moto.total.toLocaleString("es-AR")} en ${etiquetaTipoVehiculo("moto")}`
+                      : `sin tarifa de ${etiquetaTipoVehiculo("moto")}`}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Estimado, no es el precio final: se fija cuando se arme la ruta y se sepa qué

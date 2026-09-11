@@ -34,6 +34,9 @@ export interface PedidoResumen {
   clienteId: number;
   clienteRazonSocial: string;
   direccionDudosa: boolean;
+  /** B9 (Anexo I §4, "+40 km → Cotización"): true si la zona de destino no tiene ninguna tarifa
+   * cargada y todavía no se le fijó un precio manual. Solo puede ser true en Borrador. */
+  requiereCotizacion: boolean;
 }
 
 /** Envoltorio de página (GET /api/pedidos con `pagina`/`tamanioPagina`). `total` es la cantidad
@@ -82,7 +85,25 @@ export interface PedidoDetalle {
   observaciones: string | null;
   creadoEn: string;
   direccionDudosa: boolean;
+  /** B9 (Anexo I §4): la zona de destino no tiene tarifa cargada y no se fijó precio manual. */
+  requiereCotizacion: boolean;
+  precioManual: PrecioManualInfo | null;
+  /** E1 (§10.2-M/D13): derivado del historial, no una columna — 3 gratis antes de que la 4ta
+   * genere un pedido `tipo='reintento'` en vez de reprogramar. */
+  vecesReprogramado: number;
+  /** E1: true si ya hay un factura_items tipo='pedido' para este pedido (entregado, o
+   * cancelado ya confirmado) — no significa que ya esté en una factura EMITIDA, solo que ya
+   * generó el cargo. */
+  facturado: boolean;
   historial: HistorialEvento[];
+}
+
+/** Quién fijó el precio manual y cuándo (B9, Anexo I §4) — criterio subjetivo que afecta precio,
+ * requiere rastro escrito (mismo espíritu que el ajuste de rango §10.2-F del Anexo). */
+export interface PrecioManualInfo {
+  precio: number;
+  fijadoPor: string | null;
+  fijadoEn: string;
 }
 
 /** Entidad completa, solo para administración (semáforos y datos de contacto). */
@@ -97,6 +118,11 @@ export interface Cliente {
   colorPago: string;
   colorTrato: string;
   colorOper: string;
+  cicloFacturacion: string;
+  corteSuspendidoHasta: string | null;
+  corteSuspendidoMotivo: string | null;
+  corteSuspendidoPor: string | null;
+  corteSuspendidoEn: string | null;
 }
 
 /** Para el selector de cliente en el alta de pedido (GET /api/clientes/seleccion): sin
@@ -155,7 +181,27 @@ export interface TarifaGeneral {
   precioMoto: number | null;
 }
 
+/** Tramo de km sin ninguna zona activa que lo cubra (auditoría §7, coherencia de km). hastaKm
+ * null = hueco abierto hasta el final. Aviso no bloqueante, mismo criterio que RF-16. */
+export interface HuecoKm {
+  desdeKm: number;
+  hastaKm: number | null;
+}
+
+/** GET /api/tarifas — envuelve la lista de zonas junto con los huecos detectados entre ellas. */
+export interface TarifasResponse {
+  zonas: TarifaGeneral[];
+  huecos: HuecoKm[];
+}
+
 export type TipoVehiculo = "camioneta" | "moto";
+
+/** Etiqueta comercial de cada tipo de vehículo (Anexo I §4, unificación de nomenclatura): la
+ * infografía dice "Auto", el sistema sigue guardando "camioneta" — un solo lugar para el mapeo,
+ * si el material comercial vuelve a cambiar de nombre no hay que barrer archivos. */
+export function etiquetaTipoVehiculo(tipo: TipoVehiculo): string {
+  return tipo === "camioneta" ? "Auto" : "Moto";
+}
 
 export interface DesglosePrecio {
   precioBase: number;
@@ -166,10 +212,12 @@ export interface DesglosePrecio {
 }
 
 /** Estimado informativo de POST /api/pedidos/cotizar (acta changelog 3.11) — nunca es el precio
- * final: null en un tipo = todavía no hay tarifa cargada para esa zona en ese tipo de vehículo. */
+ * final: null en un tipo = todavía no hay tarifa cargada para esa zona en ese tipo de vehículo.
+ * requiereCotizacion (Anexo I B9) = true cuando ninguno de los dos tipos tiene tarifa. */
 export interface CotizacionEstimada {
   camioneta: DesglosePrecio | null;
   moto: DesglosePrecio | null;
+  requiereCotizacion: boolean;
 }
 
 export interface EventoResumen {
@@ -279,6 +327,10 @@ export interface CandidatoRuta {
   lng: number | null;
   direccionApta: boolean;
   yaEnEstaRuta: boolean;
+  /** B9 (Anexo I §4): true si la zona no tiene tarifa cargada y el pedido no tiene precio manual
+   * — va a rechazar el cierre de planificación si entra a la ruta así. */
+  requiereCotizacion: boolean;
+  precioManual: number | null;
 }
 
 /** Destinatario ya usado por un cliente, con su dirección ya geocodificada (GET
@@ -416,4 +468,153 @@ export interface CierreResultado {
   desvioMetros: number | null;
   desvioAlto: boolean;
   duplicado: boolean;
+}
+
+// ==================== E1 — cuenta corriente y facturación ====================
+
+export type CicloFacturacion = "quincenal" | "mensual";
+
+export function etiquetaCiclo(ciclo: CicloFacturacion): string {
+  return ciclo === "quincenal" ? "Quincenal" : "Mensual";
+}
+
+/** pendiente | parcial | pagada | vencida — derivado (v_facturas_saldo), nunca persistido. */
+export type EstadoFactura = "pendiente" | "parcial" | "pagada" | "vencida";
+
+export function etiquetaEstadoFactura(estado: string): string {
+  const etiquetas: Record<string, string> = {
+    pendiente: "Pendiente",
+    parcial: "Parcial",
+    pagada: "Pagada",
+    vencida: "Vencida",
+  };
+  return etiquetas[estado] ?? estado;
+}
+
+/** Espejo de FacturasController.FacturaResumen (GET /api/facturas). */
+export interface FacturaResumen {
+  id: number;
+  clienteId: number;
+  clienteRazonSocial: string;
+  ciclo: CicloFacturacion;
+  periodoDesde: string;
+  periodoHasta: string;
+  fechaEmision: string;
+  fechaVencimiento: string;
+  total: number;
+  pagado: number;
+  saldo: number;
+  estado: EstadoFactura;
+}
+
+/** tipo de un ítem de factura: pedido | ajuste | nota_credito. */
+export type TipoFacturaItem = "pedido" | "ajuste" | "nota_credito";
+
+export interface FacturaItemResumen {
+  id: number;
+  pedidoId: number | null;
+  tipo: TipoFacturaItem;
+  descripcion: string;
+  monto: number | null;
+  estado: "pendiente" | "aprobado" | "rechazado";
+}
+
+/** Espejo de FacturasController.FacturaDetalle (GET /api/facturas/{id}). */
+export interface FacturaDetalle extends FacturaResumen {
+  items: FacturaItemResumen[];
+}
+
+/** Espejo de ClientesController.FacturaClienteResumen (dentro de CuentaCorrienteCliente). */
+export interface FacturaClienteResumen {
+  id: number;
+  ciclo: CicloFacturacion;
+  periodoDesde: string;
+  periodoHasta: string;
+  fechaEmision: string;
+  fechaVencimiento: string;
+  total: number;
+  pagado: number;
+  saldo: number;
+  estado: EstadoFactura;
+}
+
+/** Espejo de ClientesController.PagoResumen. */
+export interface PagoResumen {
+  id: number;
+  monto: number;
+  fechaPago: string;
+  medio: string;
+  nota: string | null;
+  registradoPorNombre: string | null;
+  registradoEn: string;
+}
+
+/** Espejo de ClientesController.CuentaCorrienteCliente (GET /api/clientes/{id}/cuenta-corriente). */
+export interface CuentaCorrienteCliente {
+  saldo: number;
+  deudaVencida: number;
+  servicioCortado: boolean;
+  corteSuspendidoHasta: string | null;
+  corteSuspendidoMotivo: string | null;
+  corteSuspendidoPorNombre: string | null;
+  corteSuspendidoEn: string | null;
+  pendienteDeFacturar: number;
+  ajustesPendientes: number;
+  facturas: FacturaClienteResumen[];
+  pagos: PagoResumen[];
+}
+
+/** Espejo de MiCuentaController.FacturaPropia/CuentaPropia (GET /api/mi-cuenta, rol cliente). */
+export interface FacturaPropia {
+  id: number;
+  periodoDesde: string;
+  periodoHasta: string;
+  fechaVencimiento: string;
+  total: number;
+  saldo: number;
+  estado: EstadoFactura;
+}
+
+export interface CuentaPropia {
+  saldo: number;
+  deudaVencida: number;
+  servicioCortado: boolean;
+  proximoVencimiento: string | null;
+  facturas: FacturaPropia[];
+}
+
+/** Resultado de un cierre de ciclo por cliente (GET .../cierre/previsualizacion, POST .../cierre). */
+export interface ResultadoCierreCliente {
+  clienteId: number;
+  razonSocial: string;
+  ciclo: CicloFacturacion;
+  facturaId: number | null;
+  periodoDesde: string;
+  periodoHasta: string;
+  fechaVencimiento: string;
+  total: number;
+  cantidadItems: number;
+  ajustesPendientes: number;
+  omitido: string | null;
+}
+
+/** Espejo de PedidosController.AjusteResumen (GET/POST /api/pedidos/{id}/ajustes). */
+export interface AjusteResumen {
+  id: number;
+  tipo: TipoFacturaItem;
+  descripcion: string;
+  monto: number | null;
+  estado: "pendiente" | "aprobado" | "rechazado";
+  creadoPorNombre: string | null;
+  creadoEn: string;
+  resueltoPorNombre: string | null;
+  resueltoEn: string | null;
+}
+
+/** Espejo de PedidosController.ReintentoCreado — respuesta 200 cuando la 4ta reprogramación
+ * redirige a un pedido nuevo tipo='reintento' en vez de reprogramar (D13, §10.2-M). */
+export interface ReintentoCreado {
+  pedidoOriginalId: number;
+  reintentoId: number;
+  reprogramaciones: number;
 }

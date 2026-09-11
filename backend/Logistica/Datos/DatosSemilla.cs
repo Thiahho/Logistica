@@ -89,7 +89,10 @@ public static class DatosSemilla
                     RazonSocial = "Cliente Demo Uno S.A.",
                     ColorPago = "verde", ColorTrato = "verde", ColorOper = "verde",
                 },
-                new Cliente { RazonSocial = "Cliente Demo Dos S.R.L." });
+                new Cliente { RazonSocial = "Cliente Demo Dos S.R.L." },
+                // E1: ciclo quincenal, para poder probar los dos ciclos de facturación
+                // (§10.2-A/D2) sin editar la base a mano — el resto nace en "mensual" (default).
+                new Cliente { RazonSocial = "Cliente Demo Tres (quincenal)", CicloFacturacion = "quincenal" });
             await db.SaveChangesAsync(ct);
         }
 

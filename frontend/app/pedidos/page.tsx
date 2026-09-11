@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -24,14 +24,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
+import { ControlesPaginacion } from "@/components/ControlesPaginacion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PedidoDetalleContenido } from "@/components/PedidoDetalleContenido";
 import { leerJson } from "@/lib/api/errores";
-import { ESTADOS_PEDIDO, type ClienteSeleccion, type ListaPaginada, type PedidoResumen } from "@/lib/dominio/tipos";
-
-const TAMANIOS_PAGINA = [10, 15, 20] as const;
-
-type Orden = "fecha" | "-fecha" | "id" | "-id" | "total" | "-total" | "estado" | "-estado";
+import { useListadoPaginado } from "@/lib/hooks/useListadoPaginado";
+import { ESTADOS_PEDIDO, type ClienteSeleccion, type PedidoResumen } from "@/lib/dominio/tipos";
 
 interface Columna {
   campo: "id" | "estado" | "total" | "fecha";
@@ -55,20 +53,22 @@ export default function PedidosPage() {
 
 function ListaPedidos() {
   const { fetchConSesion } = useAuth();
-  const [pedidos, setPedidos] = useState<PedidoResumen[] | null>(null);
-  const [totalRegistros, setTotalRegistros] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-
   const [clientes, setClientes] = useState<ClienteSeleccion[]>([]);
   const [q, setQ] = useState("");
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
   const [estado, setEstado] = useState("");
   const [clienteId, setClienteId] = useState<string | null>(null);
-  const [orden, setOrden] = useState<Orden>("-fecha");
-  const [pagina, setPagina] = useState(1);
-  const [tamanioPagina, setTamanioPagina] = useState<number>(15);
   const [pedidoAbierto, setPedidoAbierto] = useState<number | null>(null);
+
+  const {
+    items: pedidos, totalRegistros, error, pagina, setPagina, tamanioPagina, setTamanioPagina,
+    totalPaginas, alternarOrden, indicadorOrden, conReinicioDePagina, recargar,
+  } = useListadoPaginado<PedidoResumen>({
+    ruta: "/api/pedidos",
+    filtros: { q: q.trim(), fechaDesde, fechaHasta, estado, clienteId: clienteId ?? "" },
+    ordenInicial: "-fecha",
+  });
 
   useEffect(() => {
     fetchConSesion("/api/clientes/seleccion")
@@ -76,53 +76,6 @@ function ListaPedidos() {
       .then(setClientes)
       .catch(() => setClientes([]));
   }, [fetchConSesion]);
-
-  const cargar = useCallback(() => {
-    const params = new URLSearchParams();
-    if (q.trim()) params.set("q", q.trim());
-    if (fechaDesde) params.set("fechaDesde", fechaDesde);
-    if (fechaHasta) params.set("fechaHasta", fechaHasta);
-    if (estado) params.set("estado", estado);
-    if (clienteId) params.set("clienteId", clienteId);
-    params.set("orden", orden);
-    params.set("pagina", String(pagina));
-    params.set("tamanioPagina", String(tamanioPagina));
-    fetchConSesion(`/api/pedidos?${params.toString()}`)
-      .then((r) => leerJson<ListaPaginada<PedidoResumen>>(r))
-      .then((r) => {
-        setPedidos(r.items);
-        setTotalRegistros(r.total);
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar los pedidos."));
-  }, [fetchConSesion, q, fechaDesde, fechaHasta, estado, clienteId, orden, pagina, tamanioPagina]);
-
-  useEffect(() => {
-    cargar();
-  }, [cargar]);
-
-  // Cualquier cambio de filtro/orden/tamaño vuelve a la página 1 — quedarse en una página que ya
-  // no existe (ej. filtrar y tener menos resultados que antes) mostraría una lista vacía confusa.
-  function conReinicioDePagina<T>(setter: (v: T) => void) {
-    return (v: T) => {
-      setter(v);
-      setPagina(1);
-    };
-  }
-
-  const totalPaginas = Math.max(1, Math.ceil(totalRegistros / tamanioPagina));
-
-  function alternarOrden(campo: Columna["campo"]) {
-    const asc = campo as Orden;
-    const desc = `-${campo}` as Orden;
-    setOrden((actual) => (actual === desc ? asc : desc));
-    setPagina(1);
-  }
-
-  function indicadorOrden(campo: Columna["campo"]) {
-    if (orden === campo) return "▲";
-    if (orden === `-${campo}`) return "▼";
-    return null;
-  }
 
   const hayFiltros = q || fechaDesde || fechaHasta || estado || clienteId;
 
@@ -274,66 +227,25 @@ function ListaPedidos() {
                         dirección dudosa
                       </span>
                     )}
+                    {p.requiereCotizacion && (
+                      <span className="ml-2 text-xs font-medium text-amber-600">
+                        requiere cotización
+                      </span>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
 
-          <div className="flex items-center justify-between gap-4 mt-4">
-            <p className="text-sm text-muted-foreground">
-              {totalRegistros === 0
-                ? "Sin resultados"
-                : `Mostrando ${(pagina - 1) * tamanioPagina + 1}–${Math.min(pagina * tamanioPagina, totalRegistros)} de ${totalRegistros}`}
-            </p>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="tamanio-pagina" className="text-sm text-muted-foreground">
-                  Por página
-                </Label>
-                <Select
-                  items={TAMANIOS_PAGINA.map((n) => ({ value: String(n), label: String(n) }))}
-                  value={String(tamanioPagina)}
-                  onValueChange={(v) => {
-                    setTamanioPagina(Number(v));
-                    setPagina(1);
-                  }}
-                >
-                  <SelectTrigger id="tamanio-pagina" className="w-20">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TAMANIOS_PAGINA.map((n) => (
-                      <SelectItem key={n} value={String(n)}>
-                        {n}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={pagina <= 1}
-                  onClick={() => setPagina((p) => Math.max(1, p - 1))}
-                >
-                  ← Anterior
-                </Button>
-                <span className="text-sm text-muted-foreground">
-                  Página {pagina} de {totalPaginas}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={pagina >= totalPaginas}
-                  onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
-                >
-                  Siguiente →
-                </Button>
-              </div>
-            </div>
-          </div>
+          <ControlesPaginacion
+            pagina={pagina}
+            setPagina={setPagina}
+            totalPaginas={totalPaginas}
+            totalRegistros={totalRegistros}
+            tamanioPagina={tamanioPagina}
+            setTamanioPagina={setTamanioPagina}
+          />
         </>
       )}
     </div>
@@ -347,7 +259,7 @@ function ListaPedidos() {
           <PedidoDetalleContenido
             key={pedidoAbierto}
             pedidoId={pedidoAbierto}
-            onCambio={cargar}
+            onCambio={recargar}
             onAbrirPedidoOrigen={setPedidoAbierto}
           />
         )}

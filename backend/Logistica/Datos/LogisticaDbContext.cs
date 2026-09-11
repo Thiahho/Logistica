@@ -12,6 +12,20 @@ public class LogisticaDbContext(DbContextOptions<LogisticaDbContext> options) : 
     public static bool UbicacionApta(long ubicacionId) =>
         throw new NotSupportedException("Solo se puede usar dentro de una consulta LINQ a EF.");
 
+    /// <summary>E1: saldo total del cliente (facturado - pagado), incluye deuda todavía no
+    /// vencida. Para el gate de corte (¿se admite un pedido nuevo?) no se usa esta función —
+    /// se usa DeudaVencidaCliente, que solo cuenta lo vencido (acta §10.2-L3).</summary>
+    [DbFunction("saldo_cliente", IsBuiltIn = false)]
+    public static decimal SaldoCliente(int clienteId) =>
+        throw new NotSupportedException("Solo se puede usar dentro de una consulta LINQ a EF.");
+
+    /// <summary>E1: deuda con fecha de vencimiento ya pasada a `fecha` — la función real que
+    /// gatea el corte de servicio (acta §10.2-L1/L3). Se apoya en v_facturas_saldo (FIFO), no
+    /// reimplementa la imputación.</summary>
+    [DbFunction("deuda_vencida_cliente", IsBuiltIn = false)]
+    public static decimal DeudaVencidaCliente(int clienteId, DateOnly fecha) =>
+        throw new NotSupportedException("Solo se puede usar dentro de una consulta LINQ a EF.");
+
     public DbSet<Zona> Zonas => Set<Zona>();
     public DbSet<Localidad> Localidades => Set<Localidad>();
     public DbSet<Ubicacion> Ubicaciones => Set<Ubicacion>();
@@ -29,6 +43,9 @@ public class LogisticaDbContext(DbContextOptions<LogisticaDbContext> options) : 
     public DbSet<TipoEventoCliente> TiposEventoCliente => Set<TipoEventoCliente>();
     public DbSet<EventoCliente> EventosCliente => Set<EventoCliente>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<Factura> Facturas => Set<Factura>();
+    public DbSet<FacturaItem> FacturaItems => Set<FacturaItem>();
+    public DbSet<Pago> Pagos => Set<Pago>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -60,7 +77,42 @@ public class LogisticaDbContext(DbContextOptions<LogisticaDbContext> options) : 
             b.Property(x => x.Lng).HasColumnName("lng");
             b.Property(x => x.Localidad).HasColumnName("localidad");
         });
+
+        // E1: saldo por factura derivado por FIFO (v_facturas_saldo, docs/schema_v3.sql). Igual
+        // que v_paradas_repartidor: la vista es la única fuente de verdad del cálculo, esto solo
+        // la expone a LINQ.
+        modelBuilder.Entity<FacturaSaldo>(b =>
+        {
+            b.HasNoKey();
+            b.ToView("v_facturas_saldo");
+            b.Property(x => x.Id).HasColumnName("id");
+            b.Property(x => x.ClienteId).HasColumnName("cliente_id");
+            b.Property(x => x.Ciclo).HasColumnName("ciclo");
+            b.Property(x => x.PeriodoDesde).HasColumnName("periodo_desde");
+            b.Property(x => x.PeriodoHasta).HasColumnName("periodo_hasta");
+            b.Property(x => x.FechaEmision).HasColumnName("fecha_emision");
+            b.Property(x => x.FechaVencimiento).HasColumnName("fecha_vencimiento");
+            b.Property(x => x.Total).HasColumnName("total");
+            b.Property(x => x.Saldo).HasColumnName("saldo");
+            b.Property(x => x.Pagado).HasColumnName("pagado");
+        });
     }
+}
+
+/// <summary>Proyección de solo lectura de v_facturas_saldo — saldo/pagado de cada factura
+/// resuelto por FIFO (E1, acta §10.2-B/D12). Nunca se escribe a través de esta entidad.</summary>
+public class FacturaSaldo
+{
+    public long Id { get; set; }
+    public int ClienteId { get; set; }
+    public string Ciclo { get; set; } = null!;
+    public DateOnly PeriodoDesde { get; set; }
+    public DateOnly PeriodoHasta { get; set; }
+    public DateOnly FechaEmision { get; set; }
+    public DateOnly FechaVencimiento { get; set; }
+    public decimal Total { get; set; }
+    public decimal Saldo { get; set; }
+    public decimal Pagado { get; set; }
 }
 
 /// <summary>Proyección de solo lectura de v_paradas_repartidor. Nunca tiene importes.</summary>

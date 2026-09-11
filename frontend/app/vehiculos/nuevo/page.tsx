@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { leerError } from "@/lib/api/errores";
-import type { TipoVehiculo } from "@/lib/dominio/tipos";
+import { etiquetaTipoVehiculo, type TipoVehiculo } from "@/lib/dominio/tipos";
 
 export default function NuevoVehiculoPage() {
   return (
@@ -105,8 +105,8 @@ function FormularioAlta() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="camioneta">Camioneta</SelectItem>
-                  <SelectItem value="moto">Moto</SelectItem>
+                  <SelectItem value="camioneta">{etiquetaTipoVehiculo("camioneta")}</SelectItem>
+                  <SelectItem value="moto">{etiquetaTipoVehiculo("moto")}</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">

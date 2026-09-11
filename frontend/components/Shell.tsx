@@ -18,6 +18,7 @@ const NAV: ItemNav[] = [
   { href: "/clientes", label: "Clientes", roles: ["administracion"] },
   { href: "/vehiculos", label: "Vehículos", roles: ["administracion"] },
   { href: "/tarifas", label: "Tarifas", roles: ["administracion"] },
+  { href: "/facturas", label: "Facturas", roles: ["administracion"] },
   { href: "/usuarios", label: "Usuarios", roles: ["administracion"] },
   { href: "/depositos", label: "Depósitos", roles: ["administracion"] },
   { href: "/exportar", label: "Exportar", roles: ["administracion"] },

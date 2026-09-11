@@ -25,7 +25,8 @@ public class MisParadasController(
     IOptions<OpcionesPruebaEntrega> opciones,
     OrigenRutaService origenes,
     AlmacenamientoFotos almacenamiento,
-    RuteoService ruteo) : ControllerBase
+    RuteoService ruteo,
+    CuentaCorrienteService cuentaCorriente) : ControllerBase
 {
     public record PedidoDeParada(long PedidoId, string DestinatarioNombre, string DestinatarioTelefono, int Bultos, string? Observaciones);
 
@@ -280,6 +281,13 @@ public class MisParadasController(
                 DeviceUuid = req.DeviceUuid,
             });
             pedido.Estado = nuevoEstadoPedido;
+
+            // E1: acuña el ítem facturable de la entrega — por pedido, no por parada, porque
+            // una parada consolidada (RF-14) puede traer más de un pedido a la vez. Nada en el
+            // camino "fallido" — confirmado: un intento fallido no factura aparte (§10.2-I).
+            if (req.Resultado == "entregado" && pedido.Total is not null)
+                cuentaCorriente.AgregarItemDePedido(pedido,
+                    $"Pedido #{pedido.Id} — {pedido.DestinatarioNombre}", pedido.Total.Value, repartidorId);
         }
 
         parada.Estado = req.Resultado == "entregado" ? "completada" : "fallida";

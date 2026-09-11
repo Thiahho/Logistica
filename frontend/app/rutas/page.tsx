@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -23,13 +22,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { leerJson } from "@/lib/api/errores";
-import type { ListaPaginada, RutaResumen } from "@/lib/dominio/tipos";
+import { ControlesPaginacion } from "@/components/ControlesPaginacion";
+import { useListadoPaginado } from "@/lib/hooks/useListadoPaginado";
+import type { RutaResumen } from "@/lib/dominio/tipos";
+import { useState } from "react";
 
-const TAMANIOS_PAGINA = [10, 15, 20] as const;
 const ESTADOS_RUTA = ["planificada", "en_curso", "cerrada"] as const;
-
-type Orden = "fecha" | "-fecha" | "id" | "-id" | "estado" | "-estado" | "paradas" | "-paradas";
 
 interface Columna {
   campo: "id" | "fecha" | "estado" | "paradas";
@@ -52,62 +50,20 @@ export default function RutasPage() {
 }
 
 function ListaRutas() {
-  const { usuario, fetchConSesion } = useAuth();
-  const [rutas, setRutas] = useState<RutaResumen[] | null>(null);
-  const [totalRegistros, setTotalRegistros] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-
+  const { usuario } = useAuth();
   const [q, setQ] = useState("");
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
   const [estado, setEstado] = useState("");
-  const [orden, setOrden] = useState<Orden>("-fecha");
-  const [pagina, setPagina] = useState(1);
-  const [tamanioPagina, setTamanioPagina] = useState<number>(15);
 
-  const cargar = useCallback(() => {
-    const params = new URLSearchParams();
-    if (q.trim()) params.set("q", q.trim());
-    if (fechaDesde) params.set("fechaDesde", fechaDesde);
-    if (fechaHasta) params.set("fechaHasta", fechaHasta);
-    if (estado) params.set("estado", estado);
-    params.set("orden", orden);
-    params.set("pagina", String(pagina));
-    params.set("tamanioPagina", String(tamanioPagina));
-    fetchConSesion(`/api/rutas?${params.toString()}`)
-      .then((r) => leerJson<ListaPaginada<RutaResumen>>(r))
-      .then((r) => {
-        setRutas(r.items);
-        setTotalRegistros(r.total);
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar las rutas."));
-  }, [fetchConSesion, q, fechaDesde, fechaHasta, estado, orden, pagina, tamanioPagina]);
-
-  useEffect(() => {
-    cargar();
-  }, [cargar]);
-
-  function conReinicioDePagina<T>(setter: (v: T) => void) {
-    return (v: T) => {
-      setter(v);
-      setPagina(1);
-    };
-  }
-
-  const totalPaginas = Math.max(1, Math.ceil(totalRegistros / tamanioPagina));
-
-  function alternarOrden(campo: Columna["campo"]) {
-    const asc = campo as Orden;
-    const desc = `-${campo}` as Orden;
-    setOrden((actual) => (actual === desc ? asc : desc));
-    setPagina(1);
-  }
-
-  function indicadorOrden(campo: Columna["campo"]) {
-    if (orden === campo) return "▲";
-    if (orden === `-${campo}`) return "▼";
-    return null;
-  }
+  const {
+    items: rutas, totalRegistros, error, pagina, setPagina, tamanioPagina, setTamanioPagina,
+    totalPaginas, alternarOrden, indicadorOrden, conReinicioDePagina,
+  } = useListadoPaginado<RutaResumen>({
+    ruta: "/api/rutas",
+    filtros: { q: q.trim(), fechaDesde, fechaHasta, estado },
+    ordenInicial: "-fecha",
+  });
 
   const hayFiltros = q || fechaDesde || fechaHasta || estado;
 
@@ -251,60 +207,14 @@ function ListaRutas() {
             </TableBody>
           </Table>
 
-          <div className="flex items-center justify-between gap-4 mt-4">
-            <p className="text-sm text-muted-foreground">
-              {totalRegistros === 0
-                ? "Sin resultados"
-                : `Mostrando ${(pagina - 1) * tamanioPagina + 1}–${Math.min(pagina * tamanioPagina, totalRegistros)} de ${totalRegistros}`}
-            </p>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="tamanio-pagina" className="text-sm text-muted-foreground">
-                  Por página
-                </Label>
-                <Select
-                  items={TAMANIOS_PAGINA.map((n) => ({ value: String(n), label: String(n) }))}
-                  value={String(tamanioPagina)}
-                  onValueChange={(v) => {
-                    setTamanioPagina(Number(v));
-                    setPagina(1);
-                  }}
-                >
-                  <SelectTrigger id="tamanio-pagina" className="w-20">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TAMANIOS_PAGINA.map((n) => (
-                      <SelectItem key={n} value={String(n)}>
-                        {n}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={pagina <= 1}
-                  onClick={() => setPagina((p) => Math.max(1, p - 1))}
-                >
-                  ← Anterior
-                </Button>
-                <span className="text-sm text-muted-foreground">
-                  Página {pagina} de {totalPaginas}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={pagina >= totalPaginas}
-                  onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
-                >
-                  Siguiente →
-                </Button>
-              </div>
-            </div>
-          </div>
+          <ControlesPaginacion
+            pagina={pagina}
+            setPagina={setPagina}
+            totalPaginas={totalPaginas}
+            totalRegistros={totalRegistros}
+            tamanioPagina={tamanioPagina}
+            setTamanioPagina={setTamanioPagina}
+          />
         </>
       )}
     </div>

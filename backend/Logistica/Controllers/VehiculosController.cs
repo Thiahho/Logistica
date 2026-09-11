@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Logistica.Datos;
 using Logistica.Entidades;
 using Microsoft.AspNetCore.Authorization;
@@ -29,13 +30,21 @@ public class VehiculosController(LogisticaDbContext db) : ControllerBase
     public record VehiculoSeleccion(long Id, string Patente, string? Descripcion, int CapacidadParadas);
 
     public record CrearVehiculoRequest(
-        string Patente, string? Descripcion, string Tipo, string? Marca, string? Modelo, int? Anio,
-        int? KmActual, DateOnly? VenceVtv, DateOnly? VenceSeguro, decimal? CostoKm, int CapacidadParadas);
+        string Patente, string? Descripcion, string Tipo, string? Marca, string? Modelo,
+        [Range(1900, 2100, ErrorMessage = "Año de vehículo inválido.")] int? Anio,
+        [Range(0, int.MaxValue, ErrorMessage = "El kilometraje no puede ser negativo.")] int? KmActual,
+        DateOnly? VenceVtv, DateOnly? VenceSeguro,
+        [Range(0, double.MaxValue, ErrorMessage = "El costo por km no puede ser negativo.")] decimal? CostoKm,
+        [Range(1, int.MaxValue, ErrorMessage = "La capacidad de paradas debe ser mayor a cero.")] int CapacidadParadas);
 
     public record ActualizarVehiculoRequest(
-        string Patente, string? Descripcion, string Tipo, string? Marca, string? Modelo, int? Anio,
-        int? KmActual, DateOnly? VenceVtv, DateOnly? VenceSeguro, decimal? CostoKm,
-        int CapacidadParadas, bool Activo);
+        string Patente, string? Descripcion, string Tipo, string? Marca, string? Modelo,
+        [Range(1900, 2100, ErrorMessage = "Año de vehículo inválido.")] int? Anio,
+        [Range(0, int.MaxValue, ErrorMessage = "El kilometraje no puede ser negativo.")] int? KmActual,
+        DateOnly? VenceVtv, DateOnly? VenceSeguro,
+        [Range(0, double.MaxValue, ErrorMessage = "El costo por km no puede ser negativo.")] decimal? CostoKm,
+        [Range(1, int.MaxValue, ErrorMessage = "La capacidad de paradas debe ser mayor a cero.")] int CapacidadParadas,
+        bool Activo);
 
     public record ActivoRequest(bool Activo);
 

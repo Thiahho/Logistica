@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/table";
 import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
 import { leerError, leerJson } from "@/lib/api/errores";
-import type { LocalidadPendiente, TarifaGeneral } from "@/lib/dominio/tipos";
+import { etiquetaTipoVehiculo, type HuecoKm, type LocalidadPendiente, type TarifaGeneral, type TarifasResponse } from "@/lib/dominio/tipos";
 
 export default function TarifasPage() {
   return (
@@ -30,6 +30,7 @@ export default function TarifasPage() {
 function ListaTarifas() {
   const { fetchConSesion } = useAuth();
   const [tarifas, setTarifas] = useState<TarifaGeneral[] | null>(null);
+  const [huecos, setHuecos] = useState<HuecoKm[]>([]);
   const [preciosCamioneta, setPreciosCamioneta] = useState<Record<number, string>>({});
   const [preciosMoto, setPreciosMoto] = useState<Record<number, string>>({});
   const [kmDesdes, setKmDesdes] = useState<Record<number, string>>({});
@@ -44,8 +45,11 @@ function ListaTarifas() {
 
   const cargar = () => {
     fetchConSesion("/api/tarifas")
-      .then((r) => leerJson<TarifaGeneral[]>(r))
-      .then(setTarifas)
+      .then((r) => leerJson<TarifasResponse>(r))
+      .then((datos) => {
+        setTarifas(datos.zonas);
+        setHuecos(datos.huecos);
+      })
       .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar las tarifas."));
   };
 
@@ -208,6 +212,18 @@ function ListaTarifas() {
         </CardHeader>
         <CardContent className="overflow-x-auto">
           {error && <p className="text-sm text-destructive mb-4">{error}</p>}
+          {huecos.length > 0 && (
+            <p className="text-sm text-amber-600 mb-4">
+              Hay tramos de km sin ninguna zona activa que los cubra (auditoría §7): {" "}
+              {huecos.map((h, i) => (
+                <span key={i}>
+                  {i > 0 && ", "}
+                  {h.hastaKm !== null ? `${h.desdeKm}–${h.hastaKm} km` : `${h.desdeKm}+ km`}
+                </span>
+              ))}
+              . Una localidad ahí no recibe zona sugerida.
+            </p>
+          )}
           {!tarifas ? (
             error ? null : <p className="text-muted-foreground">Cargando…</p>
           ) : (
@@ -217,8 +233,8 @@ function ListaTarifas() {
                   <TableHead>Zona</TableHead>
                   <TableHead>Km desde</TableHead>
                   <TableHead>Km hasta</TableHead>
-                  <TableHead>Precio camioneta</TableHead>
-                  <TableHead>Precio moto</TableHead>
+                  <TableHead>Precio {etiquetaTipoVehiculo("camioneta")}</TableHead>
+                  <TableHead>Precio {etiquetaTipoVehiculo("moto")}</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>

@@ -16,6 +16,7 @@ const RUTAS_PROTEGIDAS = [
   "/rutas",
   "/exportar",
   "/depositos",
+  "/facturas",
 ];
 
 export function proxy(request: NextRequest) {
@@ -45,5 +46,6 @@ export const config = {
     "/rutas/:path*",
     "/exportar/:path*",
     "/depositos/:path*",
+    "/facturas/:path*",
   ],
 };

@@ -27,7 +27,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { leerError, leerJson } from "@/lib/api/errores";
-import type { ClienteUsuarioCuenta } from "@/lib/dominio/tipos";
+import {
+  etiquetaCiclo,
+  etiquetaEstadoFactura,
+  etiquetaTipoVehiculo,
+  type CicloFacturacion,
+  type ClienteUsuarioCuenta,
+  type CuentaCorrienteCliente as CuentaCorrienteClienteDatos,
+} from "@/lib/dominio/tipos";
 
 type Color = "verde" | "amarillo" | "rojo";
 const COLORES: Color[] = ["verde", "amarillo", "rojo"];
@@ -65,6 +72,9 @@ interface ClienteDetalle {
   colorPago: Color;
   colorTrato: Color;
   colorOper: Color;
+  cicloFacturacion: CicloFacturacion;
+  saldoCliente: number;
+  deudaVencida: number;
   tarifas: TarifaZona[];
   contadorEventos: Record<string, number>;
   ultimosEventos: EventoResumen[];
@@ -134,6 +144,7 @@ function DetalleCliente() {
 
       <DatosCliente cliente={cliente} fetchConSesion={fetchConSesion} onGuardado={cargar} />
       <TarifasCliente cliente={cliente} fetchConSesion={fetchConSesion} onCambio={cargar} />
+      <CuentaCorrienteCliente clienteId={cliente.id} fetchConSesion={fetchConSesion} />
       <UsuariosCliente clienteId={cliente.id} fetchConSesion={fetchConSesion} />
       <EventosCliente
         cliente={cliente}
@@ -236,6 +247,7 @@ function DatosCliente({
   const [colorPago, setColorPago] = useState<Color>(cliente.colorPago);
   const [colorTrato, setColorTrato] = useState<Color>(cliente.colorTrato);
   const [colorOper, setColorOper] = useState<Color>(cliente.colorOper);
+  const [cicloFacturacion, setCicloFacturacion] = useState<CicloFacturacion>(cliente.cicloFacturacion);
   const [guardando, setGuardando] = useState(false);
 
   async function guardar() {
@@ -254,6 +266,7 @@ function DatosCliente({
           colorPago,
           colorTrato,
           colorOper,
+          cicloFacturacion,
         }),
       });
       onGuardado();
@@ -293,6 +306,26 @@ function DatosCliente({
         <div className="flex items-center gap-2">
           <Checkbox id="activo" checked={activo} onCheckedChange={(v) => setActivo(v === true)} />
           <Label htmlFor="activo">Activo</Label>
+        </div>
+
+        <div className="flex flex-col gap-2 pt-2 border-t max-w-48">
+          <Label>Ciclo de facturación</Label>
+          <Select
+            items={[
+              { value: "mensual", label: etiquetaCiclo("mensual") },
+              { value: "quincenal", label: etiquetaCiclo("quincenal") },
+            ]}
+            value={cicloFacturacion}
+            onValueChange={(v) => v && setCicloFacturacion(v as CicloFacturacion)}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="mensual">{etiquetaCiclo("mensual")}</SelectItem>
+              <SelectItem value="quincenal">{etiquetaCiclo("quincenal")}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="grid grid-cols-3 gap-4 pt-2 border-t">
@@ -384,11 +417,11 @@ function TarifasCliente({
           <TableHeader>
             <TableRow>
               <TableHead>Zona</TableHead>
-              <TableHead>General camioneta</TableHead>
-              <TableHead>Cliente camioneta</TableHead>
+              <TableHead>General {etiquetaTipoVehiculo("camioneta")}</TableHead>
+              <TableHead>Cliente {etiquetaTipoVehiculo("camioneta")}</TableHead>
               <TableHead></TableHead>
-              <TableHead>General moto</TableHead>
-              <TableHead>Cliente moto</TableHead>
+              <TableHead>General {etiquetaTipoVehiculo("moto")}</TableHead>
+              <TableHead>Cliente {etiquetaTipoVehiculo("moto")}</TableHead>
               <TableHead></TableHead>
             </TableRow>
           </TableHeader>
@@ -466,6 +499,286 @@ function TarifasCliente({
             ))}
           </TableBody>
         </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+const MEDIOS_PAGO = [
+  { value: "transferencia", label: "Transferencia" },
+  { value: "efectivo", label: "Efectivo" },
+  { value: "cheque", label: "Cheque" },
+  { value: "otro", label: "Otro" },
+] as const;
+
+/// E1 (Anexo I §5, B1). Gestiona su propio fetch — mismo criterio que UsuariosCliente: es un
+/// recurso aparte (facturas, pagos), no un dato plano del cliente.
+function CuentaCorrienteCliente({
+  clienteId,
+  fetchConSesion,
+}: {
+  clienteId: number;
+  fetchConSesion: ReturnType<typeof useAuth>["fetchConSesion"];
+}) {
+  const [cuenta, setCuenta] = useState<CuentaCorrienteClienteDatos | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const [monto, setMonto] = useState("");
+  const [fechaPago, setFechaPago] = useState("");
+  const [medio, setMedio] = useState<string>("transferencia");
+  const [nota, setNota] = useState("");
+  const [registrando, setRegistrando] = useState(false);
+
+  const [suspenderHasta, setSuspenderHasta] = useState("");
+  const [suspenderMotivo, setSuspenderMotivo] = useState("");
+  const [guardandoSuspension, setGuardandoSuspension] = useState(false);
+
+  const cargar = useCallback(() => {
+    fetchConSesion(`/api/clientes/${clienteId}/cuenta-corriente`)
+      .then((r) => leerJson<CuentaCorrienteClienteDatos>(r))
+      .then(setCuenta)
+      .catch((err) => setError(err instanceof Error ? err.message : "No se pudo cargar la cuenta corriente."));
+  }, [fetchConSesion, clienteId]);
+
+  useEffect(cargar, [cargar]);
+
+  async function registrarPago() {
+    if (!monto || Number(monto) <= 0) {
+      setError("Ingresá un monto mayor a cero.");
+      return;
+    }
+    setError(null);
+    setRegistrando(true);
+    try {
+      const resp = await fetchConSesion(`/api/clientes/${clienteId}/pagos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ monto: Number(monto), fechaPago: fechaPago || null, medio, nota: nota || null }),
+      });
+      if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
+      setMonto("");
+      setFechaPago("");
+      setNota("");
+      cargar();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo registrar el pago.");
+    } finally {
+      setRegistrando(false);
+    }
+  }
+
+  async function suspenderCorte() {
+    if (!suspenderHasta || !suspenderMotivo.trim()) {
+      setError("Un plan de cuotas necesita fecha y motivo.");
+      return;
+    }
+    setError(null);
+    setGuardandoSuspension(true);
+    try {
+      const resp = await fetchConSesion(`/api/clientes/${clienteId}/corte-suspendido`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hasta: suspenderHasta, motivo: suspenderMotivo }),
+      });
+      if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
+      setSuspenderHasta("");
+      setSuspenderMotivo("");
+      cargar();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo suspender el corte.");
+    } finally {
+      setGuardandoSuspension(false);
+    }
+  }
+
+  async function levantarSuspension() {
+    setError(null);
+    setGuardandoSuspension(true);
+    try {
+      const resp = await fetchConSesion(`/api/clientes/${clienteId}/corte-suspendido`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hasta: null, motivo: null }),
+      });
+      if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
+      cargar();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo levantar la suspensión.");
+    } finally {
+      setGuardandoSuspension(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Cuenta corriente</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        {!cuenta ? (
+          error ? null : <p className="text-sm text-muted-foreground">Cargando…</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div className="rounded-lg border p-3">
+                <p className="text-2xl font-semibold">${cuenta.saldo.toLocaleString("es-AR")}</p>
+                <p className="text-xs text-muted-foreground">Saldo</p>
+              </div>
+              <div className="rounded-lg border p-3">
+                <p className={`text-2xl font-semibold ${cuenta.deudaVencida > 0 ? "text-destructive" : ""}`}>
+                  ${cuenta.deudaVencida.toLocaleString("es-AR")}
+                </p>
+                <p className="text-xs text-muted-foreground">Deuda vencida</p>
+              </div>
+              <div className="rounded-lg border p-3">
+                <p className={`text-sm font-semibold ${cuenta.servicioCortado ? "text-destructive" : ""}`}>
+                  {cuenta.servicioCortado ? "Servicio cortado" : "Al día"}
+                </p>
+                {cuenta.corteSuspendidoHasta && (
+                  <p className="text-xs text-muted-foreground">Plan de cuotas hasta {cuenta.corteSuspendidoHasta}</p>
+                )}
+              </div>
+            </div>
+
+            {cuenta.pendienteDeFacturar > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Pendiente de facturar: ${cuenta.pendienteDeFacturar.toLocaleString("es-AR")}
+                {cuenta.ajustesPendientes > 0 &&
+                  ` · ${cuenta.ajustesPendientes} ajuste${cuenta.ajustesPendientes === 1 ? "" : "s"} sin aprobar`}
+                {" — "}
+                <Link href={`/facturas?clienteId=${clienteId}`} className="hover:underline">
+                  ver facturas
+                </Link>
+              </p>
+            )}
+
+            {cuenta.facturas.length > 0 && (
+              <div className="border-t pt-4">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Período</TableHead>
+                      <TableHead>Vencimiento</TableHead>
+                      <TableHead>Total</TableHead>
+                      <TableHead>Saldo</TableHead>
+                      <TableHead>Estado</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {cuenta.facturas.map((f) => (
+                      <TableRow key={f.id} className={f.estado === "vencida" ? "bg-destructive/10" : undefined}>
+                        <TableCell>
+                          {f.periodoDesde} al {f.periodoHasta}
+                        </TableCell>
+                        <TableCell>{f.fechaVencimiento}</TableCell>
+                        <TableCell>${f.total.toLocaleString("es-AR")}</TableCell>
+                        <TableCell>${f.saldo.toLocaleString("es-AR")}</TableCell>
+                        <TableCell>
+                          <span className={f.estado === "vencida" ? "text-destructive font-medium" : undefined}>
+                            {etiquetaEstadoFactura(f.estado)}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2 border-t pt-4">
+              <Label>Registrar pago</Label>
+              <div className="flex flex-wrap items-end gap-2">
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="Monto"
+                  className="w-32"
+                  value={monto}
+                  onChange={(e) => setMonto(e.target.value)}
+                />
+                <Input type="date" className="w-40" value={fechaPago} onChange={(e) => setFechaPago(e.target.value)} />
+                <Select items={MEDIOS_PAGO.map((m) => m)} value={medio} onValueChange={(v) => v && setMedio(v)}>
+                  <SelectTrigger className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MEDIOS_PAGO.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input placeholder="Nota (opcional)" className="w-40" value={nota} onChange={(e) => setNota(e.target.value)} />
+                <Button onClick={registrarPago} disabled={registrando || !monto}>
+                  {registrando ? "Registrando…" : "Registrar"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 border-t pt-4">
+              <Label>Plan de cuotas (§10.2-L4)</Label>
+              <p className="text-xs text-muted-foreground">
+                Mientras esté activo, el corte por deuda vencida no bloquea altas nuevas. Si no se
+                extiende con la próxima cuota, el corte vuelve solo.
+              </p>
+              <div className="flex flex-wrap items-end gap-2">
+                <Input
+                  type="date"
+                  className="w-40"
+                  value={suspenderHasta}
+                  onChange={(e) => setSuspenderHasta(e.target.value)}
+                />
+                <Input
+                  placeholder="Motivo"
+                  className="w-56"
+                  value={suspenderMotivo}
+                  onChange={(e) => setSuspenderMotivo(e.target.value)}
+                />
+                <Button
+                  variant="outline"
+                  disabled={guardandoSuspension || !suspenderHasta || !suspenderMotivo}
+                  onClick={suspenderCorte}
+                >
+                  {guardandoSuspension ? "Guardando…" : "Suspender corte"}
+                </Button>
+                {cuenta.corteSuspendidoHasta && (
+                  <Button variant="outline" disabled={guardandoSuspension} onClick={levantarSuspension}>
+                    Levantar suspensión
+                  </Button>
+                )}
+              </div>
+              {cuenta.corteSuspendidoMotivo && (
+                <p className="text-xs text-muted-foreground">
+                  {cuenta.corteSuspendidoMotivo} — {cuenta.corteSuspendidoPorNombre ?? "—"}
+                  {cuenta.corteSuspendidoEn && ` · ${new Date(cuenta.corteSuspendidoEn).toLocaleString("es-AR")}`}
+                </p>
+              )}
+            </div>
+
+            {cuenta.pagos.length > 0 && (
+              <div className="flex flex-col gap-2 border-t pt-4">
+                <Label>Pagos registrados</Label>
+                <ul className="flex flex-col gap-2">
+                  {cuenta.pagos.map((p) => (
+                    <li key={p.id} className="text-sm border-b pb-2 flex justify-between gap-4">
+                      <span>
+                        {MEDIOS_PAGO.find((m) => m.value === p.medio)?.label ?? p.medio}
+                        {p.nota && <span className="text-muted-foreground"> · {p.nota}</span>}
+                        <div className="text-xs text-muted-foreground">
+                          {p.fechaPago} · {p.registradoPorNombre ?? "—"}
+                        </div>
+                      </span>
+                      <span className="shrink-0 font-medium">${p.monto.toLocaleString("es-AR")}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
       </CardContent>
     </Card>
   );

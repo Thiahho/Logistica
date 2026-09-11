@@ -1,5 +1,7 @@
+using System.ComponentModel.DataAnnotations;
 using Logistica.Auth;
 using Logistica.Datos;
+using Logistica.Dominio;
 using Logistica.Entidades;
 using Logistica.Servicios;
 using Microsoft.AspNetCore.Authorization;
@@ -21,7 +23,7 @@ namespace Logistica.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/clientes")]
-public class ClientesController(LogisticaDbContext db, TarifaService tarifas) : ControllerBase
+public class ClientesController(LogisticaDbContext db, TarifaService tarifas, CuentaCorrienteService cuentaCorriente) : ControllerBase
 {
     public record TarifaZona(
         int ZonaId, string ZonaCodigo, string ZonaNombre,
@@ -35,14 +37,46 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas) : 
 
     public record ClienteDetalle(
         int Id, string RazonSocial, string? Cuit, string? Contacto, string? Telefono, string? Email, bool Activo,
-        string ColorPago, string ColorTrato, string ColorOper,
+        string ColorPago, string ColorTrato, string ColorOper, string CicloFacturacion,
+        decimal SaldoCliente, decimal DeudaVencida,
         List<TarifaZona> Tarifas, Dictionary<string, int> ContadorEventos, List<EventoResumen> UltimosEventos);
 
     public record ActualizarClienteRequest(
         string RazonSocial, string? Cuit, string? Contacto, string? Telefono, string? Email, bool Activo,
-        string ColorPago, string ColorTrato, string ColorOper);
+        string ColorPago, string ColorTrato, string ColorOper, string CicloFacturacion);
 
-    public record FijarTarifaRequest(string TipoVehiculo, decimal? Precio);
+    // ---- E1: cuenta corriente ----
+    public record FacturaClienteResumen(
+        long Id, string Ciclo, DateOnly PeriodoDesde, DateOnly PeriodoHasta,
+        DateOnly FechaEmision, DateOnly FechaVencimiento, decimal Total, decimal Pagado, decimal Saldo, string Estado);
+    public record PagoResumen(
+        long Id, decimal Monto, DateOnly FechaPago, string Medio, string? Nota,
+        string? RegistradoPorNombre, DateTimeOffset RegistradoEn);
+    public record CuentaCorrienteCliente(
+        decimal Saldo, decimal DeudaVencida, bool ServicioCortado,
+        DateOnly? CorteSuspendidoHasta, string? CorteSuspendidoMotivo,
+        string? CorteSuspendidoPorNombre, DateTimeOffset? CorteSuspendidoEn,
+        decimal PendienteDeFacturar, int AjustesPendientes,
+        List<FacturaClienteResumen> Facturas, List<PagoResumen> Pagos);
+    public record RegistrarPagoRequest(
+        [Range(0.01, double.MaxValue, ErrorMessage = "El monto debe ser mayor a cero.")] decimal Monto,
+        DateOnly? FechaPago, string Medio, string? Nota);
+    public record CorteSuspendidoRequest(DateOnly? Hasta, string? Motivo);
+
+    /// <summary>pendiente | parcial | pagada | vencida — mismo criterio que
+    /// FacturasController.EstadoDe (derivado de v_facturas_saldo, no persistido). Duplicado a
+    /// propósito: son 4 líneas en dos controllers, extraer un helper compartido para esto sería
+    /// más ceremonia que la propia regla.</summary>
+    private static string EstadoDe(decimal saldo, decimal total, DateOnly vencimiento, DateOnly hoy)
+    {
+        if (saldo <= 0) return "pagada";
+        if (vencimiento < hoy) return "vencida";
+        return saldo < total ? "parcial" : "pendiente";
+    }
+
+    public record FijarTarifaRequest(
+        string TipoVehiculo,
+        [Range(0.01, double.MaxValue, ErrorMessage = "El precio debe ser mayor a cero.")] decimal? Precio);
 
     public record CrearEventoRequest(int TipoId, decimal? ValorNum, string? Nota, long? PedidoId);
 
@@ -135,9 +169,16 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas) : 
                 e.ValorNum, e.Nota, e.OcurridoEn, e.RegistradoPor != null ? e.RegistradoPor.Nombre : null))
             .ToListAsync(ct);
 
+        // E1: dos escalares, baratos — el detalle completo (facturas, pagos, corte suspendido)
+        // vive en GET .../cuenta-corriente, esto es solo para que el semáforo de color se lea
+        // al lado del número real.
+        var saldoCliente = await cuentaCorriente.SaldoAsync(id, ct);
+        var deudaVencida = await cuentaCorriente.DeudaVencidaAsync(id, Reloj.HoyLocal(), ct);
+
         return Ok(new ClienteDetalle(
             cliente.Id, cliente.RazonSocial, cliente.Cuit, cliente.Contacto, cliente.Telefono, cliente.Email,
-            cliente.Activo, cliente.ColorPago, cliente.ColorTrato, cliente.ColorOper, tarifas, contador, ultimos));
+            cliente.Activo, cliente.ColorPago, cliente.ColorTrato, cliente.ColorOper, cliente.CicloFacturacion,
+            saldoCliente, deudaVencida, tarifas, contador, ultimos));
     }
 
     [HttpPut("{id:int}")]
@@ -156,6 +197,7 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas) : 
         cliente.ColorPago = req.ColorPago;
         cliente.ColorTrato = req.ColorTrato;
         cliente.ColorOper = req.ColorOper;
+        cliente.CicloFacturacion = req.CicloFacturacion;
 
         await db.SaveChangesAsync(ct);
         return NoContent();
@@ -189,9 +231,11 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas) : 
         var tieneDatos = await db.Pedidos.AnyAsync(p => p.ClienteId == id, ct)
             || await db.Tarifas.AnyAsync(t => t.ClienteId == id, ct)
             || await db.EventosCliente.AnyAsync(e => e.ClienteId == id, ct)
-            || await db.ClientesUsuarios.AnyAsync(u => u.ClienteId == id, ct);
+            || await db.ClientesUsuarios.AnyAsync(u => u.ClienteId == id, ct)
+            || await db.Facturas.AnyAsync(f => f.ClienteId == id, ct)
+            || await db.Pagos.AnyAsync(p => p.ClienteId == id, ct);
         if (tieneDatos)
-            return Conflict("El cliente tiene pedidos, tarifas, eventos o usuarios asociados; desactivalo en vez de eliminarlo.");
+            return Conflict("El cliente tiene pedidos, tarifas, eventos, usuarios, facturas o pagos asociados; desactivalo en vez de eliminarlo.");
 
         db.Clientes.Remove(cliente);
         await db.SaveChangesAsync(ct);
@@ -314,6 +358,112 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas) : 
         if (usuario is null) return NotFound();
 
         usuario.PasswordHash = AuthService.HashearCliente(usuario, req.Password);
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+
+    /// <summary>E1: saldo, deuda vencida, estado del corte, facturas (con saldo derivado) y
+    /// pagos del cliente — todo lo que la Card de cuenta corriente necesita en un solo request.</summary>
+    [HttpGet("{id:int}/cuenta-corriente")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> CuentaCorriente(int id, CancellationToken ct)
+    {
+        var cliente = await db.Clientes.AsNoTracking().SingleOrDefaultAsync(c => c.Id == id, ct);
+        if (cliente is null) return NotFound();
+
+        var hoy = Reloj.HoyLocal();
+        var saldo = await cuentaCorriente.SaldoAsync(id, ct);
+        var deudaVencida = await cuentaCorriente.DeudaVencidaAsync(id, hoy, ct);
+        var servicioCortado = await cuentaCorriente.ServicioCortadoAsync(id, hoy, ct);
+
+        var corteSuspendidoPorNombre = cliente.CorteSuspendidoPor is null
+            ? null
+            : await db.Usuarios.Where(u => u.Id == cliente.CorteSuspendidoPor).Select(u => u.Nombre).SingleOrDefaultAsync(ct);
+
+        var facturas = (await db.Set<FacturaSaldo>().AsNoTracking()
+            .Where(f => f.ClienteId == id)
+            .OrderByDescending(f => f.FechaEmision)
+            .ToListAsync(ct))
+            .Select(f => new FacturaClienteResumen(
+                f.Id, f.Ciclo, f.PeriodoDesde, f.PeriodoHasta, f.FechaEmision, f.FechaVencimiento,
+                f.Total, f.Pagado, f.Saldo, EstadoDe(f.Saldo, f.Total, f.FechaVencimiento, hoy)))
+            .ToList();
+
+        var pagos = await db.Pagos.AsNoTracking()
+            .Where(p => p.ClienteId == id)
+            .OrderByDescending(p => p.FechaPago).ThenByDescending(p => p.Id)
+            .Select(p => new PagoResumen(p.Id, p.Monto, p.FechaPago, p.Medio, p.Nota,
+                p.RegistradoPorUsuario != null ? p.RegistradoPorUsuario.Nombre : null, p.RegistradoEn))
+            .ToListAsync(ct);
+
+        var pendienteDeFacturar = await db.FacturaItems.AsNoTracking()
+            .Where(i => i.FacturaId == null && i.Estado == "aprobado" && i.Pedido!.ClienteId == id)
+            .SumAsync(i => (decimal?)i.Monto, ct) ?? 0m;
+
+        var ajustesPendientes = await db.FacturaItems.AsNoTracking()
+            .CountAsync(i => i.FacturaId == null && i.Estado == "pendiente" && i.Pedido!.ClienteId == id, ct);
+
+        return Ok(new CuentaCorrienteCliente(
+            saldo, deudaVencida, servicioCortado,
+            cliente.CorteSuspendidoHasta, cliente.CorteSuspendidoMotivo, corteSuspendidoPorNombre, cliente.CorteSuspendidoEn,
+            pendienteDeFacturar, ajustesPendientes, facturas, pagos));
+    }
+
+    /// <summary>Registra un pago (§10.2-B/D12). Insert-only (trg_pagos_inmutable) — un pago mal
+    /// cargado se corrige con un pago de monto negativo y nota, no editando este.</summary>
+    [HttpPost("{id:int}/pagos")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> RegistrarPago(int id, RegistrarPagoRequest req, CancellationToken ct)
+    {
+        if (req.Medio is not ("transferencia" or "efectivo" or "cheque" or "otro"))
+            return BadRequest("Medio de pago inválido.");
+
+        var clienteExiste = await db.Clientes.AnyAsync(c => c.Id == id, ct);
+        if (!clienteExiste) return NotFound();
+
+        db.Pagos.Add(new Pago
+        {
+            ClienteId = id,
+            Monto = req.Monto,
+            FechaPago = req.FechaPago ?? Reloj.HoyLocal(),
+            Medio = req.Medio,
+            Nota = req.Nota,
+            RegistradoPor = User.UsuarioId(),
+            RegistradoEn = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync(ct);
+
+        return NoContent();
+    }
+
+    /// <summary>E1 / §10.2-L4: plan de cuotas. `Hasta = null` levanta la suspensión (vuelve a
+    /// evaluarse la deuda vencida normalmente). Con `Hasta` en el futuro, el corte se ignora
+    /// hasta esa fecha; si no se extiende con la próxima cuota, el corte vuelve solo, sin job.</summary>
+    [HttpPut("{id:int}/corte-suspendido")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> ActualizarCorteSuspendido(int id, CorteSuspendidoRequest req, CancellationToken ct)
+    {
+        var cliente = await db.Clientes.SingleOrDefaultAsync(c => c.Id == id, ct);
+        if (cliente is null) return NotFound();
+
+        if (req.Hasta is null)
+        {
+            cliente.CorteSuspendidoHasta = null;
+            cliente.CorteSuspendidoMotivo = null;
+            cliente.CorteSuspendidoPor = null;
+            cliente.CorteSuspendidoEn = null;
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(req.Motivo))
+                return BadRequest("El motivo es obligatorio para suspender el corte.");
+
+            cliente.CorteSuspendidoHasta = req.Hasta;
+            cliente.CorteSuspendidoMotivo = req.Motivo;
+            cliente.CorteSuspendidoPor = User.UsuarioId();
+            cliente.CorteSuspendidoEn = DateTimeOffset.UtcNow;
+        }
+
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
