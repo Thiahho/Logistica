@@ -11,7 +11,7 @@ Hay tres documentos y ninguno repite al otro. Si algo está en dos lugares, uno 
 
 | Documento | Responde | Se toca cuando |
 |---|---|---|
-| `acta_sistema_v3.md` | Qué hace el sistema y por qué. Alcance, reglas de negocio, criterios de aceptación. | Cambia el negocio |
+| `acta_sistema.md` | Qué hace el sistema y por qué. Alcance, reglas de negocio, criterios de aceptación. | Cambia el negocio |
 | `schema_v3.sql` | Cómo se guardan los datos. Tablas, triggers, RLS. | Cambia el modelo |
 | **Este documento** | Cómo se construye. Estructura, pantallas, contratos, orden de trabajo. | Cambia la implementación |
 

@@ -1,5 +1,6 @@
 # Acta del Sistema de Gestión Logística
-**Versión 3.0 — Documento consolidado · 27/08/2026**
+**Versión 4.0 — Documento consolidado · 11/09/2026**
+*(antes `acta_sistema_v3.md` — mismo documento, nombre sin número de versión desde esta edición)*
 
 Reemplaza y deja sin efecto: Acta de alcance v1.0, v1.1 y v2.0, y el Acta funcional v1.0.
 Documento único de referencia. Toda discusión de alcance se resuelve contra este texto.
@@ -10,7 +11,7 @@ Documento único de referencia. Toda discusión de alcance se resuelve contra es
 
 Sistema de gestión operativa para una empresa de logística tercerizada multi-cliente. Administra el ciclo completo del pedido: carga, tarificación, agrupamiento en ruta, ejecución en calle, prueba de entrega y cierre económico de la jornada.
 
-**No es** un ERP, un sistema de stock, un e-commerce, una plataforma de facturación ni un sistema de cobranza.
+**No es** un ERP, un sistema de stock ni un e-commerce. **Sí es**, desde esta versión, el sistema de facturación interna y cobranza de la propia Empresa hacia los clientes que le contratan el servicio de logística: cuenta corriente, factura del servicio, vencimiento y cobro. Lo que sigue fuera es la emisión fiscal ante el organismo recaudador — el sistema calcula, registra y reclama; no reemplaza al sistema contable de la Empresa (§2, changelog 4.0).
 
 **Estado del negocio al momento de esta versión:** dos clientes cerrados, un vehículo utilitario propio, un repartidor, cuatro prospectos en conversación. El sistema se dimensiona para eso, con previsiones estructurales para multi-vehículo (sección 10).
 
@@ -28,7 +29,7 @@ Sistema de gestión operativa para una empresa de logística tercerizada multi-c
 | Optimización con ventanas horarias | Problema de otra clase, requiere solver dedicado. | A partir de 3 vehículos simultáneos |
 | Tracking público para el destinatario | El destinatario no paga y no reclama. | Sin fecha |
 | Aplicación nativa | La PWA cubre el caso de uso. | Sin fecha |
-| Clasificación automática de clientes | No hay historial. Cualquier fórmula hoy sería inventada. | 6 meses de operación registrada |
+| Clasificación automática de clientes | No hay historial. Cualquier fórmula hoy sería inventada. | Ciclo trimestral (§9.3), primera corrida solo con historial suficiente para no inventar la fórmula |
 | Portal de carga para el cliente | Ver sección 9. | Cuando el cliente lo pida explícitamente |
 
 ---
@@ -47,7 +48,7 @@ Cambiarlos después implica migración de datos, no refactor.
 
 **P5. Ningún dato de la operación se ingresa dos veces.** Lo que se carga en la calle no se vuelve a tipear.
 
-**P6. Se construye por dolor, no por catálogo.** Ningún módulo se construye antes de que su ausencia cueste tiempo medible.
+**P6. Se construye por dolor medido o por ciclo de operación.** Un módulo se justifica de dos maneras y solo de esas dos: su ausencia ya cuesta tiempo medible, o es función básica de un ciclo que la operación repite — diario, semanal, mensual o trimestral (§9.3). Lo que no duele todavía y no cierra un ciclo, no se construye.
 
 **P7. La capacidad se mide en paradas, no en bultos.** El límite del vehículo son las horas del repartidor: 20 a 28 paradas por jornada en conurbano. El volumen de carga casi nunca es la restricción activa.
 
@@ -65,7 +66,9 @@ Cambiarlos después implica migración de datos, no refactor.
 | Operación | `rutas`, `ruta_paradas`, `parada_pedidos`, `pruebas_entrega`, `vehiculos` |
 | Registro sin maquinaria | `tipos_evento_cliente`, `eventos_cliente` |
 
-**Fuera del modelo inicial:** `listas_precio`, `reglas_precio`, `contratos_dedicados`, `repartidores`, `liquidaciones`, `cuentas_cobrar`, `cliente_scores`, `condiciones_comerciales`.
+**Fuera del modelo inicial:** `listas_precio`, `reglas_precio`, `contratos_dedicados`, `repartidores`, `liquidaciones`, `cliente_scores`, `condiciones_comerciales`.
+
+`cuentas_cobrar` deja de estar fuera del modelo inicial desde changelog 4.0: es función básica del ciclo semanal (§9.3), no catálogo anticipado.
 
 Dos entidades concentran las relaciones: `pedidos` (qué se prometió y a qué precio) y `ruta_paradas` (qué pasó en la calle). Toda tabla que no se conecte a alguna de las dos está fuera de alcance por definición. `vehiculos` entra por esa puerta: cuelga de `rutas`, cabecera de `ruta_paradas`. El texto libre que traía `rutas.vehiculo` no identificaba la unidad de forma confiable ni tenía dónde registrar vencimientos (VTV, seguro) — el motivo del alta es operativo, no una ampliación de alcance comercial.
 
@@ -224,7 +227,20 @@ PWA del repartidor con prueba de entrega offline, registro de estados, alta y ta
 | Formato único de importación e integración directa | Quinto cliente |
 | Clasificación automática de clientes | 6 meses de eventos registrados |
 
-Ninguna se construye antes, aunque sobre tiempo. Cada función que existe es una función que hay que mantener.
+Ninguna se construye antes por tener tiempo libre: o dispara el hecho de esta tabla, o entra por el ciclo de operación de §9.3. Cada función que existe es una función que hay que mantener.
+
+### 9.3 Etapas por ciclo de operación
+
+Segunda puerta de P6: un módulo se construye si es función básica de un ciclo que la operación repite, aunque el dolor todavía no se haya medido en tiempo perdido.
+
+| Ciclo | Qué cierra | Funciones básicas |
+|---|---|---|
+| Diario | La jornada | Alta y tarificación, corte de carga, armado y cierre de ruta, ejecución en calle con prueba de entrega |
+| Semanal | El cobro y el pago | Facturación al cliente, vencimiento y aviso, pago al repartidor |
+| Mensual | El resultado | Costos fijos, rentabilidad, liquidación por período |
+| Trimestral | La revisión | Recálculo de rango de cliente, revisión de zonas por costo real de servicio |
+
+Un módulo que entra por esta tabla no espera el disparador de §9.2. Ampliar esta tabla es decisión de negocio registrada en §14, no criterio del día.
 
 ---
 
@@ -282,7 +298,7 @@ Los puntos 1 y 3, más el tratamiento de datos del destinatario, se resuelven en
 
 **Planificar y manejar no son el mismo día.** Implica estructura antes de que el volumen la justifique del todo. Es una decisión tomada a conciencia.
 
-**Sobreconstrucción.** Escribir software cuesta cada vez menos; mantenerlo y depurarlo, no. Cada módulo hecho sobre suposiciones se reescribe cuando aparece la realidad, y cuesta más tirarlo porque ya está escrito. El principio P6 existe para contener esto.
+**Sobreconstrucción.** Escribir software cuesta cada vez menos; mantenerlo y depurarlo, no. Cada módulo hecho sobre suposiciones se reescribe cuando aparece la realidad, y cuesta más tirarlo porque ya está escrito. El principio P6 existe para contener esto, ahora por dos puertas: dolor medido o ciclo cerrado (§9.3). Lo que no entra por ninguna de las dos, no se construye.
 
 **Presión sobre el corte de carga.** Es la regla que más se va a poner a prueba y la que sostiene el modelo entero.
 
@@ -312,4 +328,5 @@ Se definen con la operación en marcha o con asesoramiento específico. Ponerlos
 | **3.8** | **31/08/2026** | El depósito único de 3.7 pasa a ser un **catálogo de depósitos con nombre**, todos seleccionables al armar una ruta — la operación real puede tener más de un punto fijo de partida (varios locales, por ejemplo), no solo uno editable. Reemplaza `/deposito` por `/depositos` (ABM: alta, cambio de nombre, baja). **Decisión explícita del usuario: ya no hay depósito "principal" para rutas.** Antes `origen_ubicacion_id = null` significaba "depósito" (un default implícito); ahora significa "todavía sin elegir", y `CerrarPlanificacion` (RF-17) lo bloquea — el planificador elige siempre a mano entre lo que haya en el catálogo, o tipea otra dirección. La única excepción es el alta de pedido (RF-11 la sigue necesitando sin pantalla de elección propia, fuera de alcance de esta versión): usa el depósito más antiguo del catálogo como default, vía un resolver separado (`PrincipalParaPedidosAsync`) que no comparte código con el de rutas. **Por qué un campo propio y no reusar `Referencia`:** esa columna de `ubicaciones` ya significa la nota de una parada que ve el repartidor (`v_paradas_repartidor`) — mezclar los dos sentidos rompía esa vista para cualquier ubicación marcada como depósito. Se agrega `nombre_deposito` (§4.1): no-nulo y único entre no-nulos marca qué filas son depósito y con qué nombre. Historial igual que en 3.7: renombrar es en el lugar (cosmético), pero "mover" un depósito es desactivar la fila vieja y crear una nueva — ninguna ruta ya cerrada pierde su dirección histórica. Cero tablas nuevas, sigue en 14. Detalle técnico en `construccion_v1.md` §4.1/§4.2 y en `schema_v3.sql`. |
 | **3.9** | **31/08/2026** | El catálogo de `localidades` deja de ser estático: hasta acá solo tenía las 5 filas cargadas a mano en el seed, y una dirección real en cualquier otro partido no tenía forma de entrar al sistema. Ahora, al buscar una localidad (alta de pedido, depósito, o punto de partida "otra dirección" de una ruta), el buscador consulta el catálogo propio y, si no alcanza, también OSM (Nominatim) — una localidad real que no está en el catálogo aparece como sugerencia y se da de alta sola al elegirla, **siempre sin zona** (`zona_id = null`). No es alta de alcance por catálogo (P6): es capa de búsqueda sobre una tabla y una columna que ya existían y ya se pagaban (`localidades.zona_id` nullable desde el día uno). **Decisión explícita: la zona nunca se infiere.** Una localidad recién descubierta queda disponible al instante para depósitos y direcciones, pero un pedido ahí sigue bloqueado — `PedidosController.Cotizar`/`Crear` ya rechazaban esto antes de esta versión ("la localidad no tiene zona asignada"), y esa regla no cambia; lo único nuevo es que ahora sí hay una forma de llegar a ese estado sin editar la base a mano. Asignarle zona a una localidad nueva sigue sin tener pantalla propia (fuera de alcance: hoy se hace por SQL, igual que el resto del catálogo antes de esta versión). Cero tablas nuevas. Detalle técnico en `construccion_v1.md` §4.1/§9. |
 | **3.10** | **31/08/2026** | Cierra el hueco que dejó 3.9: una localidad descubierta al tipear una dirección quedaba sin zona y sin ninguna pantalla para asignársela — la única forma de destrabarla era editar la base a mano. Ahora `/tarifas` suma "Localidades sin zona": lista las pendientes y, junto a cada una, sugiere una zona por **distancia real** (haversine contra el depósito que usa hoy el alta de pedido, `PrincipalParaPedidosAsync`) comparada contra el rango de km que administración ya carga por zona en esa misma pantalla (`zonas.km_desde/km_hasta`, changelog 3.2) — dato que existía desde antes y no se usaba para nada. **La sugerencia nunca se aplica sola:** precarga el combobox, pero hace falta el click de "Asignar": sigue en pie la decisión de 3.9 de que el precio no se infiere. Si la localidad todavía no tiene ninguna dirección geocodificada (nadie completó el alta que la creó), no hay de dónde sacar distancia y el combobox queda vacío para elegir a mano. Cero tablas nuevas. Detalle técnico en `construccion_v1.md` §4.1/§12. |
+| **4.0** | **11/09/2026** | **Cambia un principio estructural (§3) y la definición de qué es el sistema (§1) — no es refactor, por eso el salto de versión mayor, no un 3.12.** P6 pasa de una puerta ("se construye por dolor") a dos: dolor medido o función básica de un ciclo de operación que la Empresa repite — diario, semanal, mensual, trimestral. Nueva §9.3 con la tabla de ciclos y sus funciones básicas; §9.2 corregida para no contradecir la puerta nueva; §12 (riesgo de sobreconstrucción) actualizado a las dos puertas. §1 pasa a declarar que el sistema **sí** es el sistema de facturación interna y cobranza de la Empresa hacia sus clientes (cuenta corriente, factura del servicio, vencimiento, cobro), manteniendo fuera solo la emisión fiscal — corrige la contradicción con el módulo de cuenta corriente ya comprometido en `Anexo_I_Alcance_V2.docx` (E1/B1/D11-D12). `cuentas_cobrar` sale de "fuera del modelo inicial" (§4): entra por el ciclo semanal, no por catálogo. §2, fila "Clasificación automática de clientes": el disparador pasa de "6 meses de operación registrada" al ciclo trimestral de §9.3. Origen de la decisión: `Anexo_I_Alcance_V2.docx`, cuyo cronograma de etapas E0-E5 necesitaba respaldo en este documento para no quedar sin él bajo la cláusula de precedencia del propio Anexo (§"Nota de versionado"). **Pendiente, no resuelto en esta versión:** el techo de tablas de `construccion_v1.md` §1 (14 tablas hasta el tercer cliente) no contempla el módulo de facturación; requiere número nuevo acordado. |
 | **3.11** | **31/08/2026** | El precio deja de depender solo de la zona: una entrega en moto y una en camioneta tienen tarifa propia, no una es un factor de la otra. **Decisión explícita del usuario, con una consecuencia deliberada sobre P1:** el tipo de vehículo se *deriva* del vehículo real asignado a la ruta, no lo elige el cliente al cargar el pedido — así que el precio ya no se congela al confirmar el alta, se congela recién cuando la ruta que lo lleva cierra su planificación (`CerrarPlanificacion`, RF-17) y se conoce el vehículo. Esto no inventa un estado nuevo: el pedido pasa a usar de verdad el paso `Borrador → Confirmado` que la máquina de estados (§5 de `construccion_v1.md`) ya documentaba desde el principio ("precio calculado y congelado") pero que hasta ahora se saltaba siempre (`Crear` iba directo a `Confirmado`). Mientras un pedido sigue en Borrador, el alta muestra un **estimado** (camioneta y moto, los dos), nunca un precio comprometido. `vehiculos` gana `tipo` (camioneta|moto, default camioneta — la flota fue siempre así hasta ahora) y `tarifas` gana esa misma dimensión (tarifas existentes migran a camioneta, las de moto nacen vacías — mismo criterio de "casillero vacío antes que número inventado", §13). Riesgo aceptado a sabiendas: si al cerrar la planificación de una ruta falta la tarifa de algún pedido para el tipo de vehículo elegido, la ruta entera rechaza el cierre (nada queda a medio confirmar) — el planificador se entera recién ahí, no al cargar el pedido. Cero tablas nuevas. Detalle técnico en `construccion_v1.md` §5/§6/§12. |

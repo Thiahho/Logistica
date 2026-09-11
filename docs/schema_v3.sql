@@ -33,7 +33,7 @@ create table zonas (
 );
 -- El precio NO vive acá. Vive en `tarifas` (RF-09).
 -- km_desde/km_hasta tampoco traen valor de fábrica: son datos comerciales que se cargan desde
--- /tarifas, mismo criterio que el precio (acta_sistema_v3.md §13).
+-- /tarifas, mismo criterio que el precio (acta_sistema.md §13).
 
 create table localidades (
   id       serial primary key,
