@@ -24,7 +24,7 @@ public class AuthController(AuthService auth, IWebHostEnvironment env) : Control
         var resultado = await auth.LoginAsync(req.Email, req.Password, IpDelCliente(), ct);
         if (resultado is null) return Unauthorized();
 
-        EstablecerCookieRefresh(resultado.RefreshToken, resultado.RefreshExpiraEn);
+        EstablecerCookieRefresh(resultado.RefreshToken);
         return Ok(new AccessTokenResponse(resultado.AccessToken));
     }
 
@@ -42,7 +42,7 @@ public class AuthController(AuthService auth, IWebHostEnvironment env) : Control
             return Unauthorized();
         }
 
-        EstablecerCookieRefresh(resultado.RefreshToken, resultado.RefreshExpiraEn);
+        EstablecerCookieRefresh(resultado.RefreshToken);
         return Ok(new AccessTokenResponse(resultado.AccessToken));
     }
 
@@ -76,14 +76,19 @@ public class AuthController(AuthService auth, IWebHostEnvironment env) : Control
     // separados en localhost.
     private static CookieOptions CookiePath() => new() { Path = "/" };
 
-    private void EstablecerCookieRefresh(string token, DateTimeOffset expira)
+    // Sin `Expires`/`MaxAge` a propósito: cookie de SESIÓN, no persistente. El pedido explícito
+    // es que cerrar la ventana del navegador cierre la sesión — con `Expires` (antes, 30 días vía
+    // Jwt:RefreshDias) la cookie sobrevivía a cerrar y reabrir el navegador. El refresh token en
+    // sí sigue teniendo su propio vencimiento server-side (RefreshToken.ExpiraEn, Entidades/
+    // RefreshToken.cs) como red de seguridad independiente — esto solo cambia cuánto vive la
+    // cookie en el navegador, no cuánto es válido el token si de algún modo se reenviara.
+    private void EstablecerCookieRefresh(string token)
     {
         Response.Cookies.Append("refresh_token", token, new CookieOptions
         {
             HttpOnly = true,
             Secure = !env.IsDevelopment(),
             SameSite = SameSiteMode.Strict,
-            Expires = expira,
             Path = "/",
         });
     }
