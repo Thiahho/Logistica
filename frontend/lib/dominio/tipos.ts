@@ -598,6 +598,75 @@ export interface ResultadoCierreCliente {
   omitido: string | null;
 }
 
+// ---- Panel de cobranza (clientes críticos) ----
+
+/** vencido | por_vencer — categoría del cliente en el panel de cobranza (Servicios/
+ * CuentaCorrienteService.cs RiesgoAsync: deuda ya vencida, o factura que vence dentro de la
+ * ventana de preaviso). */
+export type CategoriaRiesgo = "vencido" | "por_vencer";
+
+export function etiquetaCategoriaRiesgo(categoria: string): string {
+  return categoria === "vencido" ? "Vencido" : categoria === "por_vencer" ? "Por vencer" : categoria;
+}
+
+/** Espejo de CuentaCorrienteService.ClienteEnRiesgo (GET /api/clientes/riesgo). */
+export interface ClienteEnRiesgo {
+  clienteId: number;
+  razonSocial: string;
+  email: string | null;
+  telefono: string | null;
+  activo: boolean;
+  categoria: CategoriaRiesgo;
+  saldo: number;
+  deudaVencida: number;
+  servicioCortado: boolean;
+  corteSuspendidoHasta: string | null;
+  proximoVencimiento: string | null;
+  saldoProximoAVencer: number;
+  diasHastaVencimiento: number | null;
+  colorPago: string;
+  colorTrato: string;
+  colorOper: string;
+}
+
+/** Espejo de ClientesController.AvisoPrevisualizado — el asunto/mensaje ya vienen armados por
+ * el servidor (nunca los arma el front). `omitido` no null = no se va a mandar nada para este
+ * cliente. */
+export interface AvisoPrevisualizado {
+  clienteId: number;
+  razonSocial: string;
+  categoria: string;
+  monto: number;
+  vencimiento: string | null;
+  email: string | null;
+  telefonoNormalizado: string | null;
+  asunto: string | null;
+  mensaje: string | null;
+  linkWhatsApp: string | null;
+  omitido: string | null;
+}
+
+/** Espejo de POST /api/clientes/avisos/previsualizacion. */
+export interface PrevisualizacionAvisos {
+  resendConfigurado: boolean;
+  avisos: AvisoPrevisualizado[];
+}
+
+/** Espejo de ClientesController.ResultadoAvisoCliente (POST /api/clientes/avisos). */
+export interface ResultadoAvisoCliente {
+  clienteId: number;
+  razonSocial: string;
+  categoria: string;
+  emailDestino: string | null;
+  emailEnviado: boolean;
+  emailSimulado: boolean;
+  emailError: string | null;
+  telefonoNormalizado: string | null;
+  linkWhatsApp: string | null;
+  eventoId: number | null;
+  omitido: string | null;
+}
+
 /** Espejo de PedidosController.AjusteResumen (GET/POST /api/pedidos/{id}/ajustes). */
 export interface AjusteResumen {
   id: number;

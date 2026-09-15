@@ -271,28 +271,36 @@ public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, 
                 return Conflict($"El/los pedido(s) {string.Join(", ", asignadosOtraRuta)} ya están asignados a otra ruta.");
         }
 
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-
-        var paradasExistentes = await db.RutaParadas.Where(rp => rp.RutaId == id).ToListAsync(ct);
-        db.RutaParadas.RemoveRange(paradasExistentes);
-
-        var nuevasParadas = req.Paradas.Select((item, i) => new RutaParada
+        // CreateExecutionStrategy().ExecuteAsync envuelve la transacción manual, exigido por
+        // EnableRetryOnFailure (RegistroDatos.cs). El delegate se reejecuta entero en cada
+        // reintento: paradasExistentes/nuevasParadas se consultan y arman DENTRO a propósito,
+        // para que cada intento parta de cero (nada tracked de un intento fallido anterior).
+        var estrategia = db.Database.CreateExecutionStrategy();
+        await estrategia.ExecuteAsync(async () =>
         {
-            RutaId = id,
-            UbicacionId = item.UbicacionId,
-            Tipo = "entrega",
-            Orden = i + 1,
-            Anclada = item.Anclada,
-        }).ToList();
-        db.RutaParadas.AddRange(nuevasParadas);
-        await db.SaveChangesAsync(ct); // aplica los deletes y genera el Id de las paradas nuevas
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
 
-        for (var i = 0; i < req.Paradas.Count; i++)
-            foreach (var pedidoId in req.Paradas[i].PedidoIds)
-                db.ParadaPedidos.Add(new ParadaPedido { ParadaId = nuevasParadas[i].Id, PedidoId = pedidoId });
+            var paradasExistentes = await db.RutaParadas.Where(rp => rp.RutaId == id).ToListAsync(ct);
+            db.RutaParadas.RemoveRange(paradasExistentes);
 
-        await db.SaveChangesAsync(ct); // acá frena trg_bloquear_direccion_dudosa si corresponde
-        await tx.CommitAsync(ct);
+            var nuevasParadas = req.Paradas.Select((item, i) => new RutaParada
+            {
+                RutaId = id,
+                UbicacionId = item.UbicacionId,
+                Tipo = "entrega",
+                Orden = i + 1,
+                Anclada = item.Anclada,
+            }).ToList();
+            db.RutaParadas.AddRange(nuevasParadas);
+            await db.SaveChangesAsync(ct); // aplica los deletes y genera el Id de las paradas nuevas
+
+            for (var i = 0; i < req.Paradas.Count; i++)
+                foreach (var pedidoId in req.Paradas[i].PedidoIds)
+                    db.ParadaPedidos.Add(new ParadaPedido { ParadaId = nuevasParadas[i].Id, PedidoId = pedidoId });
+
+            await db.SaveChangesAsync(ct); // acá frena trg_bloquear_direccion_dudosa si corresponde
+            await tx.CommitAsync(ct);
+        });
 
         return NoContent();
     }
@@ -351,27 +359,36 @@ public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, 
             }
         }
 
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-        await db.PublicarActorAsync(User.UsuarioId(), "Cierre de planificación de ruta.", ct);
-
-        foreach (var pedido in pedidosACotizar)
+        // Igual que GuardarParadas: execution strategy exigido por EnableRetryOnFailure. Acá no
+        // hay entidades NUEVAS (Add) dentro del delegate, solo reasignación de propiedades a
+        // valores fijos (PrecioBase, Estado, ...) sobre `ruta`/`pedidos` ya cargados afuera — es
+        // idempotente aunque el delegate se reejecute: asignar el mismo valor dos veces no
+        // duplica nada.
+        var estrategia = db.Database.CreateExecutionStrategy();
+        await estrategia.ExecuteAsync(async () =>
         {
-            var desglose = desglosesPorPedido[pedido.Id];
-            pedido.PrecioBase = desglose.PrecioBase;
-            pedido.RecargoUrgencia = desglose.RecargoUrgencia;
-            pedido.DescuentoRuta = desglose.DescuentoRuta;
-            pedido.Total = desglose.Total;
-            pedido.PrecioCongeladoEn = DateTimeOffset.UtcNow;
-            pedido.Estado = EstadoPedido.Confirmado;
-        }
-        await db.SaveChangesAsync(ct);
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            await db.PublicarActorAsync(User.UsuarioId(), "Cierre de planificación de ruta.", ct);
 
-        ruta.Estado = "en_curso";
-        foreach (var pedido in pedidos)
-            pedido.Estado = EstadoPedido.EnRuta;
-        await db.SaveChangesAsync(ct);
+            foreach (var pedido in pedidosACotizar)
+            {
+                var desglose = desglosesPorPedido[pedido.Id];
+                pedido.PrecioBase = desglose.PrecioBase;
+                pedido.RecargoUrgencia = desglose.RecargoUrgencia;
+                pedido.DescuentoRuta = desglose.DescuentoRuta;
+                pedido.Total = desglose.Total;
+                pedido.PrecioCongeladoEn = DateTimeOffset.UtcNow;
+                pedido.Estado = EstadoPedido.Confirmado;
+            }
+            await db.SaveChangesAsync(ct);
 
-        await tx.CommitAsync(ct);
+            ruta.Estado = "en_curso";
+            foreach (var pedido in pedidos)
+                pedido.Estado = EstadoPedido.EnRuta;
+            await db.SaveChangesAsync(ct);
+
+            await tx.CommitAsync(ct);
+        });
 
         return NoContent();
     }
@@ -426,17 +443,23 @@ public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, 
             .Where(pp => pp.Parada.RutaId == rutaId)
             .Select(pp => pp.Pedido);
 
-        var ingresos = await pedidosDeLaRuta
-            .Where(p => p.Estado == EstadoPedido.Entregado)
-            .SumAsync(p => (decimal?)p.Total, ct) ?? 0m;
+        // Antes eran 5 round-trips en serie (ingresos, 3 conteos, la ruta). Los 4 agregados de
+        // pedidos y los costos de la ruta van como subconsultas correlacionadas de una sola
+        // proyección anclada en la ruta — EF Core las traduce a una única sentencia SQL.
+        var resultado = await db.Rutas.AsNoTracking()
+            .Where(r => r.Id == rutaId)
+            .Select(r => new
+            {
+                Ingresos = pedidosDeLaRuta.Where(p => p.Estado == EstadoPedido.Entregado).Sum(p => (decimal?)p.Total) ?? 0m,
+                Efectivas = pedidosDeLaRuta.Count(p => p.Estado == EstadoPedido.Entregado),
+                Fallidas = pedidosDeLaRuta.Count(p => p.Estado == EstadoPedido.Fallido),
+                Reprogramadas = pedidosDeLaRuta.Count(p => p.Estado == EstadoPedido.Reprogramado),
+                Costos = (r.CombustibleMonto ?? 0) + (r.PeajesMonto ?? 0) + (r.OtrosCostos ?? 0) + (r.PagoRepartidor ?? 0),
+            })
+            .SingleAsync(ct);
 
-        var efectivas = await pedidosDeLaRuta.CountAsync(p => p.Estado == EstadoPedido.Entregado, ct);
-        var fallidas = await pedidosDeLaRuta.CountAsync(p => p.Estado == EstadoPedido.Fallido, ct);
-        var reprogramadas = await pedidosDeLaRuta.CountAsync(p => p.Estado == EstadoPedido.Reprogramado, ct);
-
-        var ruta = await db.Rutas.AsNoTracking().SingleAsync(r => r.Id == rutaId, ct);
-        var costos = (ruta.CombustibleMonto ?? 0) + (ruta.PeajesMonto ?? 0) + (ruta.OtrosCostos ?? 0) + (ruta.PagoRepartidor ?? 0);
-
-        return new ResultadoRuta(ingresos, costos, ingresos - costos, efectivas, fallidas, reprogramadas);
+        return new ResultadoRuta(
+            resultado.Ingresos, resultado.Costos, resultado.Ingresos - resultado.Costos,
+            resultado.Efectivas, resultado.Fallidas, resultado.Reprogramadas);
     }
 }

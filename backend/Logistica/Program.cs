@@ -14,7 +14,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using Npgsql;
 
 // El body JSON (System.Text.Json) siempre parsea decimales en invariant culture, pero el model
 // binder de [FromForm]/multipart (MisParadasController.Cerrar, H2) usa CultureInfo.CurrentCulture
@@ -26,15 +25,12 @@ CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var connectionString = builder.Configuration.GetConnectionString("Postgres")
-    ?? throw new InvalidOperationException("Falta ConnectionStrings:Postgres");
+builder.Services.AddDatosLogistica(builder.Configuration);
 
-var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
-dataSourceBuilder.MapEnum<EstadoPedido>("estado_pedido");
-var dataSource = dataSourceBuilder.Build();
-
-builder.Services.AddDbContext<LogisticaDbContext>(options =>
-    options.UseNpgsql(dataSource));
+// /health para el readiness probe del hosting gestionado — no existía ninguno. Solo chequea
+// que el DbContext puede conectar (AddDbContextCheck ejecuta un "select 1" equivalente), no
+// reglas de negocio.
+builder.Services.AddHealthChecks().AddDbContextCheck<LogisticaDbContext>();
 
 builder.Services.Configure<OpcionesJwt>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddSingleton<TokenService>();
@@ -76,6 +72,20 @@ builder.Services.AddHttpClient<RuteoService>(client =>
     client.BaseAddress = new Uri(ruteoBaseUrl);
     client.DefaultRequestHeaders.Add("User-Agent", "Logistica/1.0 (contacto@logistica.local)");
 });
+
+// Panel de cobranza: BaseUrl tiene default sensato en OpcionesResend, no hace falta un throw acá
+// como en Ruteo. La ApiKey (nullable a propósito) SÍ se resuelve en runtime dentro de
+// EmailService vía IOptions — nunca acá, para no exigirla en el arranque del host (modo
+// simulado sin ella, ver Servicios/EmailService.cs).
+builder.Services.Configure<OpcionesResend>(builder.Configuration.GetSection("Resend"));
+var resendBaseUrl = builder.Configuration["Resend:BaseUrl"] ?? "https://api.resend.com/";
+builder.Services.AddHttpClient<EmailService>(client =>
+{
+    client.BaseAddress = new Uri(resendBaseUrl);
+    client.DefaultRequestHeaders.Add("User-Agent", "Logistica/1.0 (contacto@logistica.local)");
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+builder.Services.AddScoped<AvisosCobranzaService>();
 
 var jwt = builder.Configuration.GetSection("Jwt").Get<OpcionesJwt>()
     ?? throw new InvalidOperationException("Falta la sección Jwt");
@@ -126,20 +136,29 @@ builder.Services.AddCors(options =>
 // seguridad). Por IP, no por email: frenar por email dejaría a cualquiera bloquear la cuenta de
 // otro con solo mandar intentos fallidos a su nombre (un DoS de negación de servicio disfrazado
 // de "protección"). 5 intentos por minuto alcanza para un typo real y frena un ataque automatizado.
+//
+// Token bucket, no fixed window: fixed window resetea la ventana entera de golpe, así que un
+// atacante puede mandar 5 intentos a los 0:59 y otros 5 a los 1:01 — 10 intentos reales en 2
+// segundos. Token bucket recarga gradualmente (1 token cada 12s hasta el tope de 5), sin ese
+// doble-burst en el borde de la ventana.
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddPolicy("login", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+    options.AddPolicy("login", httpContext => RateLimitPartition.GetTokenBucketLimiter(
         partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "sin-ip",
-        factory: _ => new FixedWindowRateLimiterOptions
+        factory: _ => new TokenBucketRateLimiterOptions
         {
-            Window = TimeSpan.FromMinutes(1),
-            PermitLimit = 5,
+            TokenLimit = 5,
+            TokensPerPeriod = 1,
+            ReplenishmentPeriod = TimeSpan.FromSeconds(12),
+            AutoReplenishment = true,
             QueueLimit = 0,
         }));
     options.OnRejected = async (contexto, ct) =>
     {
-        contexto.HttpContext.Response.Headers.RetryAfter = "60";
+        // 12, no 60: con token bucket el próximo token llega a los 12s (ReplenishmentPeriod), no
+        // hay que esperar la ventana entera como con fixed window.
+        contexto.HttpContext.Response.Headers.RetryAfter = "12";
         var problemDetailsService = contexto.HttpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
         await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
         {
@@ -148,7 +167,7 @@ builder.Services.AddRateLimiter(options =>
             {
                 Status = StatusCodes.Status429TooManyRequests,
                 Title = "Demasiados intentos",
-                Detail = "Demasiados intentos de inicio de sesión. Esperá un minuto y volvé a intentar.",
+                Detail = "Demasiados intentos de inicio de sesión. Esperá unos segundos y volvé a intentar.",
             },
         });
     };
@@ -225,6 +244,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapHealthChecks("/health");
 app.MapControllers();
 
 app.Run();

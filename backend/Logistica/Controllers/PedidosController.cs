@@ -118,8 +118,9 @@ public class PedidosController(
 
     /// <summary>
     /// Listado paginado y filtrable (RF-10 y ss.). `pagina`/`tamanioPagina` son opcionales — sin
-    /// ellos devuelve todo sin recortar, para no romper /mis-envios (rol 'cliente', que hoy pide
-    /// GET /api/pedidos sin ningún query param y espera su historial completo).
+    /// ellos devuelve todo sin recortar. Todos los callers del frontend (incluido /mis-envios,
+    /// rol 'cliente') ya paginan vía useListadoPaginado; se deja la paginación opcional en vez de
+    /// obligatoria por compatibilidad con otros consumidores del endpoint.
     /// Orden por defecto: fecha de entrega descendente, con `id` descendente como desempate — antes
     /// el desempate quedaba librado al orden físico de la tabla, que no es estable ni predecible.
     /// </summary>

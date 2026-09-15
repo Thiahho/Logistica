@@ -198,6 +198,23 @@ public class LocalidadesController(LogisticaDbContext db, GeocodificacionService
                 .OrderBy(z => z.KmDesde)
                 .ToListAsync(ct);
 
+        // Antes era una query (con su propio round-trip) por localidad sin zona, dentro del
+        // foreach. DISTINCT ON (Postgres) trae en una sola consulta la ubicación de referencia
+        // (mayor id, con lat/lng) de cada localidad a la vez.
+        var localidadIds = sinZona.Select(l => l.Id).ToList();
+        var referenciasPorLocalidad = deposito?.Lat is null || deposito?.Lng is null
+            ? new Dictionary<int, Ubicacion>()
+            : (await db.Ubicaciones
+                    .FromSql($"""
+                        select distinct on (localidad_id) *
+                        from ubicaciones
+                        where localidad_id = any({localidadIds}) and lat is not null and lng is not null
+                        order by localidad_id, id desc
+                        """)
+                    .AsNoTracking()
+                    .ToListAsync(ct))
+                .ToDictionary(u => u.LocalidadId!.Value);
+
         var resultado = new List<LocalidadPendiente>();
         foreach (var l in sinZona)
         {
@@ -208,11 +225,7 @@ public class LocalidadesController(LogisticaDbContext db, GeocodificacionService
 
             if (deposito?.Lat is not null && deposito.Lng is not null)
             {
-                var referencia = await db.Ubicaciones.AsNoTracking()
-                    .Where(u => u.LocalidadId == l.Id && u.Lat != null && u.Lng != null)
-                    .OrderByDescending(u => u.Id)
-                    .FirstOrDefaultAsync(ct);
-                if (referencia is not null)
+                if (referenciasPorLocalidad.TryGetValue(l.Id, out var referencia))
                 {
                     var metros = Geo.DistanciaMetros(deposito.Lat.Value, deposito.Lng.Value, referencia.Lat!.Value, referencia.Lng!.Value);
                     distanciaKm = Math.Round(metros / 1000m, 1);

@@ -45,7 +45,7 @@ public class MiCuentaController(LogisticaDbContext db, CuentaCorrienteService cu
         var hoy = Reloj.HoyLocal();
         var saldo = await cuentaCorriente.SaldoAsync(clienteId.Value, ct);
         var deudaVencida = await cuentaCorriente.DeudaVencidaAsync(clienteId.Value, hoy, ct);
-        var servicioCortado = await cuentaCorriente.ServicioCortadoAsync(clienteId.Value, hoy, ct);
+        var servicioCortado = await cuentaCorriente.ServicioCortadoAsync(clienteId.Value, hoy, deudaVencida, ct);
 
         var facturas = (await db.Set<FacturaSaldo>().AsNoTracking()
             .Where(f => f.ClienteId == clienteId.Value && f.Saldo > 0)

@@ -23,7 +23,9 @@ namespace Logistica.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/clientes")]
-public class ClientesController(LogisticaDbContext db, TarifaService tarifas, CuentaCorrienteService cuentaCorriente) : ControllerBase
+public class ClientesController(
+    LogisticaDbContext db, TarifaService tarifas, CuentaCorrienteService cuentaCorriente, AvisosCobranzaService avisosCobranza)
+    : ControllerBase
 {
     public record TarifaZona(
         int ZonaId, string ZonaCodigo, string ZonaNombre,
@@ -104,6 +106,103 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas, Cu
             .Select(c => new ClienteSeleccion(c.Id, c.RazonSocial))
             .ToListAsync(ct));
 
+    /// <summary>
+    /// Panel de cobranza: clientes con deuda vencida o con una factura por vencer dentro de
+    /// CuentaCorrienteService.DiasPreavisoDefault días (15 — regla de negocio fija, no un filtro
+    /// ajustable: si fuera ajustable acá, un cliente visible con una ventana más ancha podría
+    /// salir "Omitido" al intentar mandarle un aviso, porque POST /avisos usa siempre la misma
+    /// constante. Listar y enviar comparten la misma ventana a propósito, para que nunca
+    /// diverjan. RiesgoAsync hace el trabajo pesado en SQL (una sola consulta agrupada, nunca
+    /// N+1); acá solo queda filtrar por categoría/texto, ordenar y paginar en memoria — el
+    /// conjunto de clientes "en riesgo" es un subconjunto chico del total, no todo el padrón.
+    /// </summary>
+    [HttpGet("riesgo")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> ListarRiesgo(
+        [FromQuery] string? categoria,
+        [FromQuery] string? q,
+        [FromQuery] string? orden,
+        [FromQuery] int? pagina,
+        [FromQuery] int? tamanioPagina,
+        CancellationToken ct)
+    {
+        if (categoria is not null && categoria is not ("vencido" or "por_vencer"))
+            return BadRequest("Categoría inválida.");
+
+        var clientes = await cuentaCorriente.RiesgoAsync(
+            Reloj.HoyLocal(), CuentaCorrienteService.DiasPreavisoDefault,
+            clienteIds: null, soloActivos: true, ct);
+
+        if (categoria is not null)
+            clientes = clientes.Where(c => c.Categoria == categoria).ToList();
+
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var texto = q.Trim().ToLower();
+            clientes = clientes.Where(c => c.RazonSocial.ToLower().Contains(texto)).ToList();
+        }
+
+        // Sin `orden`, se mantiene el orden que ya trae RiesgoAsync (deuda vencida desc, próximo
+        // vencimiento asc, razón social) — es el orden de prioridad de cobranza, no alfabético.
+        clientes = orden switch
+        {
+            "deuda" => clientes.OrderBy(c => c.DeudaVencida).ThenBy(c => c.RazonSocial).ToList(),
+            "-deuda" => clientes.OrderByDescending(c => c.DeudaVencida).ThenBy(c => c.RazonSocial).ToList(),
+            "vencimiento" => clientes.OrderBy(c => c.ProximoVencimiento).ThenBy(c => c.RazonSocial).ToList(),
+            "cliente" => clientes.OrderBy(c => c.RazonSocial).ToList(),
+            _ => clientes,
+        };
+
+        var total = clientes.Count;
+        if (tamanioPagina is > 0)
+        {
+            var paginaActual = pagina is > 0 ? pagina.Value : 1;
+            clientes = clientes.Skip((paginaActual - 1) * tamanioPagina.Value).Take(tamanioPagina.Value).ToList();
+        }
+
+        return Ok(new ListaPaginada<ClienteEnRiesgo>(clientes, total));
+    }
+
+    public record AvisosRequest(List<int> ClienteIds, bool EnviarEmail = true);
+
+    /// <summary>Previsualización — sin efectos. Devuelve el asunto/mensaje YA armados por el
+    /// servidor para cada cliente (nunca lo que mande el front), así el admin ve exactamente qué
+    /// se va a mandar antes de confirmar nada.</summary>
+    [HttpPost("avisos/previsualizacion")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> PrevisualizarAvisos(AvisosRequest req, CancellationToken ct)
+    {
+        var error = ValidarClienteIds(req.ClienteIds);
+        if (error is not null) return BadRequest(error);
+
+        return Ok(await avisosCobranza.PrevisualizarAsync(req.ClienteIds, Reloj.HoyLocal(), ct));
+    }
+
+    /// <summary>Envía los avisos — email (si `EnviarEmail` y el cliente tiene casilla) + siempre
+    /// arma el link de WhatsApp si hay teléfono. Nunca 500 por un fallo de Resend: el error de
+    /// un destinatario no debe tumbar la respuesta de los demás (mismo criterio que
+    /// CerrarCiclosAsync devolviendo `Omitido` en vez de tirar).</summary>
+    [HttpPost("avisos")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> EnviarAvisos(AvisosRequest req, CancellationToken ct)
+    {
+        var error = ValidarClienteIds(req.ClienteIds);
+        if (error is not null) return BadRequest(error);
+
+        var resultado = await avisosCobranza.EnviarAsync(req.ClienteIds, req.EnviarEmail, User.UsuarioId(), Reloj.HoyLocal(), ct);
+        return Ok(resultado);
+    }
+
+    /// <summary>Único guardarraíl real contra un envío masivo por error: sin esto, nada impide
+    /// seleccionar "todos" y mandarle un aviso a la cartera entera de un click.</summary>
+    private static string? ValidarClienteIds(List<int> clienteIds)
+    {
+        if (clienteIds is not { Count: > 0 }) return "Elegí al menos un cliente.";
+        if (clienteIds.Count > AvisosCobranzaService.MaxClientesPorLote)
+            return $"Máximo {AvisosCobranzaService.MaxClientesPorLote} clientes por envío.";
+        return null;
+    }
+
     /// <summary>Colores por defecto para un cliente nuevo (RF-32: "un cliente sin historial no es
     /// neutro, es desconocido" — pago en rojo, trato y operación en amarillo). Ya son los valores
     /// por defecto de la entidad, no hace falta pisarlos acá.</summary>
@@ -135,22 +234,24 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas, Cu
         var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
         var zonas = await db.Zonas.AsNoTracking().OrderBy(z => z.Codigo).ToListAsync(ct);
 
-        var tarifas = new List<TarifaZona>();
-        foreach (var zona in zonas)
-        {
-            async Task<decimal?> PrecioGeneral(string tipo) => await db.Database
-                .SqlQuery<decimal?>($"select tarifa_vigente(null, {zona.Id}, {hoy}, {tipo}) as \"Value\"")
-                .SingleAsync(ct);
-            async Task<decimal?> PrecioCliente(string tipo) => await db.Tarifas.AsNoTracking()
-                .Where(t => t.ClienteId == id && t.ZonaId == zona.Id && t.TipoVehiculo == tipo && t.VigenteHasta == null)
-                .Select(t => (decimal?)t.Precio)
-                .SingleOrDefaultAsync(ct);
+        // Antes eran 4 round-trips por zona (tarifa_vigente x2 tipos + tarifa de cliente x2
+        // tipos) dentro del foreach. Acá se traen las dos fuentes de una vez, fuera del loop, y
+        // se arma cada TarifaZona leyendo de los diccionarios — mismos valores, sin awaits
+        // adentro del foreach. Ver TarifaService.PreciosGeneralesAsync.
+        var preciosGenerales = await tarifas.PreciosGeneralesAsync(hoy, ct);
+        var preciosCliente = (await db.Tarifas.AsNoTracking()
+                .Where(t => t.ClienteId == id && t.VigenteHasta == null)
+                .Select(t => new { t.ZonaId, t.TipoVehiculo, t.Precio })
+                .ToListAsync(ct))
+            .ToDictionary(t => (t.ZonaId, t.TipoVehiculo), t => (decimal?)t.Precio);
 
-            tarifas.Add(new TarifaZona(
+        var tarifasPorZona = zonas.Select(zona => new TarifaZona(
                 zona.Id, zona.Codigo, zona.Nombre,
-                await PrecioGeneral("camioneta"), await PrecioCliente("camioneta"),
-                await PrecioGeneral("moto"), await PrecioCliente("moto")));
-        }
+                preciosGenerales.GetValueOrDefault((zona.Id, "camioneta")),
+                preciosCliente.GetValueOrDefault((zona.Id, "camioneta")),
+                preciosGenerales.GetValueOrDefault((zona.Id, "moto")),
+                preciosCliente.GetValueOrDefault((zona.Id, "moto"))))
+            .ToList();
 
         var contador = await db.EventosCliente.AsNoTracking()
             .Where(e => e.ClienteId == id)
@@ -178,7 +279,7 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas, Cu
         return Ok(new ClienteDetalle(
             cliente.Id, cliente.RazonSocial, cliente.Cuit, cliente.Contacto, cliente.Telefono, cliente.Email,
             cliente.Activo, cliente.ColorPago, cliente.ColorTrato, cliente.ColorOper, cliente.CicloFacturacion,
-            saldoCliente, deudaVencida, tarifas, contador, ultimos));
+            saldoCliente, deudaVencida, tarifasPorZona, contador, ultimos));
     }
 
     [HttpPut("{id:int}")]
@@ -228,12 +329,16 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas, Cu
         var cliente = await db.Clientes.SingleOrDefaultAsync(c => c.Id == id, ct);
         if (cliente is null) return NotFound();
 
-        var tieneDatos = await db.Pedidos.AnyAsync(p => p.ClienteId == id, ct)
-            || await db.Tarifas.AnyAsync(t => t.ClienteId == id, ct)
-            || await db.EventosCliente.AnyAsync(e => e.ClienteId == id, ct)
-            || await db.ClientesUsuarios.AnyAsync(u => u.ClienteId == id, ct)
-            || await db.Facturas.AnyAsync(f => f.ClienteId == id, ct)
-            || await db.Pagos.AnyAsync(p => p.ClienteId == id, ct);
+        // Antes eran hasta 6 round-trips en serie (uno por tabla, cortando apenas alguno daba
+        // true). Union all + un solo AnyAsync: una sola consulta, el planner de Postgres corta
+        // apenas encuentra la primera fila.
+        var tieneDatos = await db.Pedidos.Where(p => p.ClienteId == id).Select(_ => 1)
+            .Concat(db.Tarifas.Where(t => t.ClienteId == id).Select(_ => 1))
+            .Concat(db.EventosCliente.Where(e => e.ClienteId == id).Select(_ => 1))
+            .Concat(db.ClientesUsuarios.Where(u => u.ClienteId == id).Select(_ => 1))
+            .Concat(db.Facturas.Where(f => f.ClienteId == id).Select(_ => 1))
+            .Concat(db.Pagos.Where(p => p.ClienteId == id).Select(_ => 1))
+            .AnyAsync(ct);
         if (tieneDatos)
             return Conflict("El cliente tiene pedidos, tarifas, eventos, usuarios, facturas o pagos asociados; desactivalo en vez de eliminarlo.");
 
@@ -374,7 +479,7 @@ public class ClientesController(LogisticaDbContext db, TarifaService tarifas, Cu
         var hoy = Reloj.HoyLocal();
         var saldo = await cuentaCorriente.SaldoAsync(id, ct);
         var deudaVencida = await cuentaCorriente.DeudaVencidaAsync(id, hoy, ct);
-        var servicioCortado = await cuentaCorriente.ServicioCortadoAsync(id, hoy, ct);
+        var servicioCortado = await cuentaCorriente.ServicioCortadoAsync(id, hoy, deudaVencida, ct);
 
         var corteSuspendidoPorNombre = cliente.CorteSuspendidoPor is null
             ? null

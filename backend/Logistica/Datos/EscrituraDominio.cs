@@ -23,13 +23,18 @@ public static class EscrituraDominio
         string? motivo = null,
         CancellationToken ct = default)
     {
-        await db.Database.ExecuteSqlInterpolatedAsync(
-            $"select set_config('app.usuario_id', {usuarioId.ToString()}, true)", ct);
-
-        if (motivo is not null)
+        // Antes, con motivo, eran 2 round-trips (uno por set_config). Acá van en una sola
+        // sentencia — sigue siendo parametrizado (Npgsql arma los parámetros), no concatenación
+        // de texto. Sin motivo se mantiene la única sentencia de antes, sin tocar app.motivo.
+        if (motivo is null)
         {
             await db.Database.ExecuteSqlInterpolatedAsync(
-                $"select set_config('app.motivo', {motivo}, true)", ct);
+                $"select set_config('app.usuario_id', {usuarioId.ToString()}, true)", ct);
+        }
+        else
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"select set_config('app.usuario_id', {usuarioId.ToString()}, true), set_config('app.motivo', {motivo}, true)", ct);
         }
     }
 
@@ -39,10 +44,20 @@ public static class EscrituraDominio
         string? motivo = null,
         CancellationToken ct = default)
     {
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-        await db.PublicarActorAsync(usuarioId, motivo, ct);
-        var filas = await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
-        return filas;
+        // CreateExecutionStrategy().ExecuteAsync envuelve la transacción manual: con
+        // EnableRetryOnFailure activo (RegistroDatos.cs), BeginTransactionAsync fuera de un
+        // execution strategy tira InvalidOperationException. El delegate se REEJECUTA ENTERO en
+        // cada reintento — por eso PublicarActorAsync va adentro, no antes: si quedara afuera, un
+        // reintento perdería el actor publicado y fn_log_estado_pedido se quedaría sin
+        // trazabilidad (RNF-04).
+        var estrategia = db.Database.CreateExecutionStrategy();
+        return await estrategia.ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            await db.PublicarActorAsync(usuarioId, motivo, ct);
+            var filas = await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+            return filas;
+        });
     }
 }

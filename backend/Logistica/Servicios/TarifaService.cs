@@ -14,6 +14,31 @@ namespace Logistica.Servicios;
 /// </summary>
 public class TarifaService(LogisticaDbContext db)
 {
+    private record PrecioZonaTipo(int ZonaId, string TipoVehiculo, decimal? Precio);
+
+    /// <summary>
+    /// Precio general (sin cliente) vigente a `fecha`, para TODAS las zonas y ambos tipos de
+    /// vehículo, en una sola consulta. Antes esto eran 2 round-trips (uno por tipo de vehículo)
+    /// por cada zona recorrida en un foreach — con Postgres local es invisible, pero contra un
+    /// Postgres gestionado cada round-trip cuesta 50-200x más (latencia de red en vez de CPU
+    /// local), así que ClientesController.Detalle y TarifasController.Listar lo notaban.
+    ///
+    /// El resultado siempre trae una fila por (zona, tipo), aunque tarifa_vigente() devuelva
+    /// null — mismo comportamiento que el SingleAsync() original sobre un solo
+    /// "select tarifa_vigente(...)" (siempre 1 fila, valor null o no).
+    /// </summary>
+    public async Task<Dictionary<(int ZonaId, string TipoVehiculo), decimal?>> PreciosGeneralesAsync(
+        DateOnly fecha, CancellationToken ct = default)
+    {
+        var filas = await db.Database
+            .SqlQuery<PrecioZonaTipo>($"""
+                select z.id as "ZonaId", tv as "TipoVehiculo", tarifa_vigente(null, z.id, {fecha}, tv) as "Precio"
+                from zonas z, unnest(array['camioneta', 'moto']) as tv
+                """)
+            .ToListAsync(ct);
+        return filas.ToDictionary(f => (f.ZonaId, f.TipoVehiculo), f => f.Precio);
+    }
+
     public async Task FijarAsync(int? clienteId, int zonaId, string tipoVehiculo, decimal? precio, CancellationToken ct = default)
     {
         var hoy = DateOnly.FromDateTime(DateTime.UtcNow);

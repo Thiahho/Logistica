@@ -5,6 +5,7 @@ import Link from "next/link";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
+import { PuntoColor } from "@/components/PuntoColor";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -16,21 +17,6 @@ import {
 } from "@/components/ui/table";
 import { leerJson } from "@/lib/api/errores";
 import type { Cliente } from "@/lib/dominio/tipos";
-
-const COLOR_CLASE: Record<string, string> = {
-  verde: "bg-green-500",
-  amarillo: "bg-yellow-500",
-  rojo: "bg-red-500",
-};
-
-function PuntoColor({ color }: { color: string }) {
-  return (
-    <span
-      title={color}
-      className={`inline-block size-2.5 rounded-full ${COLOR_CLASE[color] ?? "bg-muted"}`}
-    />
-  );
-}
 
 export default function ClientesPage() {
   return (

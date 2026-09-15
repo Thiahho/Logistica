@@ -44,9 +44,12 @@ public class FacturasController(LogisticaDbContext db, CuentaCorrienteService cu
     }
 
     /// <summary>
-    /// Paginado y filtrable, mismo patrón que /api/pedidos. Volumen bajo (P6: dos clientes
-    /// cerrados hoy) — se resuelve `estado`/orden/página en memoria porque "estado" es derivado
-    /// (v_facturas_saldo) y no es una columna real que SQL pueda filtrar ni paginar sola.
+    /// Paginado y filtrable, mismo patrón que /api/pedidos. Antes traía TODA v_facturas_saldo (join
+    /// clientes) a memoria y resolvía estado/orden/página ahí — asumido barato por volumen bajo
+    /// (P6: dos clientes cerrados hoy), pero es justo lo que deja de ser cierto al crecer. El
+    /// "estado" (pendiente/parcial/pagada/vencida) es una expresión de f.Saldo/f.Total/
+    /// f.FechaVencimiento comparados contra `hoy` — EF Core la traduce a un CASE WHEN, así que
+    /// filtro, orden y Skip/Take pasan a resolverse en SQL, y solo la página pedida viaja.
     /// </summary>
     [HttpGet]
     public async Task<IActionResult> Listar(
@@ -60,55 +63,63 @@ public class FacturasController(LogisticaDbContext db, CuentaCorrienteService cu
         [FromQuery] int? tamanioPagina,
         CancellationToken ct)
     {
+        var hoy = Reloj.HoyLocal();
+
         var query =
             from f in db.Set<FacturaSaldo>().AsNoTracking()
             join c in db.Clientes.AsNoTracking() on f.ClienteId equals c.Id
-            select new { Saldo = f, ClienteRazonSocial = c.RazonSocial };
+            select new
+            {
+                f.Id, f.ClienteId, ClienteRazonSocial = c.RazonSocial, f.Ciclo,
+                f.PeriodoDesde, f.PeriodoHasta, f.FechaEmision, f.FechaVencimiento,
+                f.Total, f.Pagado, f.Saldo,
+                // Mismo criterio que EstadoDe (Detalle usa la versión en memoria, una sola fila —
+                // no hace falta duplicar acá, se mantiene igual a propósito para que ambas no se
+                // desincronicen): saldo <= 0 gana pagada; si no, vencimiento < hoy gana vencida.
+                Estado = f.Saldo <= 0 ? "pagada"
+                    : f.FechaVencimiento < hoy ? "vencida"
+                    : f.Saldo < f.Total ? "parcial" : "pendiente",
+            };
 
-        if (clienteId is not null) query = query.Where(x => x.Saldo.ClienteId == clienteId.Value);
-        if (fechaDesde is not null) query = query.Where(x => x.Saldo.FechaEmision >= fechaDesde.Value);
-        if (fechaHasta is not null) query = query.Where(x => x.Saldo.FechaEmision <= fechaHasta.Value);
+        if (clienteId is not null) query = query.Where(x => x.ClienteId == clienteId.Value);
+        if (fechaDesde is not null) query = query.Where(x => x.FechaEmision >= fechaDesde.Value);
+        if (fechaHasta is not null) query = query.Where(x => x.FechaEmision <= fechaHasta.Value);
+        if (!string.IsNullOrWhiteSpace(estado)) query = query.Where(x => x.Estado == estado);
 
         if (!string.IsNullOrWhiteSpace(q))
         {
             var texto = q.Trim();
             query = long.TryParse(texto, out var idBuscado)
-                ? query.Where(x => x.Saldo.Id == idBuscado || x.ClienteRazonSocial.ToLower().Contains(texto.ToLower()))
+                ? query.Where(x => x.Id == idBuscado || x.ClienteRazonSocial.ToLower().Contains(texto.ToLower()))
                 : query.Where(x => x.ClienteRazonSocial.ToLower().Contains(texto.ToLower()));
         }
 
-        var filas = await query.ToListAsync(ct);
-        var hoy = Reloj.HoyLocal();
+        var total = await query.CountAsync(ct);
 
-        var resumenes = filas.Select(x => new FacturaResumen(
-            x.Saldo.Id, x.Saldo.ClienteId, x.ClienteRazonSocial, x.Saldo.Ciclo,
-            x.Saldo.PeriodoDesde, x.Saldo.PeriodoHasta, x.Saldo.FechaEmision, x.Saldo.FechaVencimiento,
-            x.Saldo.Total, x.Saldo.Pagado, x.Saldo.Saldo,
-            EstadoDe(x.Saldo.Saldo, x.Saldo.Total, x.Saldo.FechaVencimiento, hoy)));
-
-        if (!string.IsNullOrWhiteSpace(estado))
-            resumenes = resumenes.Where(r => r.Estado == estado);
-
-        var lista = resumenes.ToList();
-        var total = lista.Count;
-
-        lista = orden switch
+        query = orden switch
         {
-            "fecha" => lista.OrderBy(r => r.FechaEmision).ThenBy(r => r.Id).ToList(),
-            "-fecha" => lista.OrderByDescending(r => r.FechaEmision).ThenByDescending(r => r.Id).ToList(),
-            "vencimiento" => lista.OrderBy(r => r.FechaVencimiento).ThenBy(r => r.Id).ToList(),
-            "-vencimiento" => lista.OrderByDescending(r => r.FechaVencimiento).ThenByDescending(r => r.Id).ToList(),
-            "total" => lista.OrderBy(r => r.Total).ThenByDescending(r => r.Id).ToList(),
-            "-total" => lista.OrderByDescending(r => r.Total).ThenByDescending(r => r.Id).ToList(),
-            "cliente" => lista.OrderBy(r => r.ClienteRazonSocial).ThenByDescending(r => r.Id).ToList(),
-            _ => lista.OrderByDescending(r => r.FechaEmision).ThenByDescending(r => r.Id).ToList(),
+            "fecha" => query.OrderBy(x => x.FechaEmision).ThenBy(x => x.Id),
+            "-fecha" => query.OrderByDescending(x => x.FechaEmision).ThenByDescending(x => x.Id),
+            "vencimiento" => query.OrderBy(x => x.FechaVencimiento).ThenBy(x => x.Id),
+            "-vencimiento" => query.OrderByDescending(x => x.FechaVencimiento).ThenByDescending(x => x.Id),
+            "total" => query.OrderBy(x => x.Total).ThenByDescending(x => x.Id),
+            "-total" => query.OrderByDescending(x => x.Total).ThenByDescending(x => x.Id),
+            "cliente" => query.OrderBy(x => x.ClienteRazonSocial).ThenByDescending(x => x.Id),
+            _ => query.OrderByDescending(x => x.FechaEmision).ThenByDescending(x => x.Id),
         };
 
         if (tamanioPagina is > 0)
         {
             var paginaActual = pagina is > 0 ? pagina.Value : 1;
-            lista = lista.Skip((paginaActual - 1) * tamanioPagina.Value).Take(tamanioPagina.Value).ToList();
+            query = query.Skip((paginaActual - 1) * tamanioPagina.Value).Take(tamanioPagina.Value);
         }
+
+        var lista = await query
+            .Select(x => new FacturaResumen(
+                x.Id, x.ClienteId, x.ClienteRazonSocial, x.Ciclo,
+                x.PeriodoDesde, x.PeriodoHasta, x.FechaEmision, x.FechaVencimiento,
+                x.Total, x.Pagado, x.Saldo, x.Estado))
+            .ToListAsync(ct);
 
         return Ok(new ListaPaginada<FacturaResumen>(lista, total));
     }

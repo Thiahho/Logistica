@@ -39,17 +39,14 @@ public class TarifasController(LogisticaDbContext db, TarifaService tarifas) : C
         var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
         var zonas = await db.Zonas.AsNoTracking().OrderBy(z => z.Codigo).ToListAsync(ct);
 
-        var resultado = new List<TarifaGeneral>();
-        foreach (var zona in zonas)
-        {
-            var precioCamioneta = await db.Database
-                .SqlQuery<decimal?>($"select tarifa_vigente(null, {zona.Id}, {hoy}, 'camioneta') as \"Value\"")
-                .SingleAsync(ct);
-            var precioMoto = await db.Database
-                .SqlQuery<decimal?>($"select tarifa_vigente(null, {zona.Id}, {hoy}, 'moto') as \"Value\"")
-                .SingleAsync(ct);
-            resultado.Add(new TarifaGeneral(zona.Id, zona.Codigo, zona.Nombre, zona.KmDesde, zona.KmHasta, precioCamioneta, precioMoto));
-        }
+        // Antes eran 2 round-trips por zona (tarifa_vigente para camioneta y para moto) dentro
+        // del foreach. Ver TarifaService.PreciosGeneralesAsync.
+        var precios = await tarifas.PreciosGeneralesAsync(hoy, ct);
+        var resultado = zonas.Select(zona => new TarifaGeneral(
+                zona.Id, zona.Codigo, zona.Nombre, zona.KmDesde, zona.KmHasta,
+                precios.GetValueOrDefault((zona.Id, "camioneta")),
+                precios.GetValueOrDefault((zona.Id, "moto"))))
+            .ToList();
 
         var huecos = CalcularHuecos(zonas.Where(z => z.Activa));
 

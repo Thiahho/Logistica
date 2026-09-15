@@ -6,6 +6,8 @@ import { useParams, useRouter } from "next/navigation";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
+import { AvisoCobranzaDialog } from "@/components/AvisoCobranzaDialog";
+import { TarjetaMetrica } from "@/components/TarjetaMetrica";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -144,7 +146,7 @@ function DetalleCliente() {
 
       <DatosCliente cliente={cliente} fetchConSesion={fetchConSesion} onGuardado={cargar} />
       <TarifasCliente cliente={cliente} fetchConSesion={fetchConSesion} onCambio={cargar} />
-      <CuentaCorrienteCliente clienteId={cliente.id} fetchConSesion={fetchConSesion} />
+      <CuentaCorrienteCliente clienteId={cliente.id} fetchConSesion={fetchConSesion} onAvisoEnviado={cargar} />
       <UsuariosCliente clienteId={cliente.id} fetchConSesion={fetchConSesion} />
       <EventosCliente
         cliente={cliente}
@@ -516,12 +518,17 @@ const MEDIOS_PAGO = [
 function CuentaCorrienteCliente({
   clienteId,
   fetchConSesion,
+  onAvisoEnviado,
 }: {
   clienteId: number;
   fetchConSesion: ReturnType<typeof useAuth>["fetchConSesion"];
+  /** Para que "Últimos eventos" (ClienteDetalle, fuera de esta Card) refleje el aviso recién
+   * registrado — el evento vive en el padre, esta Card solo dispara el envío. */
+  onAvisoEnviado?: () => void;
 }) {
   const [cuenta, setCuenta] = useState<CuentaCorrienteClienteDatos | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [idsAviso, setIdsAviso] = useState<number[] | null>(null);
 
   const [monto, setMonto] = useState("");
   const [fechaPago, setFechaPago] = useState("");
@@ -610,6 +617,7 @@ function CuentaCorrienteCliente({
   }
 
   return (
+    <>
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Cuenta corriente</CardTitle>
@@ -621,26 +629,26 @@ function CuentaCorrienteCliente({
           error ? null : <p className="text-sm text-muted-foreground">Cargando…</p>
         ) : (
           <>
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <div className="rounded-lg border p-3">
-                <p className="text-2xl font-semibold">${cuenta.saldo.toLocaleString("es-AR")}</p>
-                <p className="text-xs text-muted-foreground">Saldo</p>
-              </div>
-              <div className="rounded-lg border p-3">
-                <p className={`text-2xl font-semibold ${cuenta.deudaVencida > 0 ? "text-destructive" : ""}`}>
-                  ${cuenta.deudaVencida.toLocaleString("es-AR")}
-                </p>
-                <p className="text-xs text-muted-foreground">Deuda vencida</p>
-              </div>
-              <div className="rounded-lg border p-3">
-                <p className={`text-sm font-semibold ${cuenta.servicioCortado ? "text-destructive" : ""}`}>
-                  {cuenta.servicioCortado ? "Servicio cortado" : "Al día"}
-                </p>
-                {cuenta.corteSuspendidoHasta && (
-                  <p className="text-xs text-muted-foreground">Plan de cuotas hasta {cuenta.corteSuspendidoHasta}</p>
-                )}
-              </div>
+            <div className="grid grid-cols-3 gap-4">
+              <TarjetaMetrica valor={`$${cuenta.saldo.toLocaleString("es-AR")}`} etiqueta="Saldo" />
+              <TarjetaMetrica
+                valor={`$${cuenta.deudaVencida.toLocaleString("es-AR")}`}
+                etiqueta="Deuda vencida"
+                tono={cuenta.deudaVencida > 0 ? "alerta" : "normal"}
+              />
+              <TarjetaMetrica
+                chico
+                valor={cuenta.servicioCortado ? "Servicio cortado" : "Al día"}
+                tono={cuenta.servicioCortado ? "alerta" : "normal"}
+                etiqueta={cuenta.corteSuspendidoHasta ? `Plan de cuotas hasta ${cuenta.corteSuspendidoHasta}` : undefined}
+              />
             </div>
+
+            {esClienteCritico(cuenta) && (
+              <Button variant="outline" size="sm" className="self-start" onClick={() => setIdsAviso([clienteId])}>
+                Enviar aviso de cobranza
+              </Button>
+            )}
 
             {cuenta.pendienteDeFacturar > 0 && (
               <p className="text-xs text-muted-foreground">
@@ -781,7 +789,27 @@ function CuentaCorrienteCliente({
         )}
       </CardContent>
     </Card>
+
+    <AvisoCobranzaDialog
+      clienteIds={idsAviso}
+      onOpenChange={(open) => !open && setIdsAviso(null)}
+      onEnviado={() => {
+        cargar();
+        onAvisoEnviado?.();
+      }}
+    />
+    </>
   );
+}
+
+/** Heurística de UI para mostrar el botón de aviso — no autoritativa: la previsualización del
+ * propio diálogo (server-side, CuentaCorrienteService.RiesgoAsync) es la que de verdad decide
+ * si el cliente tiene algo para avisar; acá solo evita mostrar el botón cuando obviamente no
+ * hace falta. */
+function esClienteCritico(cuenta: CuentaCorrienteClienteDatos): boolean {
+  if (cuenta.deudaVencida > 0) return true;
+  const limite = Date.now() + 15 * 24 * 60 * 60 * 1000;
+  return cuenta.facturas.some((f) => f.saldo > 0 && new Date(f.fechaVencimiento).getTime() <= limite);
 }
 
 /// Login de consulta del cliente (tabla clientes_usuarios, separada de /usuarios de personal
@@ -1013,12 +1041,9 @@ function EventosCliente({
         <CardTitle className="text-base">Eventos</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="grid grid-cols-3 gap-4 text-center">
+        <div className="grid grid-cols-3 gap-4">
           {(["pago", "trato", "operacion"] as const).map((dim) => (
-            <div key={dim} className="rounded-lg border p-3">
-              <p className="text-2xl font-semibold">{cliente.contadorEventos[dim] ?? 0}</p>
-              <p className="text-xs text-muted-foreground">{DIMENSION_LABEL[dim]}</p>
-            </div>
+            <TarjetaMetrica key={dim} valor={cliente.contadorEventos[dim] ?? 0} etiqueta={DIMENSION_LABEL[dim]} />
           ))}
         </div>
 

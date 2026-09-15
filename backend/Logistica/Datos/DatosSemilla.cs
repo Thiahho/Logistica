@@ -39,7 +39,10 @@ public static class DatosSemilla
                 new TipoEventoCliente { Codigo = "direccion_erronea", Dimension = "operacion", Descripcion = "Dirección incorrecta provista por el cliente" },
                 new TipoEventoCliente { Codigo = "destinatario_ausente", Dimension = "operacion", Descripcion = "Destinatario ausente" },
                 new TipoEventoCliente { Codigo = "entrega_ok", Dimension = "operacion", Descripcion = "Entrega sin incidente" },
-                new TipoEventoCliente { Codigo = "reserva_anticipada", Dimension = "operacion", Descripcion = "Pedido cargado antes del corte" });
+                new TipoEventoCliente { Codigo = "reserva_anticipada", Dimension = "operacion", Descripcion = "Pedido cargado antes del corte" },
+                // Panel de cobranza: acción del SISTEMA (un admin manda un aviso), no conducta
+                // del cliente — distinto de 'impago'. Ver Migrations/…_AgregarTipoEventoAvisoCobranza.cs.
+                new TipoEventoCliente { Codigo = "aviso_cobranza", Dimension = "pago", Descripcion = "Aviso de cobranza enviado al cliente" });
             await db.SaveChangesAsync(ct);
         }
 

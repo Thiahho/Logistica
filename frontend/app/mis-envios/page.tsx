@@ -4,9 +4,12 @@ import { useEffect, useState } from "react";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
+import { ControlesPaginacion } from "@/components/ControlesPaginacion";
+import { TarjetaMetrica } from "@/components/TarjetaMetrica";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { leerJson } from "@/lib/api/errores";
-import { etiquetaEstadoFactura, type CuentaPropia, type ListaPaginada, type PedidoResumen } from "@/lib/dominio/tipos";
+import { useListadoPaginado } from "@/lib/hooks/useListadoPaginado";
+import { etiquetaEstadoFactura, type CuentaPropia, type PedidoResumen } from "@/lib/dominio/tipos";
 
 export default function MisEnviosPage() {
   return (
@@ -41,21 +44,14 @@ function MiCuenta() {
         <CardTitle className="text-base">Mi cuenta</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="grid grid-cols-3 gap-4 text-center">
-          <div className="rounded-lg border p-3">
-            <p className="text-2xl font-semibold">${cuenta.saldo.toLocaleString("es-AR")}</p>
-            <p className="text-xs text-muted-foreground">Saldo</p>
-          </div>
-          <div className="rounded-lg border p-3">
-            <p className={`text-2xl font-semibold ${cuenta.deudaVencida > 0 ? "text-destructive" : ""}`}>
-              ${cuenta.deudaVencida.toLocaleString("es-AR")}
-            </p>
-            <p className="text-xs text-muted-foreground">Deuda vencida</p>
-          </div>
-          <div className="rounded-lg border p-3">
-            <p className="text-sm font-semibold">{cuenta.proximoVencimiento ?? "—"}</p>
-            <p className="text-xs text-muted-foreground">Próximo vencimiento</p>
-          </div>
+        <div className="grid grid-cols-3 gap-4">
+          <TarjetaMetrica valor={`$${cuenta.saldo.toLocaleString("es-AR")}`} etiqueta="Saldo" />
+          <TarjetaMetrica
+            valor={`$${cuenta.deudaVencida.toLocaleString("es-AR")}`}
+            etiqueta="Deuda vencida"
+            tono={cuenta.deudaVencida > 0 ? "alerta" : "normal"}
+          />
+          <TarjetaMetrica chico valor={cuenta.proximoVencimiento ?? "—"} etiqueta="Próximo vencimiento" />
         </div>
 
         {cuenta.servicioCortado && (
@@ -88,17 +84,17 @@ function MiCuenta() {
   );
 }
 
+// Antes pedía GET /api/pedidos sin ningún query param — el rol 'cliente' se bajaba su historial
+// completo en cada visita. useListadoPaginado (extraído de /pedidos y /rutas, ver ese hook) le
+// da paginación real sin escribir lógica nueva.
 function ListaEnvios() {
-  const { fetchConSesion } = useAuth();
-  const [pedidos, setPedidos] = useState<PedidoResumen[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchConSesion("/api/pedidos")
-      .then((r) => leerJson<ListaPaginada<PedidoResumen>>(r))
-      .then((r) => setPedidos(r.items))
-      .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar los envíos."));
-  }, [fetchConSesion]);
+  const {
+    items: pedidos, totalRegistros, error, pagina, setPagina, tamanioPagina, setTamanioPagina, totalPaginas,
+  } = useListadoPaginado<PedidoResumen>({
+    ruta: "/api/pedidos",
+    filtros: {},
+    ordenInicial: "-fecha",
+  });
 
   return (
     <div className="p-8">
@@ -111,17 +107,27 @@ function ListaEnvios() {
       ) : pedidos.length === 0 ? (
         <p className="text-muted-foreground">Todavía no tenés envíos.</p>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {pedidos.map((p) => (
-            <li key={p.id} className="rounded-lg border p-4">
-              <div className="flex items-center justify-between">
-                <span className="font-medium">{p.destinatarioNombre}</span>
-                <span className="text-xs uppercase text-muted-foreground">{p.estado}</span>
-              </div>
-              <p className="text-sm text-muted-foreground">Entrega: {p.fechaEntrega}</p>
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="flex flex-col gap-3">
+            {pedidos.map((p) => (
+              <li key={p.id} className="rounded-lg border p-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{p.destinatarioNombre}</span>
+                  <span className="text-xs uppercase text-muted-foreground">{p.estado}</span>
+                </div>
+                <p className="text-sm text-muted-foreground">Entrega: {p.fechaEntrega}</p>
+              </li>
+            ))}
+          </ul>
+          <ControlesPaginacion
+            pagina={pagina}
+            setPagina={setPagina}
+            totalPaginas={totalPaginas}
+            totalRegistros={totalRegistros}
+            tamanioPagina={tamanioPagina}
+            setTamanioPagina={setTamanioPagina}
+          />
+        </>
       )}
     </div>
   );

@@ -67,13 +67,19 @@ public class ExportarController(LogisticaDbContext db) : ControllerBase
             .OrderBy(r => r.Fecha)
             .ToListAsync(ct);
 
+        // Antes era un SumAsync por ruta dentro del foreach. Una sola consulta agrupada trae los
+        // ingresos de todas las rutas del rango a la vez.
+        var rutaIds = rutas.Select(r => r.Id).ToList();
+        var ingresosPorRuta = await db.ParadaPedidos
+            .Where(pp => rutaIds.Contains(pp.Parada.RutaId) && pp.Pedido.Estado == EstadoPedido.Entregado)
+            .GroupBy(pp => pp.Parada.RutaId)
+            .Select(g => new { RutaId = g.Key, Ingresos = g.Sum(pp => pp.Pedido.Total) ?? 0m })
+            .ToDictionaryAsync(x => x.RutaId, x => x.Ingresos, ct);
+
         var filas = new List<object?[]>();
         foreach (var r in rutas)
         {
-            var pedidosDeLaRuta = db.ParadaPedidos.Where(pp => pp.Parada.RutaId == r.Id).Select(pp => pp.Pedido);
-            var ingresos = await pedidosDeLaRuta
-                .Where(p => p.Estado == EstadoPedido.Entregado)
-                .SumAsync(p => (decimal?)p.Total, ct) ?? 0m;
+            var ingresos = ingresosPorRuta.GetValueOrDefault(r.Id);
             var costos = (r.CombustibleMonto ?? 0) + (r.PeajesMonto ?? 0) + (r.OtrosCostos ?? 0) + (r.PagoRepartidor ?? 0);
             filas.Add([r.Id, r.Fecha, ingresos, costos, ingresos - costos]);
         }
