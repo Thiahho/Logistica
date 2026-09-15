@@ -16,6 +16,8 @@ import { Button } from "@/components/ui/button";
 import { leerJson } from "@/lib/api/errores";
 import { MapaDinamico } from "@/components/mapa/MapaDinamico";
 import type { MarcadorMapa, VarianteMarcador } from "@/components/mapa/Mapa";
+import { EstadoParadaBadge } from "@/components/EstadoBadge";
+import { ProgresoParadas } from "@/components/ProgresoParadas";
 import type { JornadaDelDia, ParadaDelDia } from "@/lib/dominio/tipos";
 
 export default function HoyPage() {
@@ -30,18 +32,6 @@ const VARIANTE_POR_ESTADO: Record<string, VarianteMarcador> = {
   pendiente: "pendiente",
   completada: "completada",
   fallida: "fallida",
-};
-
-const ESTILO_ESTADO: Record<string, string> = {
-  pendiente: "bg-blue-100 text-blue-700",
-  completada: "bg-green-100 text-green-700",
-  fallida: "bg-red-100 text-red-700",
-};
-
-const ETIQUETA_ESTADO: Record<string, string> = {
-  pendiente: "Pendiente",
-  completada: "Entregada",
-  fallida: "Fallida",
 };
 
 function urlComoLlegar(p: { lat: number | null; lng: number | null }) {
@@ -118,8 +108,6 @@ function GuiaDeRuta() {
   ];
 
   const resueltas = jornada.completadas + jornada.fallidas;
-  const pctCompletadas = jornada.total > 0 ? (jornada.completadas / jornada.total) * 100 : 0;
-  const pctFallidas = jornada.total > 0 ? (jornada.fallidas / jornada.total) * 100 : 0;
   const proxima = jornada.paradas.find((p) => p.estado === "pendiente");
 
   return (
@@ -134,10 +122,7 @@ function GuiaDeRuta() {
           </span>
           <span className="text-sm text-muted-foreground">paradas resueltas</span>
         </div>
-        <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
-          {pctCompletadas > 0 && <div className="h-full bg-green-600" style={{ width: `${pctCompletadas}%` }} />}
-          {pctFallidas > 0 && <div className="h-full bg-red-600" style={{ width: `${pctFallidas}%` }} />}
-        </div>
+        <ProgresoParadas total={jornada.total} completadas={jornada.completadas} fallidas={jornada.fallidas} />
         {jornada.origen && !jornada.origen.esDeposito && (
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <MapPin className="size-3.5 shrink-0" />
@@ -266,9 +251,7 @@ function ParadaCard({ parada: p }: { parada: ParadaDelDia }) {
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
-          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ESTILO_ESTADO[p.estado]}`}>
-            {ETIQUETA_ESTADO[p.estado]}
-          </span>
+          <EstadoParadaBadge estado={p.estado} />
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Package className="size-3" />
             {p.pedidos.reduce((n, ped) => n + ped.bultos, 0)}

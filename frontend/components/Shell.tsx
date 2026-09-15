@@ -14,6 +14,7 @@ interface ItemNav {
 
 const NAV: ItemNav[] = [
   { href: "/pedidos", label: "Pedidos", roles: ["administracion", "operacion"] },
+  { href: "/jornada", label: "Jornada", roles: ["administracion", "operacion"] },
   { href: "/rutas", label: "Rutas", roles: ["administracion", "operacion"] },
   { href: "/clientes", label: "Clientes", roles: ["administracion"] },
   { href: "/vehiculos", label: "Vehículos", roles: ["administracion"] },

@@ -27,7 +27,7 @@ namespace Logistica.Controllers;
 [ApiController]
 [Route("api/rutas")]
 [Authorize(Policy = "BackOffice")]
-public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, PrecioService precios) : ControllerBase
+public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, PrecioService precios, JornadaService jornada) : ControllerBase
 {
     public record RutaResumen(long Id, DateOnly Fecha, string? VehiculoPatente, string? RepartidorNombre, string Estado, int CantidadParadas);
 
@@ -57,8 +57,12 @@ public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, 
     public record ParadaArmadoRequest(long UbicacionId, bool Anclada, List<long> PedidoIds);
     public record GuardarParadasRequest(List<ParadaArmadoRequest> Paradas);
     public record ParadaArmada(
-        long UbicacionId, string CalleNumero, string? Localidad, decimal? Lat, decimal? Lng,
-        bool Anclada, List<long> PedidoIds);
+        long Id, long UbicacionId, string CalleNumero, string? Localidad, decimal? Lat, decimal? Lng,
+        bool Anclada, int Orden, string Estado, DateTimeOffset? LlegadaEn, DateTimeOffset? SalidaEn,
+        List<long> PedidoIds);
+
+    public record ReasignarRepartidorRequest(Guid RepartidorId);
+    public record ReordenarParadasRequest(List<long> ParadaIds);
 
     /// <summary>
     /// Listado paginado y filtrable (RF-10 y ss. — mismo patrón que PedidosController.Listar).
@@ -73,6 +77,7 @@ public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, 
         [FromQuery] DateOnly? fechaHasta,
         [FromQuery] string? estado,
         [FromQuery] string? q,
+        [FromQuery] Guid? repartidorId,
         [FromQuery] string? orden,
         [FromQuery] int? pagina,
         [FromQuery] int? tamanioPagina,
@@ -84,6 +89,7 @@ public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, 
         if (fechaDesde is not null) query = query.Where(r => r.Fecha >= fechaDesde.Value);
         if (fechaHasta is not null) query = query.Where(r => r.Fecha <= fechaHasta.Value);
         if (!string.IsNullOrWhiteSpace(estado)) query = query.Where(r => r.Estado == estado);
+        if (repartidorId is not null) query = query.Where(r => r.RepartidorId == repartidorId.Value);
 
         if (!string.IsNullOrWhiteSpace(q))
         {
@@ -154,6 +160,86 @@ public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, 
             ruta.NotasCierre, ruta.CerradaEn, ruta.OrigenUbicacionId, origen));
     }
 
+    /// <summary>Bundle de paradas con estado/horarios/pedidos para el detalle de ruta del
+    /// back-office (jornada §9.3) — funciona en los tres estados, a diferencia de
+    /// ListarParadas (pensado solo para reabrir el armado). Mismo motor que
+    /// /api/mis-paradas/dia (JornadaService), sin la config propia del repartidor.</summary>
+    [HttpGet("{id:long}/jornada")]
+    public async Task<IActionResult> Jornada(long id, CancellationToken ct)
+    {
+        var bundle = await jornada.ArmarAsync(id, ct);
+        if (bundle is null) return NotFound();
+        return Ok(bundle);
+    }
+
+    /// <summary>Reasignar repartidor sin volver a armar la ruta — plan de contingencia por
+    /// ausencia del repartidor (acta §11.2-5, todavía abierta como decisión de negocio; esto
+    /// da la herramienta, no la resuelve). Permitido con la ruta ya en_curso a propósito: no
+    /// toca el vehículo (que define la tarifa ya congelada, acta 3.11) ni el precio.</summary>
+    [HttpPut("{id:long}/repartidor")]
+    public async Task<IActionResult> ReasignarRepartidor(long id, ReasignarRepartidorRequest req, CancellationToken ct)
+    {
+        var ruta = await db.Rutas.SingleOrDefaultAsync(r => r.Id == id, ct);
+        if (ruta is null) return NotFound();
+        if (ruta.Estado == "cerrada") return Conflict("La ruta ya está cerrada.");
+
+        var repartidor = await db.Usuarios.SingleOrDefaultAsync(u => u.Id == req.RepartidorId, ct);
+        if (repartidor is null || repartidor.Rol != Roles.Repartidor || !repartidor.Activo)
+            return BadRequest("El usuario elegido no es un repartidor activo.");
+
+        // MisParadasController.Dia toma la primera ruta en_curso del repartidor (FirstOrDefault):
+        // una segunda no daría error, le escondería una de las dos en silencio.
+        var yaTieneRutaEnCurso = await db.Rutas.AnyAsync(
+            r => r.Id != id && r.RepartidorId == req.RepartidorId && r.Estado == "en_curso", ct);
+        if (yaTieneRutaEnCurso)
+            return BadRequest("Ese repartidor ya tiene otra ruta en curso.");
+
+        ruta.RepartidorId = req.RepartidorId;
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+
+    /// <summary>Reordena las paradas todavía `pendiente` de una ruta ya en curso (RF-12: el
+    /// reordenamiento manual está siempre disponible). Las `completada`/`fallida` conservan su
+    /// `Orden` — se reasigna la secuencia recibida sobre las posiciones que hoy ocupan las
+    /// pendientes, no sobre 1..N. Misma transacción y mismo motivo que GuardarParadas: el unique
+    /// (ruta_id, orden) es DEFERRABLE justamente para esto.</summary>
+    [HttpPut("{id:long}/paradas/orden")]
+    public async Task<IActionResult> ReordenarParadas(long id, ReordenarParadasRequest req, CancellationToken ct)
+    {
+        var ruta = await db.Rutas.SingleOrDefaultAsync(r => r.Id == id, ct);
+        if (ruta is null) return NotFound();
+        if (ruta.Estado == "cerrada") return Conflict("La ruta ya está cerrada.");
+
+        var pendientes = await db.RutaParadas
+            .Where(rp => rp.RutaId == id && rp.Estado == "pendiente")
+            .ToListAsync(ct);
+
+        var idsRecibidos = req.ParadaIds;
+        if (idsRecibidos.Count != idsRecibidos.Distinct().Count())
+            return BadRequest("Una parada no puede aparecer más de una vez.");
+        if (!idsRecibidos.ToHashSet().SetEquals(pendientes.Select(p => p.Id)))
+            return BadRequest("La lista debe contener exactamente las paradas pendientes de esta ruta, sin repetidos ni faltantes.");
+
+        // Las posiciones que hoy ocupan las pendientes (pueden estar intercaladas con
+        // completadas/fallidas, p. ej. una fallida en el orden 5 con la 4 todavía pendiente):
+        // se conservan esas posiciones, la secuencia recibida se vuelca sobre ellas en orden.
+        var posiciones = pendientes.Select(p => p.Orden).OrderBy(o => o).ToList();
+        var porId = pendientes.ToDictionary(p => p.Id);
+
+        var estrategia = db.Database.CreateExecutionStrategy();
+        await estrategia.ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            for (var i = 0; i < idsRecibidos.Count; i++)
+                porId[idsRecibidos[i]].Orden = posiciones[i];
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        });
+
+        return NoContent();
+    }
+
     [HttpPost]
     public async Task<IActionResult> Crear(CrearRutaRequest req, CancellationToken ct)
     {
@@ -217,6 +303,10 @@ public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, 
                 rp.Ubicacion.Lat,
                 rp.Ubicacion.Lng,
                 rp.Anclada,
+                rp.Orden,
+                rp.Estado,
+                rp.LlegadaEn,
+                rp.SalidaEn,
             })
             .ToListAsync(ct);
 
@@ -227,7 +317,8 @@ public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, 
             .ToListAsync(ct);
 
         var resultado = paradas.Select(p => new ParadaArmada(
-            p.UbicacionId, p.CalleNumero, p.Localidad, p.Lat, p.Lng, p.Anclada,
+            p.Id, p.UbicacionId, p.CalleNumero, p.Localidad, p.Lat, p.Lng, p.Anclada,
+            p.Orden, p.Estado, p.LlegadaEn, p.SalidaEn,
             pedidosPorParada.Where(pp => pp.ParadaId == p.Id).Select(pp => pp.PedidoId).ToList()));
 
         return Ok(resultado);

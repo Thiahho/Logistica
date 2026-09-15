@@ -278,12 +278,25 @@ export interface VehiculoSeleccion {
   capacidadParadas: number;
 }
 
+/** Ruta.Estado solo tiene estos tres valores (ck_rutas_estado). Espejo del check constraint. */
+export type EstadoRuta = "planificada" | "en_curso" | "cerrada";
+export const ESTADOS_RUTA: EstadoRuta[] = ["planificada", "en_curso", "cerrada"];
+
+export function etiquetaEstadoRuta(estado: string): string {
+  const etiquetas: Record<string, string> = {
+    planificada: "Planificada",
+    en_curso: "En curso",
+    cerrada: "Cerrada",
+  };
+  return etiquetas[estado] ?? estado;
+}
+
 export interface RutaResumen {
   id: number;
   fecha: string;
   vehiculoPatente: string | null;
   repartidorNombre: string | null;
-  estado: string;
+  estado: EstadoRuta;
   cantidadParadas: number;
 }
 
@@ -295,7 +308,7 @@ export interface RutaDetalle {
   repartidorId: string | null;
   repartidorNombre: string | null;
   capacidadParadas: number;
-  estado: string;
+  estado: EstadoRuta;
   cantidadParadas: number;
   kmInicial: number | null;
   kmFinal: number | null;
@@ -355,14 +368,20 @@ export interface UsuarioSeleccion {
   nombre: string;
 }
 
-/** Una parada ya guardada (GET /api/rutas/{id}/paradas), para reabrir un armado en curso. */
+/** Una parada ya guardada (GET /api/rutas/{id}/paradas), para reabrir un armado en curso o
+ * para el detalle de ruta de solo lectura. */
 export interface ParadaArmada {
+  id: number;
   ubicacionId: number;
   calleNumero: string;
   localidad: string | null;
   lat: number | null;
   lng: number | null;
   anclada: boolean;
+  orden: number;
+  estado: "pendiente" | "completada" | "fallida";
+  llegadaEn: string | null;
+  salidaEn: string | null;
   pedidoIds: number[];
 }
 
@@ -455,6 +474,20 @@ export interface JornadaDelDia {
   umbralDesvioMetros: number;
   /** Solo null cuando no hay ruta en curso (`rutaId === null`) — una ruta en_curso siempre tiene
    * origen resuelto, CerrarPlanificacion lo exige (acta changelog 3.8). */
+  origen: OrigenRuta | null;
+  recorrido: Recorrido | null;
+  paradas: ParadaDelDia[];
+}
+
+/** Espejo de Servicios/JornadaService.JornadaRuta (GET /api/rutas/{id}/jornada) — mismo bundle
+ * que JornadaDelDia, para una ruta puntual en vez de "la ruta en_curso del repartidor
+ * autenticado". Sin MotivosFallo/UmbralDesvioMetros (config del repartidor, no del
+ * back-office) ni Fecha (RutaDetalle ya la tiene). */
+export interface JornadaRuta {
+  rutaId: number;
+  total: number;
+  completadas: number;
+  fallidas: number;
   origen: OrigenRuta | null;
   recorrido: Recorrido | null;
   paradas: ParadaDelDia[];
@@ -686,4 +719,56 @@ export interface ReintentoCreado {
   pedidoOriginalId: number;
   reintentoId: number;
   reprogramaciones: number;
+}
+
+// ==================== Jornada (monitor del día, §9.3 ciclo diario — NO es el tablero B2) ====================
+
+/** Espejo de JornadaController.ResumenJornada (GET /api/jornada/resumen). */
+export interface ResumenJornada {
+  fecha: string;
+  rutas: ContadorRutas;
+  paradas: ContadorParadas;
+  rutasDelDia: RutaDelDia[];
+  repartidores: RepartidorDelDia[];
+  generadoEn: string;
+}
+
+export interface ContadorRutas {
+  planificadas: number;
+  enCurso: number;
+  cerradas: number;
+  total: number;
+}
+
+export interface ContadorParadas {
+  total: number;
+  pendientes: number;
+  completadas: number;
+  fallidas: number;
+}
+
+export interface RutaDelDia {
+  id: number;
+  estado: EstadoRuta;
+  vehiculoPatente: string | null;
+  repartidorId: string | null;
+  repartidorNombre: string | null;
+  paradas: number;
+  pendientes: number;
+  completadas: number;
+  fallidas: number;
+}
+
+export interface RepartidorDelDia {
+  repartidorId: string;
+  nombre: string;
+  rutaId: number;
+  rutaEstado: EstadoRuta;
+  vehiculoPatente: string | null;
+  paradas: number;
+  completadas: number;
+  fallidas: number;
+  pendientes: number;
+  primeraLlegada: string | null;
+  ultimaActividad: string | null;
 }

@@ -22,14 +22,15 @@ import { leerError, leerJson } from "@/lib/api/errores";
 import { trazarRecorrido } from "@/lib/api/recorrido";
 import { sugerirOrden, type ParadaParaOrden } from "@/lib/dominio/ruteo";
 import type { Punto } from "@/lib/dominio/geo";
-import type {
-  CandidatoRuta,
-  Deposito,
-  ParadaArmada,
-  Recorrido,
-  RutaDetalle,
-  UsuarioSeleccion,
-  VehiculoSeleccion,
+import {
+  etiquetaEstadoRuta,
+  type CandidatoRuta,
+  type Deposito,
+  type ParadaArmada,
+  type Recorrido,
+  type RutaDetalle,
+  type UsuarioSeleccion,
+  type VehiculoSeleccion,
 } from "@/lib/dominio/tipos";
 import { MapaDinamico } from "@/components/mapa/MapaDinamico";
 import type { MarcadorMapa } from "@/components/mapa/Mapa";
@@ -416,10 +417,10 @@ function ArmarRuta() {
       <div className="p-8">
         <CabeceraSesion titulo={`Ruta #${ruta.id}`} />
         <p className="text-muted-foreground">
-          Esta ruta ya cerró su planificación (estado: {ruta.estado}). No se puede seguir editando.
+          Esta ruta ya cerró su planificación (estado: {etiquetaEstadoRuta(ruta.estado)}). No se puede seguir editando.
         </p>
-        <Button variant="outline" render={<Link href="/rutas" />} nativeButton={false} className="mt-4">
-          ← Rutas
+        <Button variant="outline" render={<Link href={`/rutas/${ruta.id}`} />} nativeButton={false} className="mt-4">
+          Ver detalle de la ruta →
         </Button>
       </div>
     );

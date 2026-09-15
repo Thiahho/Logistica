@@ -23,19 +23,10 @@ namespace Logistica.Controllers;
 public class MisParadasController(
     LogisticaDbContext db,
     IOptions<OpcionesPruebaEntrega> opciones,
-    OrigenRutaService origenes,
     AlmacenamientoFotos almacenamiento,
-    RuteoService ruteo,
+    JornadaService jornada,
     CuentaCorrienteService cuentaCorriente) : ControllerBase
 {
-    public record PedidoDeParada(long PedidoId, string DestinatarioNombre, string DestinatarioTelefono, int Bultos, string? Observaciones);
-
-    public record ParadaDelDia(
-        long ParadaId, long RutaId, int Orden, string Tipo, string Estado,
-        DateTimeOffset? LlegadaEn, DateTimeOffset? SalidaEn,
-        string CalleNumero, string? Localidad, string? Referencia, decimal? Lat, decimal? Lng,
-        List<PedidoDeParada> Pedidos);
-
     /// <summary>Origen viaja acá (y no por GET /api/ubicaciones/deposito, que es BackOffice) para
     /// no ampliar la audiencia de un endpoint de back-office: RNF-07 pide que la PWA reciba todo lo
     /// que necesita en un solo request, y el mapa del repartidor necesita el origen del recorrido.
@@ -116,49 +107,22 @@ public class MisParadasController(
         if (ruta is null)
             return Ok(new JornadaDelDia(null, null, 0, 0, 0, opciones.Value.MotivosFallo, opciones.Value.UmbralDesvioMetros, null, null, []));
 
+        // JornadaService.ArmarAsync es el mismo bundle que arma /api/rutas/{id}/jornada para el
+        // back-office (JornadaController) — acá se le suma la config propia del repartidor
+        // (MotivosFallo, UmbralDesvioMetros) que no tiene sentido exponer fuera de la PWA.
+        var bundle = await jornada.ArmarAsync(ruta.Id, ct)
+            ?? throw new InvalidOperationException($"La ruta {ruta.Id} desapareció entre la consulta y el armado del bundle.");
+
         // CerrarPlanificacion (RF-17, acta changelog 3.8) exige el origen elegido antes de pasar
         // a en_curso: una ruta que llegó hasta acá siempre tiene uno resuelto. El throw es
         // defensivo, no un camino esperado.
-        var origen = await origenes.ResolverAsync(ruta, ct)
-            ?? throw new InvalidOperationException($"La ruta {ruta.Id} está en curso sin origen resuelto.");
-
-        var filas = await (
-            from p in db.Set<ParadaRepartidor>()
-            where p.RutaId == ruta.Id
-            orderby p.Orden
-            select p
-        ).ToListAsync(ct);
-
-        var paradas = filas
-            .GroupBy(f => f.ParadaId)
-            .Select(g =>
-            {
-                var primero = g.First();
-                return new ParadaDelDia(
-                    primero.ParadaId, primero.RutaId, primero.Orden, primero.Tipo, primero.Estado,
-                    primero.LlegadaEn, primero.SalidaEn,
-                    primero.CalleNumero, primero.Localidad, primero.Referencia, primero.Lat, primero.Lng,
-                    g.Select(f => new PedidoDeParada(f.PedidoId, f.DestinatarioNombre, f.DestinatarioTelefono, f.Bultos, f.Observaciones)).ToList());
-            })
-            .OrderBy(p => p.Orden)
-            .ToList();
-
-        // El recorrido se traza desde el origen de la ruta (depósito o donde quedó la camioneta,
-        // acta changelog 3.6), en el orden ya planificado (Orden), sobre las paradas con
-        // coordenada real. Si el origen no tiene coordenada, se traza desde la primera parada —
-        // misma degradación que las paradas sin geocodificar, nunca se inventa una posición.
-        // Cacheado en RuteoService: la ruta no cambia de forma durante la jornada, así que esto
-        // pega en caché en cada recarga de /dia después de la primera.
-        var puntosRuta = new List<PuntoRuta>();
-        if (OrigenRutaService.Punto(origen) is { } puntoOrigen) puntosRuta.Add(puntoOrigen);
-        puntosRuta.AddRange(paradas.Where(p => p.Lat is not null && p.Lng is not null)
-            .Select(p => new PuntoRuta(p.Lat!.Value, p.Lng!.Value)));
-        var recorrido = await ruteo.TrazarAsync(puntosRuta, ct);
+        if (bundle.Origen is null)
+            throw new InvalidOperationException($"La ruta {ruta.Id} está en curso sin origen resuelto.");
 
         return Ok(new JornadaDelDia(
-            ruta.Fecha, ruta.Id, paradas.Count,
-            paradas.Count(p => p.Estado == "completada"), paradas.Count(p => p.Estado == "fallida"),
-            opciones.Value.MotivosFallo, opciones.Value.UmbralDesvioMetros, origen, recorrido, paradas));
+            ruta.Fecha, ruta.Id, bundle.Total, bundle.Completadas, bundle.Fallidas,
+            opciones.Value.MotivosFallo, opciones.Value.UmbralDesvioMetros,
+            bundle.Origen, bundle.Recorrido, bundle.Paradas));
     }
 
     /// <summary>RF-24. Idempotente: si ya hay una llegada registrada, se conserva la primera —

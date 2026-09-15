@@ -1,6 +1,6 @@
 # Estado de implementación — relevamiento de código
 
-**Generado:** 13/09/2026 · **Rama:** `demo-d` · **Fuente:** lectura directa del código (backend ASP.NET Core 8 + PostgreSQL, frontend Next.js), cruzado contra `acta_sistema.md` v4.2 y `Anexo_I_Alcance_V2.docx`.
+**Generado:** 13/09/2026, actualizado puntualmente el 15/09/2026 (monitor de jornada, changelog 4.4 — no es una repasada completa del resto) · **Rama:** `demo-d` · **Fuente:** lectura directa del código (backend ASP.NET Core 8 + PostgreSQL, frontend Next.js), cruzado contra `acta_sistema.md` v4.4 y `Anexo_I_Alcance_V2.docx`.
 
 Este documento no reemplaza a `acta_sistema.md` (reglas de negocio) ni a `construccion_v1.md` (especificación técnica). Es un inventario de qué existe hoy en el repositorio, con la referencia a qué requisito/decisión de las actas cubre cada pieza, para poder auditar alcance sin releer código.
 
@@ -10,13 +10,13 @@ Este documento no reemplaza a `acta_sistema.md` (reglas de negocio) ni a `constr
 
 | | |
 |---|---|
-| Controladores API | 16 |
-| Endpoints | ~70 |
-| Pantallas frontend (`page.tsx`) | 22 |
+| Controladores API | 17 (suma `JornadaController`) |
+| Endpoints | ~75 |
+| Pantallas frontend (`page.tsx`) | 24 (suma `/jornada` y `/rutas/[id]`) |
 | Entidades / tablas núcleo | 20 |
-| Migraciones aplicadas | 10 (`Inicial` → `AgregarCuentaCorriente`) |
+| Migraciones aplicadas | 10 (`Inicial` → `AgregarCuentaCorriente`) — el monitor de jornada (4.4) no agrega ninguna |
 | Roles | administracion, operacion, repartidor (personal interno) + cliente (`clientes_usuarios`, tabla separada) |
-| Última etapa cerrada | **E1 — Cuenta corriente y facturación** (Anexo I §5, changelog acta 4.2) |
+| Última etapa cerrada | **E1 — Cuenta corriente y facturación** (Anexo I §5, changelog acta 4.2). El monitor de jornada (4.4) es tooling operativo del ciclo diario (§9.3), no una etapa nueva del Anexo I. |
 
 ---
 
@@ -67,6 +67,8 @@ Regla de diseño repetida en varios controladores (`ClientesController`, `Usuari
 RF-10 a RF-17: candidatos por zona (`GET /api/pedidos/candidatos-ruta`), armado (`PUT /{id}/paradas` reemplaza el set completo mientras la ruta está `planificada`), consolidación de retiros en la misma dirección vía `parada_pedidos`, asignación de vehículo/repartidor, validación de capacidad en paradas (P7, avisa sin bloquear — RF-16), origen de ruta variable (depósito del catálogo u "otra dirección", changelog 3.6/3.8).
 `POST /{id}/cerrar-planificacion` (RF-17) transiciona la ruta a `en_curso` y en bloque sus pedidos a Confirmado/EnRuta, congelando ahí el precio final (changelog 3.11).
 
+**Monitor de jornada (changelog 4.4):** `GET /{id}/jornada` expone el mismo bundle de paradas/estado/horarios que la PWA (`Servicios/JornadaService.cs`, extraído de `MisParadasController.Dia`), para cualquier estado de ruta — hasta esta versión una ruta `en_curso` no tenía ninguna vista de back-office. `PUT /{id}/repartidor` (reasignar, con la ruta `planificada` o `en_curso`) y `PUT /{id}/paradas/orden` (reordenar pendientes, RF-12) son las dos acciones nuevas sobre una ruta ya en curso. `GET /api/jornada/resumen` (`JornadaController`, nuevo) agrega contadores por estado de ruta/parada para una fecha — no es el tablero B2 (§6).
+
 ### 3.6 Ejecución en calle (`MisParadasController`, `RecorridoController`, `PruebasEntregaController`)
 RF-18 a RF-24: lista de paradas del repartidor autenticado (`GET /dia`), registro de llegada (`POST /{paradaId}/llegada`) y cierre de parada con prueba de entrega (foto, receptor, posición, hora — `POST /{paradaId}/cierre`). Fotos servidas solo autenticadas, nunca por `wwwroot` estático (RNF-09). Ruteo real por calles vía OSRM (`RecorridoController`, changelog 3.4).
 **Sin implementar:** modo sin conexión (B10/RNF-01) — confirmado ausente, no hay cola local ni sincronización diferida en el código revisado.
@@ -94,14 +96,15 @@ RF-30: CSV de pedidos, rutas y resultados por rango de fechas — "reemplaza el 
 
 ---
 
-## 4. Pantallas del frontend (22)
+## 4. Pantallas del frontend (24)
 
 | Ruta | Pantalla |
 |---|---|
 | `/` | Home |
 | `/login` | Login |
 | `/pedidos`, `/pedidos/nuevo`, `/pedidos/[id]` | Carga y detalle de pedidos |
-| `/rutas`, `/rutas/nueva`, `/rutas/[id]/armar`, `/rutas/[id]/cierre` | Planificación y cierre de rutas |
+| `/jornada` | Monitor del día en curso: contadores por estado, rutas del día, panel por repartidor (changelog 4.4) |
+| `/rutas`, `/rutas/nueva`, `/rutas/[id]`, `/rutas/[id]/armar`, `/rutas/[id]/cierre` | Planificación, detalle (cualquier estado, changelog 4.4) y cierre de rutas |
 | `/hoy`, `/hoy/parada/[paradaId]` | PWA del repartidor |
 | `/mis-envios` | Portal de consulta del cliente |
 | `/clientes`, `/clientes/nuevo`, `/clientes/[id]` | ABM de clientes |
@@ -138,7 +141,7 @@ DDL completo en `docs/schema_v3.sql`. Historial de migraciones (10, cronológico
 Coincide con lo que el Anexo I declara en §4/§7 como brecha o exclusión — se lista acá solo lo verificado en esta pasada, no una copia del Anexo:
 
 - **Modo sin conexión de la PWA (B10 / RNF-01):** no hay cola local, compresión de fotos ni sincronización diferida en `MisParadasController` ni en el frontend de `/hoy`.
-- **Tablero de indicadores (B2):** no existe controlador ni pantalla de dashboard; `ExportarController` es la única vía de análisis (CSV).
+- **Tablero de indicadores (B2):** sigue sin construir. `/jornada` (changelog 4.4) agrega contadores, pero no calcula ninguna de las 10 métricas que B2 prevé (entregas/día, km, tiempo, margen, NPS, ocupación de flota) ni acumula/compara períodos — es un monitor del día en curso, mismo encuadre que `/cobranza` (changelog 4.3). `ExportarController` sigue siendo la única vía de análisis histórico (CSV).
 - **Motor de rango de cliente (B3):** los tres indicadores (`ColorPago/Trato/Oper`) son manuales, no hay cálculo periódico ni efecto sobre tarifa/prioridad/crédito.
 - **Liquidación al repartidor (B4):** no hay controlador ni tabla de liquidación; el pago se sigue tipeando a mano en el cierre de ruta.
 - **Portal de carga del cliente (B5):** `MiCuentaController` es de solo lectura; no hay endpoint de alta de pedido para el rol cliente.

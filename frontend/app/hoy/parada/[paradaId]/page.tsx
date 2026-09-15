@@ -22,6 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { leerError, leerJson } from "@/lib/api/errores";
 import { comprimirFoto } from "@/lib/captura/foto";
 import { limpiarUuidDeCaptura, uuidDeCaptura } from "@/lib/captura/dispositivo";
+import { EstadoParadaBadge, etiquetaEstadoParada } from "@/components/EstadoBadge";
 import type { CierreResultado, JornadaDelDia, ParadaDelDia } from "@/lib/dominio/tipos";
 
 export default function ParadaPage() {
@@ -33,18 +34,6 @@ export default function ParadaPage() {
 }
 
 type Modo = "detalle" | "entregado" | "fallido";
-
-const ESTILO_ESTADO: Record<string, string> = {
-  pendiente: "bg-blue-100 text-blue-700",
-  completada: "bg-green-100 text-green-700",
-  fallida: "bg-red-100 text-red-700",
-};
-
-const ETIQUETA_ESTADO: Record<string, string> = {
-  pendiente: "Pendiente",
-  completada: "Entregada",
-  fallida: "Fallida",
-};
 
 /** Timeout corto a propósito (RF-29): nunca vale la pena bloquear el cierre esperando un fix
  * de GPS. Sin posición, el servidor no calcula desvío y sigue andando igual. */
@@ -191,9 +180,7 @@ function ParadaDetalle() {
           <ChevronLeft className="size-4" />
           Hoy
         </Button>
-        <span className={`rounded-full px-3 py-1 text-xs font-medium ${ESTILO_ESTADO[parada.estado]}`}>
-          {ETIQUETA_ESTADO[parada.estado]}
-        </span>
+        <EstadoParadaBadge estado={parada.estado} size="md" />
       </div>
 
       <div className="rounded-lg border p-4 flex flex-col gap-2">
@@ -284,7 +271,7 @@ function ParadaDetalle() {
             // Ya resuelta: mostrar de nuevo Entregado/No pude dispararía un 409 del backend
             // (TransicionesPedido no permite un estado terminal a sí mismo) — nada que ganar.
             <p className="text-center text-sm text-muted-foreground">
-              Esta parada ya quedó {ETIQUETA_ESTADO[parada.estado].toLowerCase()}.
+              Esta parada ya quedó {etiquetaEstadoParada(parada.estado).toLowerCase()}.
             </p>
           )}
         </div>

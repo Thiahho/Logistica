@@ -24,10 +24,8 @@ import {
 } from "@/components/ui/table";
 import { ControlesPaginacion } from "@/components/ControlesPaginacion";
 import { useListadoPaginado } from "@/lib/hooks/useListadoPaginado";
-import type { RutaResumen } from "@/lib/dominio/tipos";
+import { ESTADOS_RUTA, etiquetaEstadoRuta, type RutaResumen } from "@/lib/dominio/tipos";
 import { useState } from "react";
-
-const ESTADOS_RUTA = ["planificada", "en_curso", "cerrada"] as const;
 
 interface Columna {
   campo: "id" | "fecha" | "estado" | "paradas";
@@ -106,7 +104,7 @@ function ListaRutas() {
           <div className="flex flex-col gap-2">
             <Label>Estado</Label>
             <Select
-              items={[{ value: "todos", label: "Todos" }, ...ESTADOS_RUTA.map((e) => ({ value: e, label: e }))]}
+              items={[{ value: "todos", label: "Todos" }, ...ESTADOS_RUTA.map((e) => ({ value: e, label: etiquetaEstadoRuta(e) }))]}
               value={estado || "todos"}
               onValueChange={(v) => conReinicioDePagina(setEstado)(!v || v === "todos" ? "" : v)}
             >
@@ -117,7 +115,7 @@ function ListaRutas() {
                 <SelectItem value="todos">Todos</SelectItem>
                 {ESTADOS_RUTA.map((e) => (
                   <SelectItem key={e} value={e}>
-                    {e}
+                    {etiquetaEstadoRuta(e)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -177,10 +175,18 @@ function ListaRutas() {
                   <TableCell>{r.id}</TableCell>
                   <TableCell>{r.fecha}</TableCell>
                   <TableCell>{r.cantidadParadas}</TableCell>
-                  <TableCell>{r.estado}</TableCell>
+                  <TableCell>{etiquetaEstadoRuta(r.estado)}</TableCell>
                   <TableCell>{r.vehiculoPatente ?? "—"}</TableCell>
                   <TableCell>{r.repartidorNombre ?? "—"}</TableCell>
-                  <TableCell>
+                  <TableCell className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      render={<Link href={`/rutas/${r.id}`} />}
+                      nativeButton={false}
+                    >
+                      Ver
+                    </Button>
                     {r.estado === "planificada" && (
                       <Button
                         size="sm"

@@ -45,6 +45,7 @@ builder.Services.AddScoped<OrigenRutaService>();
 builder.Services.AddScoped<TarifaService>();
 builder.Services.AddScoped<AlmacenamientoFotos>();
 builder.Services.AddScoped<CuentaCorrienteService>();
+builder.Services.AddScoped<JornadaService>();
 
 // RuteoService cachea recorridos en memoria (acta changelog 3.4) — sin tabla nueva.
 builder.Services.AddMemoryCache();

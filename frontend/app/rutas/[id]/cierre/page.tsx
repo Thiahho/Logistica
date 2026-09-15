@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TarjetaMetrica } from "@/components/TarjetaMetrica";
 import { leerError, leerJson } from "@/lib/api/errores";
 import type { ResultadoRuta, RutaDetalle } from "@/lib/dominio/tipos";
 
@@ -215,19 +216,10 @@ function CierreRuta() {
                 ${resultado.margen.toLocaleString("es-AR")}
               </span>
             </div>
-            <div className="grid grid-cols-3 gap-4 text-center pt-2 border-t">
-              <div className="rounded-lg border p-3">
-                <p className="text-2xl font-semibold">{resultado.efectivas}</p>
-                <p className="text-xs text-muted-foreground">Efectivas</p>
-              </div>
-              <div className="rounded-lg border p-3">
-                <p className="text-2xl font-semibold">{resultado.fallidas}</p>
-                <p className="text-xs text-muted-foreground">Fallidas</p>
-              </div>
-              <div className="rounded-lg border p-3">
-                <p className="text-2xl font-semibold">{resultado.reprogramadas}</p>
-                <p className="text-xs text-muted-foreground">Reprogramadas</p>
-              </div>
+            <div className="grid grid-cols-3 gap-4 pt-2 border-t">
+              <TarjetaMetrica valor={resultado.efectivas} etiqueta="Efectivas" />
+              <TarjetaMetrica valor={resultado.fallidas} etiqueta="Fallidas" tono={resultado.fallidas > 0 ? "alerta" : "normal"} />
+              <TarjetaMetrica valor={resultado.reprogramadas} etiqueta="Reprogramadas" />
             </div>
           </CardContent>
         </Card>
