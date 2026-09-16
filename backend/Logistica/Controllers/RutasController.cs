@@ -27,7 +27,9 @@ namespace Logistica.Controllers;
 [ApiController]
 [Route("api/rutas")]
 [Authorize(Policy = "BackOffice")]
-public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, PrecioService precios, JornadaService jornada) : ControllerBase
+public class RutasController(
+    LogisticaDbContext db, OrigenRutaService origenes, PrecioService precios,
+    DistanciaService distancias, JornadaService jornada) : ControllerBase
 {
     public record RutaResumen(long Id, DateOnly Fecha, string? VehiculoPatente, string? RepartidorNombre, string Estado, int CantidadParadas);
 
@@ -421,6 +423,8 @@ public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, 
             return BadRequest("Falta elegir el punto de partida.");
 
         var pedidos = await db.Pedidos
+            .Include(p => p.OrigenUbicacion)
+            .Include(p => p.DestinoUbicacion)
             .Where(p => db.ParadaPedidos.Any(pp => pp.Parada.RutaId == id && pp.PedidoId == p.Id))
             .ToListAsync(ct);
         if (pedidos.Count == 0) return BadRequest("La ruta no tiene paradas.");
@@ -440,9 +444,13 @@ public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, 
                 return BadRequest($"El pedido {pedido.Id} no tiene zona resuelta; no se puede cotizar.");
             try
             {
+                var distancia = await distancias.ResolverAsync(
+                    pedido.OrigenUbicacion.Lat, pedido.OrigenUbicacion.Lng,
+                    pedido.DestinoUbicacion.Lat, pedido.DestinoUbicacion.Lng,
+                    pedido.KmManual, ct);
                 desglosesPorPedido[pedido.Id] = await precios.CotizarAsync(
                     pedido.ClienteId, pedido.ZonaId.Value, pedido.FechaEntrega, pedido.Urgente,
-                    pedido.Peajes, descuentoRuta: false, tipoVehiculo, pedido.PrecioManual, ct);
+                    pedido.Peajes, descuentoRuta: false, tipoVehiculo, pedido.PrecioManual, distancia, ct);
             }
             catch (InvalidOperationException ex)
             {
@@ -465,6 +473,9 @@ public class RutasController(LogisticaDbContext db, OrigenRutaService origenes, 
             {
                 var desglose = desglosesPorPedido[pedido.Id];
                 pedido.PrecioBase = desglose.PrecioBase;
+                pedido.RecargoKm = desglose.RecargoKm;
+                pedido.KmCobrados = desglose.KmCobrados;
+                pedido.KmFuente = desglose.KmFuente;
                 pedido.RecargoUrgencia = desglose.RecargoUrgencia;
                 pedido.DescuentoRuta = desglose.DescuentoRuta;
                 pedido.Total = desglose.Total;

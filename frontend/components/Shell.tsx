@@ -14,6 +14,7 @@ interface ItemNav {
 
 const NAV: ItemNav[] = [
   { href: "/pedidos", label: "Pedidos", roles: ["administracion", "operacion"] },
+  { href: "/deliverys", label: "Deliverys", roles: ["administracion", "operacion"] },
   { href: "/jornada", label: "Jornada", roles: ["administracion", "operacion"] },
   { href: "/rutas", label: "Rutas", roles: ["administracion", "operacion"] },
   { href: "/clientes", label: "Clientes", roles: ["administracion"] },
@@ -34,11 +35,21 @@ const NAV: ItemNav[] = [
  * No se aplica fuera de administracion/operacion: /hoy (PWA del repartidor) tiene sus propias
  * reglas de diseño — un dedo, sin scroll (RNF-06) — y una sidebar las rompería.
  */
+// Rutas sin chrome: /login y / (el redirector de app/page.tsx) no deben mostrar la sidebar aunque
+// `usuario` ya esté seteado en el AuthProvider — el setUsuario del login corre antes de que
+// router.push termine de navegar, y sin este chequeo la sidebar envuelve por un instante el
+// propio formulario de login.
+const RUTAS_SIN_CHROME = ["/login", "/"];
+
 export function Shell({ children }: { children: React.ReactNode }) {
   const { usuario } = useAuth();
   const pathname = usePathname();
 
-  if (!usuario || (usuario.rol !== "administracion" && usuario.rol !== "operacion")) {
+  if (
+    !usuario ||
+    (usuario.rol !== "administracion" && usuario.rol !== "operacion") ||
+    RUTAS_SIN_CHROME.includes(pathname)
+  ) {
     return <>{children}</>;
   }
 

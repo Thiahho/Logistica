@@ -21,7 +21,8 @@ namespace Logistica.Controllers;
 [Route("api/pedidos")]
 [Authorize(Roles = "administracion,operacion,cliente")]
 public class PedidosController(
-    LogisticaDbContext db, PrecioService precios, IOptions<OpcionesPruebaEntrega> opcionesPruebaEntrega,
+    LogisticaDbContext db, PrecioService precios, DistanciaService distancias,
+    IOptions<OpcionesPruebaEntrega> opcionesPruebaEntrega,
     OrigenRutaService origenes, CuentaCorrienteService cuentaCorriente) : ControllerBase
 {
     public record PedidoResumen(
@@ -32,9 +33,15 @@ public class PedidosController(
     public record PrecioManualInfo(decimal Precio, string? FijadoPor, DateTimeOffset FijadoEn);
 
 
+    /// <summary>DestinoUbicacionId y KmManual son opcionales: sin ellos, la cotización queda
+    /// idéntica a la de siempre (recargo_km = 0). El formulario de alta ya resuelve la dirección
+    /// antes de cotizar (geocodificación de app/pedidos/nuevo), así que puede pasar el id apenas
+    /// lo tenga para ver el km real desde el depósito principal.</summary>
     public record CotizarRequest(
         int ClienteId, int LocalidadId, DateOnly FechaEntrega, bool Urgente,
-        [Range(0, double.MaxValue, ErrorMessage = "Los peajes no pueden ser negativos.")] decimal Peajes = 0m);
+        [Range(0, double.MaxValue, ErrorMessage = "Los peajes no pueden ser negativos.")] decimal Peajes = 0m,
+        long? DestinoUbicacionId = null,
+        [Range(0, double.MaxValue, ErrorMessage = "El km manual no puede ser negativo.")] decimal? KmManual = null);
 
     /// <summary>Estimado informativo (acta changelog 3.11): null en un tipo = todavía no se cargó
     /// tarifa para esa zona en ese tipo de vehículo, no un error. RequiereCotizacion (Anexo I B9):
@@ -70,7 +77,8 @@ public class PedidosController(
         string DestinatarioNombre, string DestinatarioTelefono,
         int Bultos, decimal? PesoKg, decimal? ValorDeclarado,
         DateOnly FechaEntrega, bool Urgente,
-        decimal? PrecioBase, decimal? RecargoUrgencia, decimal? DescuentoRuta, decimal Peajes, decimal? Total,
+        decimal? PrecioBase, decimal? RecargoKm, decimal? KmCobrados, string? KmFuente,
+        decimal? RecargoUrgencia, decimal? DescuentoRuta, decimal Peajes, decimal? Total,
         DateTimeOffset? PrecioCongeladoEn,
         string Estado, string OrigenCarga, string? Observaciones, DateTimeOffset CreadoEn,
         bool DireccionDudosa, bool RequiereCotizacion, PrecioManualInfo? PrecioManual,
@@ -361,13 +369,38 @@ public class PedidosController(
         if (zonaId is null)
             return BadRequest("La localidad no tiene zona asignada; no se puede cotizar.");
 
+        // Anexo I §10.2-N: recargo por km, encima del precio de zona. Sin DestinoUbicacionId (la
+        // dirección todavía no se geocodificó en el formulario) o sin depósito cargado, queda
+        // null y recargo_km = 0 — el estimado no cambia respecto de antes; un depósito faltante
+        // no puede tumbar un estimado que hasta ahora no lo necesitaba.
+        DistanciaResuelta? distancia = null;
+        if (req.DestinoUbicacionId is not null)
+        {
+            var destino = await db.Ubicaciones.AsNoTracking()
+                .Where(u => u.Id == req.DestinoUbicacionId.Value)
+                .Select(u => new { u.Lat, u.Lng })
+                .SingleOrDefaultAsync(ct);
+            if (destino is not null)
+            {
+                try
+                {
+                    var origen = await origenes.PrincipalParaPedidosAsync(ct);
+                    distancia = await distancias.ResolverAsync(origen.Lat, origen.Lng, destino.Lat, destino.Lng, req.KmManual, ct);
+                }
+                catch (InvalidOperationException)
+                {
+                    distancia = null;
+                }
+            }
+        }
+
         async Task<DesglosePrecio?> Intentar(string tipoVehiculo)
         {
             try
             {
                 return await precios.CotizarAsync(
                     req.ClienteId, zonaId.Value, req.FechaEntrega, req.Urgente, req.Peajes,
-                    descuentoRuta: false, tipoVehiculo, ct: ct);
+                    descuentoRuta: false, tipoVehiculo, distancia: distancia, ct: ct);
             }
             catch (InvalidOperationException)
             {
@@ -501,6 +534,9 @@ public class PedidosController(
                 p.FechaEntrega,
                 p.Urgente,
                 p.PrecioBase,
+                p.RecargoKm,
+                p.KmCobrados,
+                p.KmFuente,
                 p.RecargoUrgencia,
                 p.DescuentoRuta,
                 p.Peajes,
@@ -556,7 +592,8 @@ public class PedidosController(
             fila.DestinatarioNombre, fila.DestinatarioTelefono,
             fila.Bultos, fila.PesoKg, fila.ValorDeclarado,
             fila.FechaEntrega, fila.Urgente,
-            fila.PrecioBase, fila.RecargoUrgencia, fila.DescuentoRuta, fila.Peajes, fila.Total, fila.PrecioCongeladoEn,
+            fila.PrecioBase, fila.RecargoKm, fila.KmCobrados, fila.KmFuente,
+            fila.RecargoUrgencia, fila.DescuentoRuta, fila.Peajes, fila.Total, fila.PrecioCongeladoEn,
             fila.Estado.ToString(), fila.OrigenCarga, fila.Observaciones, fila.CreadoEn,
             fila.DireccionDudosa, RequiereCotizacion: fila.PrecioManual is null && !fila.ZonaTieneTarifa,
             precioManualInfo, vecesReprogramado, facturado, historial));

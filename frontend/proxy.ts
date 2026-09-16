@@ -21,6 +21,7 @@ const RUTAS_PROTEGIDAS = [
   // Faltaba desde el changelog 4.3: /cobranza está en el NAV del Shell (administracion) pero
   // nunca se agregó acá, así que hasta ahora no tenía gate de borde.
   "/cobranza",
+  "/deliverys",
 ];
 
 export function proxy(request: NextRequest) {
@@ -53,5 +54,6 @@ export const config = {
     "/depositos/:path*",
     "/facturas/:path*",
     "/cobranza/:path*",
+    "/deliverys/:path*",
   ],
 };

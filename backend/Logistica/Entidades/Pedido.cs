@@ -51,6 +51,22 @@ public class Pedido
     public Usuario? PrecioManualPorUsuario { get; set; }
     public DateTimeOffset? PrecioManualEn { get; set; }
 
+    // Anexo I §10.2-N (lectura ii, "precio proporcional al kilometraje recorrido") — recargo
+    // aditivo sobre precio_base, nulo/cero cuando no hay coordenadas utilizables (Servicios/
+    // DistanciaService.cs). KmCobrados/KmFuente son el snapshot con el que se cotizó, protegido
+    // por fn_congelar_pedido igual que el resto del precio (P1).
+    public decimal? KmCobrados { get; set; }
+    public decimal RecargoKm { get; set; }
+    /// <summary>ruta | recta | manual — trazabilidad de con qué número se cobró.</summary>
+    public string? KmFuente { get; set; }
+
+    // Override cargado a mano cuando ningún proveedor de distancia sirve — mismo criterio que
+    // PrecioManual: rastro de quién y cuándo porque es un criterio subjetivo que afecta precio.
+    public decimal? KmManual { get; set; }
+    public Guid? KmManualPor { get; set; }
+    public Usuario? KmManualPorUsuario { get; set; }
+    public DateTimeOffset? KmManualEn { get; set; }
+
     public EstadoPedido Estado { get; set; } = EstadoPedido.Borrador;
 
     /// <summary>interno | importado | portal | api</summary>

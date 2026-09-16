@@ -1,6 +1,6 @@
 # Estado de implementación — relevamiento de código
 
-**Generado:** 13/09/2026, actualizado puntualmente el 15/09/2026 (monitor de jornada, changelog 4.4 — no es una repasada completa del resto) · **Rama:** `demo-d` · **Fuente:** lectura directa del código (backend ASP.NET Core 8 + PostgreSQL, frontend Next.js), cruzado contra `acta_sistema.md` v4.4 y `Anexo_I_Alcance_V2.docx`.
+**Generado:** 13/09/2026, actualizado puntualmente el 15/09/2026 (monitor de jornada, changelog 4.4) y el 16/09/2026 (deliverys/recargo por km, changelog 4.5 — no es una repasada completa del resto) · **Rama:** `demo-d` · **Fuente:** lectura directa del código (backend ASP.NET Core 8 + PostgreSQL, frontend Next.js), cruzado contra `acta_sistema.md` v4.5 y `Anexo_I_Alcance_V2.docx`.
 
 Este documento no reemplaza a `acta_sistema.md` (reglas de negocio) ni a `construccion_v1.md` (especificación técnica). Es un inventario de qué existe hoy en el repositorio, con la referencia a qué requisito/decisión de las actas cubre cada pieza, para poder auditar alcance sin releer código.
 
@@ -10,13 +10,13 @@ Este documento no reemplaza a `acta_sistema.md` (reglas de negocio) ni a `constr
 
 | | |
 |---|---|
-| Controladores API | 17 (suma `JornadaController`) |
-| Endpoints | ~75 |
-| Pantallas frontend (`page.tsx`) | 24 (suma `/jornada` y `/rutas/[id]`) |
-| Entidades / tablas núcleo | 20 |
-| Migraciones aplicadas | 10 (`Inicial` → `AgregarCuentaCorriente`) — el monitor de jornada (4.4) no agrega ninguna |
+| Controladores API | 18 (suma `DeliverysController`, changelog 4.5) |
+| Endpoints | ~78 |
+| Pantallas frontend (`page.tsx`) | 26 (suma `/deliverys` y `/deliverys/nuevo`) |
+| Entidades / tablas núcleo | 20 (sin cambio — delivery es un `Pedido` con `tipo='delivery'`, no una tabla nueva) |
+| Migraciones aplicadas | 12 (`Inicial` → `AgregarPrecioPorKm` — el conteo previo de 10 ya estaba desactualizado, faltaba `AgregarTipoEventoAvisoCobranza` de changelog 4.3, ver §5) |
 | Roles | administracion, operacion, repartidor (personal interno) + cliente (`clientes_usuarios`, tabla separada) |
-| Última etapa cerrada | **E1 — Cuenta corriente y facturación** (Anexo I §5, changelog acta 4.2). El monitor de jornada (4.4) es tooling operativo del ciclo diario (§9.3), no una etapa nueva del Anexo I. |
+| Última etapa cerrada | **E1 — Cuenta corriente y facturación** (Anexo I §5, changelog acta 4.2). El monitor de jornada (4.4) y los deliverys/recargo por km (4.5) son ampliaciones sobre etapas ya cerradas (§9.3 y D14/§10.2-N respectivamente), no etapas nuevas del Anexo I. |
 
 ---
 
@@ -27,7 +27,7 @@ Definidos en `Program.cs` como políticas de autorización:
 | Política | Roles que la cumplen | Uso típico |
 |---|---|---|
 | `Administracion` | administracion | Tarifas, usuarios, vehículos (ABM), clientes, facturación, cuenta corriente, precio manual |
-| `BackOffice` | administracion + operacion | Alta de pedidos, armado de rutas, catálogos operativos |
+| `BackOffice` | administracion + operacion | Alta de pedidos, armado de rutas, catálogos operativos, deliverys (`DeliverysController`, changelog 4.5) |
 | `Operacion` | operacion | (reservada, sin uso exclusivo hoy) |
 | `Repartidor` | repartidor | `/api/mis-paradas` — superficie de escritura de la PWA |
 | `Cliente` | cliente (tabla `clientes_usuarios`) | `/api/mi-cuenta`, `/mis-envios` |
@@ -62,6 +62,7 @@ Regla de diseño repetida en varios controladores (`ClientesController`, `Usuari
 - **§10.2-I:** cancelación gratis en Borrador, factura el 100% del precio congelado si ya estaba Confirmado.
 - **B16:** ajuste de bultos al retiro, tope de 3 sin cargo, el 4to exige `CargoGestion` obligatorio como ítem de factura separado — flujo de aprobación/rechazo por Administracion (`PUT /{id}/ajustes/{ajusteId}/aprobar|rechazar`).
 - **D11/§10.2-L1:** el corte de servicio por deuda vencida solo bloquea altas nuevas (`POST /api/pedidos`), consultando `DeudaVencidaAsync` y `Cliente.CorteSuspendidoHasta` (plan de cuotas, §10.2-L4).
+- **§10.2-N (changelog 4.5):** `Cotizar` resuelve un recargo por km (`Servicios/DistanciaService.cs`) cuando el request trae `DestinoUbicacionId` — opcional, el estimado no cambia si no viene. Con `Precio:TramosKm` vacío (default) el recargo siempre da 0.
 
 ### 3.5 Planificación y rutas (`RutasController`)
 RF-10 a RF-17: candidatos por zona (`GET /api/pedidos/candidatos-ruta`), armado (`PUT /{id}/paradas` reemplaza el set completo mientras la ruta está `planificada`), consolidación de retiros en la misma dirección vía `parada_pedidos`, asignación de vehículo/repartidor, validación de capacidad en paradas (P7, avisa sin bloquear — RF-16), origen de ruta variable (depósito del catálogo u "otra dirección", changelog 3.6/3.8).
@@ -94,15 +95,27 @@ RF-30: CSV de pedidos, rutas y resultados por rango de fechas — "reemplaza el 
 ### 3.10 Catálogos de soporte
 `VehiculosController` (ABM de flota, patente única, vencimientos VTV/seguro, costo/km, capacidad de paradas — changelog 3.1), `UsuariosController` (ABM de personal interno), `TiposEventoClienteController` (catálogo de motivos de evento de cliente).
 
+### 3.11 Deliverys / urgencias y recargo por km (`DeliverysController`, `Servicios/DistanciaService.cs`) — changelog acta 4.5
+Resuelve Anexo I D14 (servicio punto a punto ad-hoc, sin retiro programado) y §10.2-N (recargo proporcional al km recorrido — el propio Anexo lo declara cambio de alcance según su §6, no config). No es una entidad nueva: un `Pedido` con `Tipo="delivery"`, sigue en 20 entidades / 17 tablas núcleo (`Migrations/AgregarPrecioPorKm`).
+- `GET /api/deliverys` (listado, mismo contrato paginado que `PedidosController.Listar` acotado a `tipo='delivery'`), `POST /api/deliverys/cotizar` (un solo `DesglosePrecio` — a diferencia de `PedidosController.Cotizar`, acá el tipo de vehículo ya está elegido), `POST /api/deliverys` (alta).
+- **Vehículo elegido en la alta, no al armar ruta:** a diferencia de un pedido programado (changelog 3.11: precio congelado recién en `CerrarPlanificacion`), un delivery nace directo en `Confirmado` — no hay ruta que lo lleve. Zona sin tarifa (B9) exige `PrecioManual` en el mismo request, sin dejar un Borrador a medio cotizar.
+- **Origen arbitrario:** `OrigenUbicacionId` del request, resuelto por el mismo `POST /api/ubicaciones` que cualquier dirección — no usa `OrigenRutaService.PrincipalParaPedidosAsync` (el depósito por default de un pedido programado).
+- **`DistanciaService`:** cascada `km_manual` (gana siempre) → `RuteoService`/OSRM (`Distancia:Fuente="ruta"`, default) → `Dominio/Geo.cs` haversine → `null` (⇒ `recargo_km = 0`). Nunca tira — un proveedor externo caído no bloquea una cotización.
+- **Fórmula (`Servicios/PrecioService.cs`):** `recargo_km = precio_base × factor_km(km_cobrados)`, tramos de `Precio:TramosKm` (vacío por defecto, sin valores de fábrica). Con tramos vacíos o sin distancia resuelta, el total da igual que antes de esta versión — verificado con curl contra una ruta existente.
+- Reusado también por `PedidosController.Cotizar` (opcional, vía `DestinoUbicacionId`) y `RutasController.CerrarPlanificacion` (siempre, por pedido, dentro del mismo bloque que ya cotiza todo antes de escribir nada).
+- **Congelamiento:** `km_cobrados`/`recargo_km`/`km_fuente`/`km_manual` quedan protegidos por `fn_congelar_pedido` (P1) una vez confirmado — mismo mecanismo que `precio_manual` (changelog 4.1).
+- **Pendiente, no construido en esta versión:** la "ventana de urgencias" del acta §7 (inserción de una urgencia en una ruta ya en curso, una sola ventana a las 13:00, tope de 3 paradas desplazadas) — caso distinto del delivery ad-hoc de D14, sigue sin código propio.
+
 ---
 
-## 4. Pantallas del frontend (24)
+## 4. Pantallas del frontend (26)
 
 | Ruta | Pantalla |
 |---|---|
 | `/` | Home |
 | `/login` | Login |
 | `/pedidos`, `/pedidos/nuevo`, `/pedidos/[id]` | Carga y detalle de pedidos |
+| `/deliverys`, `/deliverys/nuevo` | Deliverys/urgencias punto a punto — alta con origen y destino propios, precio en vivo con recargo por km (changelog 4.5) |
 | `/jornada` | Monitor del día en curso: contadores por estado, rutas del día, panel por repartidor (changelog 4.4) |
 | `/rutas`, `/rutas/nueva`, `/rutas/[id]`, `/rutas/[id]/armar`, `/rutas/[id]/cierre` | Planificación, detalle (cualquier estado, changelog 4.4) y cierre de rutas |
 | `/hoy`, `/hoy/parada/[paradaId]` | PWA del repartidor |
@@ -131,8 +144,10 @@ RF-30: CSV de pedidos, rutas y resultados por rango de fechas — "reemplaza el 
 | Cuenta corriente (E1) | `facturas`, `factura_items`, `pagos` |
 | Usuarios | `usuarios`, `clientes_usuarios`, `refresh_tokens` |
 
-DDL completo en `docs/schema_v3.sql`. Historial de migraciones (10, cronológico):
-`Inicial` → `ReglasDeBaseDeDatos` → `AgregarVehiculos` → `AgregarKmZonas` → `SepararUsuariosCliente` → `AgregarOrigenRuta` → `AgregarCatalogoDepositos` → `AgregarTipoVehiculo` → `AgregarPrecioManual` → `AgregarCuentaCorriente`.
+DDL completo en `docs/schema_v3.sql`. Historial de migraciones (12, cronológico):
+`Inicial` → `ReglasDeBaseDeDatos` → `AgregarVehiculos` → `AgregarKmZonas` → `SepararUsuariosCliente` → `AgregarOrigenRuta` → `AgregarCatalogoDepositos` → `AgregarTipoVehiculo` → `AgregarPrecioManual` → `AgregarCuentaCorriente` → `AgregarTipoEventoAvisoCobranza` → `AgregarPrecioPorKm`.
+
+Nota: `AgregarTipoEventoAvisoCobranza` (changelog 4.3, una fila de catálogo) faltaba en esta lista desde su propia versión — el conteo de "10" en §1 antes de esta pasada ya estaba desactualizado; quedó corregido acá de paso, no es parte del alcance de changelog 4.5.
 
 ---
 
@@ -152,8 +167,8 @@ Coincide con lo que el Anexo I declara en §4/§7 como brecha o exclusión — s
 
 ## 7. Fuentes
 
-- `docs/acta_sistema.md` v4.2 (reglas de negocio vigentes)
+- `docs/acta_sistema.md` v4.5 (reglas de negocio vigentes)
 - `docs/Anexo_I_Alcance_V2.docx` v1.0 (alcance comercial, brechas, decisiones D1-D15, definiciones §10.2)
 - `docs/construccion_v1.md` (especificación técnica, changelog detallado)
 - `docs/schema_v3.sql` (DDL)
-- Lectura directa de `backend/Logistica/{Controllers,Entidades,Dominio,Datos}` y `frontend/app` en la rama `demo-d`, 13/09/2026
+- Lectura directa de `backend/Logistica/{Controllers,Entidades,Dominio,Datos}` y `frontend/app` en la rama `demo-d`, 13/09/2026 (§3.11 y los conteos de §1/§4/§5 actualizados puntualmente el 16/09/2026 para changelog 4.5 — no es una repasada completa del resto del documento)

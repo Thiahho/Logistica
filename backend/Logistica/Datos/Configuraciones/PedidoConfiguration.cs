@@ -10,13 +10,16 @@ public class PedidoConfiguration : IEntityTypeConfiguration<Pedido>
     {
         b.ToTable("pedidos", t =>
         {
-            t.HasCheckConstraint("ck_pedidos_tipo", "tipo in ('entrega','retorno','reintento')");
+            t.HasCheckConstraint("ck_pedidos_tipo", "tipo in ('entrega','retorno','reintento','delivery')");
             t.HasCheckConstraint("ck_pedidos_origen_carga",
                 "origen_carga in ('interno','importado','portal','api')");
             t.HasCheckConstraint("ck_pedidos_bultos", "bultos > 0");
             t.HasCheckConstraint("ck_pedidos_origen_coherente",
-                "tipo = 'entrega' or pedido_origen_id is not null");
+                "tipo in ('entrega','delivery') or pedido_origen_id is not null");
             t.HasCheckConstraint("ck_pedidos_precio_manual", "precio_manual is null or precio_manual > 0");
+            t.HasCheckConstraint("ck_pedidos_km_cobrados", "km_cobrados is null or km_cobrados >= 0");
+            t.HasCheckConstraint("ck_pedidos_km_manual", "km_manual is null or km_manual >= 0");
+            t.HasCheckConstraint("ck_pedidos_km_fuente", "km_fuente is null or km_fuente in ('ruta','recta','manual')");
         });
 
         b.HasKey(x => x.Id);
@@ -48,6 +51,13 @@ public class PedidoConfiguration : IEntityTypeConfiguration<Pedido>
         b.Property(x => x.PrecioManualPor).HasColumnName("precio_manual_por");
         b.Property(x => x.PrecioManualEn).HasColumnName("precio_manual_en");
 
+        b.Property(x => x.KmCobrados).HasColumnName("km_cobrados").HasColumnType("numeric(6,2)");
+        b.Property(x => x.RecargoKm).HasColumnName("recargo_km").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
+        b.Property(x => x.KmFuente).HasColumnName("km_fuente");
+        b.Property(x => x.KmManual).HasColumnName("km_manual").HasColumnType("numeric(6,2)");
+        b.Property(x => x.KmManualPor).HasColumnName("km_manual_por");
+        b.Property(x => x.KmManualEn).HasColumnName("km_manual_en");
+
         b.Property(x => x.Estado).HasColumnName("estado").HasColumnType("estado_pedido").HasDefaultValue(EstadoPedido.Borrador);
         b.Property(x => x.OrigenCarga).HasColumnName("origen_carga").HasDefaultValue("interno");
         b.Property(x => x.Observaciones).HasColumnName("observaciones");
@@ -65,6 +75,8 @@ public class PedidoConfiguration : IEntityTypeConfiguration<Pedido>
             .HasForeignKey(x => x.ZonaId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.PrecioManualPorUsuario).WithMany()
             .HasForeignKey(x => x.PrecioManualPor).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne(x => x.KmManualPorUsuario).WithMany()
+            .HasForeignKey(x => x.KmManualPor).OnDelete(DeleteBehavior.Restrict);
 
         b.HasIndex(x => new { x.FechaEntrega, x.Estado });
         b.HasIndex(x => new { x.ClienteId, x.FechaEntrega });

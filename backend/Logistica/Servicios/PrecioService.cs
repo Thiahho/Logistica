@@ -7,10 +7,13 @@ namespace Logistica.Servicios;
 
 public record DesglosePrecio(
     decimal PrecioBase,
+    decimal RecargoKm,
     decimal RecargoUrgencia,
     decimal DescuentoRuta,
     decimal Peajes,
-    decimal Total);
+    decimal Total,
+    decimal? KmCobrados,
+    string? KmFuente);
 
 /// <summary>
 /// construccion_v1.md §6. Resuelve precio_base con la función tarifa_vigente ya presente en la
@@ -28,6 +31,7 @@ public class PrecioService(LogisticaDbContext db, IOptions<OpcionesPrecio> opcio
         bool descuentoRuta,
         string tipoVehiculo,
         decimal? precioManual = null,
+        DistanciaResuelta? distancia = null,
         CancellationToken ct = default)
     {
         if (peajes < 0)
@@ -45,10 +49,30 @@ public class PrecioService(LogisticaDbContext db, IOptions<OpcionesPrecio> opcio
                 $"No hay tarifa vigente para la zona {zonaId} en {tipoVehiculo}. Cargá la tarifa en /tarifas o fijá un precio manual en el pedido.");
 
         var factores = opciones.Value;
+        // Anexo I §10.2-N lectura (ii): recargo proporcional al kilometraje recorrido, encima del
+        // precio de zona vigente — no lo reemplaza. TramosKm vacío o distancia null (sin
+        // coordenadas utilizables) => recargo_km = 0, fórmula idéntica a la de hoy.
+        var recargoKm = distancia is not null
+            ? precioBase.Value * FactorKm(distancia.Km, factores.TramosKm)
+            : 0m;
         var recargoUrgencia = urgente ? precioBase.Value * factores.FactorUrgencia : 0m;
         var descuento = descuentoRuta ? precioBase.Value * factores.FactorDescuentoRuta : 0m;
-        var total = precioBase.Value + recargoUrgencia - descuento + peajes;
+        var total = precioBase.Value + recargoKm + recargoUrgencia - descuento + peajes;
 
-        return new DesglosePrecio(precioBase.Value, recargoUrgencia, descuento, peajes, total);
+        return new DesglosePrecio(
+            precioBase.Value, recargoKm, recargoUrgencia, descuento, peajes, total,
+            distancia?.Km, distancia?.Fuente);
+    }
+
+    /// <summary>Último tramo cuyo DesdeKm &lt;= km — semiabierto [DesdeKm, siguiente), mismo
+    /// criterio que Zona.KmDesde/KmHasta. Pura y estática: testeable sin base, sin tirar nunca
+    /// (tramos vacíos o km por debajo del primer tramo => 0).</summary>
+    private static decimal FactorKm(decimal km, TramoKm[] tramos)
+    {
+        var vigente = tramos
+            .Where(t => t.DesdeKm <= km)
+            .OrderByDescending(t => t.DesdeKm)
+            .FirstOrDefault();
+        return vigente?.Porcentaje ?? 0m;
     }
 }

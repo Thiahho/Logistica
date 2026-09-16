@@ -276,6 +276,15 @@ export function PedidoDetalleContenido({ pedidoId, onCambio, onAbrirPedidoOrigen
           ) : (
             <>
               <Fila etiqueta="Base" valor={`$${(pedido.precioBase ?? 0).toLocaleString("es-AR")}`} />
+              {pedido.kmCobrados !== null && (
+                <Fila
+                  etiqueta="Km cobrados"
+                  valor={`${pedido.kmCobrados.toLocaleString("es-AR")} km${pedido.kmFuente ? ` (${pedido.kmFuente})` : ""}`}
+                />
+              )}
+              {(pedido.recargoKm ?? 0) > 0 && (
+                <Fila etiqueta="Recargo km" valor={`+$${pedido.recargoKm!.toLocaleString("es-AR")}`} />
+              )}
               {(pedido.recargoUrgencia ?? 0) > 0 && (
                 <Fila etiqueta="Recargo urgencia" valor={`+$${pedido.recargoUrgencia!.toLocaleString("es-AR")}`} />
               )}

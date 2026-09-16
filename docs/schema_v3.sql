@@ -172,8 +172,10 @@ create table pedidos (
   id                    bigserial primary key,
   cliente_id            int not null references clientes(id),
   referencia_cliente    text,
+  -- 'delivery' (D14, Anexo I, changelog acta 4.5): servicio punto a punto ad-hoc, sin retiro
+  -- programado — se cotiza y congela en el alta misma, con origen arbitrario (no el depósito).
   tipo                  text not null default 'entrega'
-                        check (tipo in ('entrega','retorno','reintento')),
+                        check (tipo in ('entrega','retorno','reintento','delivery')),
   pedido_origen_id      bigint references pedidos(id),
 
   origen_ubicacion_id   bigint not null references ubicaciones(id),
@@ -192,6 +194,13 @@ create table pedidos (
   -- `peajes` es la excepción: se conoce en el alta, no depende del vehículo.
   zona_id               int references zonas(id),
   precio_base           numeric(12,2),
+  -- Anexo I §10.2-N (lectura ii, "precio proporcional al kilometraje recorrido"), changelog acta
+  -- 4.5 — recargo_km es un término aditivo sobre precio_base, nulo/cero cuando no hay coordenadas
+  -- utilizables. km_cobrados/km_fuente son el snapshot con el que se cotizó (ver DistanciaService
+  -- en construccion_v1.md §4.4): 'ruta' (calles, OSRM), 'recta' (haversine) o 'manual'.
+  km_cobrados           numeric(6,2) check (km_cobrados is null or km_cobrados >= 0),
+  recargo_km            numeric(12,2) not null default 0,
+  km_fuente             text check (km_fuente is null or km_fuente in ('ruta','recta','manual')),
   recargo_urgencia      numeric(12,2) default 0,
   descuento_ruta        numeric(12,2) default 0,
   peajes                numeric(12,2) not null default 0,
@@ -207,6 +216,12 @@ create table pedidos (
   precio_manual_por     uuid references usuarios(id),
   precio_manual_en      timestamptz,
 
+  -- Override de km cargado a mano cuando ningún proveedor de distancia sirve — mismo criterio
+  -- que precio_manual: rastro de quién y cuándo, gana siempre sobre la cascada de DistanciaService.
+  km_manual             numeric(6,2) check (km_manual is null or km_manual >= 0),
+  km_manual_por         uuid references usuarios(id),
+  km_manual_en          timestamptz,
+
   estado                estado_pedido not null default 'borrador',
   origen_carga          text not null default 'interno'
                         check (origen_carga in ('interno','importado','portal','api')),
@@ -214,7 +229,7 @@ create table pedidos (
   creado_en             timestamptz not null default now(),
 
   constraint origen_coherente
-    check (tipo = 'entrega' or pedido_origen_id is not null)
+    check (tipo in ('entrega','delivery') or pedido_origen_id is not null)
 );
 create index on pedidos (fecha_entrega, estado);
 create index on pedidos (cliente_id, fecha_entrega);
@@ -388,7 +403,8 @@ create trigger trg_log_inmutable
 
 -- 3. El precio y el destino se congelan al confirmar (P1 / RF-02 / criterio 7)
 -- precio_manual entra a este conjunto desde Anexo I B9: sin esto sería el único campo de
--- precio editable después de confirmar.
+-- precio editable después de confirmar. km_cobrados/recargo_km/km_fuente/km_manual entran desde
+-- Anexo I §10.2-N (changelog acta 4.5), mismo criterio.
 create or replace function fn_congelar_pedido()
 returns trigger language plpgsql as $$
 begin
@@ -399,6 +415,10 @@ begin
     or new.peajes           is distinct from old.peajes
     or new.total            is distinct from old.total
     or new.precio_manual    is distinct from old.precio_manual
+    or new.km_cobrados      is distinct from old.km_cobrados
+    or new.recargo_km       is distinct from old.recargo_km
+    or new.km_fuente        is distinct from old.km_fuente
+    or new.km_manual        is distinct from old.km_manual
     or new.destino_ubicacion_id is distinct from old.destino_ubicacion_id
   ) then
     raise exception

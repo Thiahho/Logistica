@@ -75,6 +75,13 @@ export interface PedidoDetalle {
   // Todos null mientras el pedido sigue en Borrador (acta changelog 3.11) — peajes es la
   // excepción, se conoce desde el alta porque no depende del tipo de vehículo.
   precioBase: number | null;
+  /** Anexo I §10.2-N: recargo % según el km recorrido, encima de precioBase. 0 cuando no hay
+   * coordenadas utilizables (Servicios/DistanciaService.cs) o Precio:TramosKm está vacío. */
+  recargoKm: number | null;
+  /** Km con el que se cotizó — snapshot, no se recalcula tras congelar el precio. */
+  kmCobrados: number | null;
+  /** ruta | recta | manual — de dónde salió kmCobrados. */
+  kmFuente: string | null;
   recargoUrgencia: number | null;
   descuentoRuta: number | null;
   peajes: number;
@@ -205,10 +212,18 @@ export function etiquetaTipoVehiculo(tipo: TipoVehiculo): string {
 
 export interface DesglosePrecio {
   precioBase: number;
+  /** Anexo I §10.2-N: recargo % según el km recorrido, encima de precioBase. 0 cuando no hay
+   * coordenadas utilizables o Precio:TramosKm está vacío — el estimado no cambia respecto de
+   * antes en ese caso. */
+  recargoKm: number;
   recargoUrgencia: number;
   descuentoRuta: number;
   peajes: number;
   total: number;
+  /** Km con el que se cotizó, o null si no se pudo resolver distancia. */
+  kmCobrados: number | null;
+  /** ruta | recta | manual — de dónde salió kmCobrados, o null si kmCobrados es null. */
+  kmFuente: string | null;
 }
 
 /** Estimado informativo de POST /api/pedidos/cotizar (acta changelog 3.11) — nunca es el precio
@@ -771,4 +786,57 @@ export interface RepartidorDelDia {
   pendientes: number;
   primeraLlegada: string | null;
   ultimaActividad: string | null;
+}
+
+// ==================== Deliverys / urgencias (Anexo I D14, §10.2-N) ====================
+
+/** Servicio punto a punto ad-hoc: un Pedido con tipo="delivery" (no una tabla nueva — construccion_v1.md
+ * §1, techo de 17 tablas ya alcanzado). A diferencia de un Pedido normal, el operador elige el
+ * tipo de vehículo en el alta, así que nace directo en Confirmado, con el precio ya congelado.
+ * Espejo de DeliverysController.DeliveryResumen. */
+export interface DeliveryResumen {
+  id: number;
+  destinatarioNombre: string;
+  estado: EstadoPedido;
+  total: number | null;
+  fechaEntrega: string;
+  clienteId: number;
+  clienteRazonSocial: string;
+  urgente: boolean;
+  kmCobrados: number | null;
+  kmFuente: string | null;
+}
+
+/** Espejo de DeliverysController.CotizarDeliveryRequest — origen y destino ya resueltos vía
+ * POST /api/ubicaciones (mismo <SelectorDireccion> que el resto del sistema). */
+export interface CotizarDeliveryRequest {
+  origenUbicacionId: number;
+  destinoUbicacionId: number;
+  clienteId: number;
+  fechaEntrega: string;
+  urgente: boolean;
+  tipoVehiculo: TipoVehiculo;
+  peajes: number;
+  kmManual?: number | null;
+  precioManual?: number | null;
+}
+
+/** Espejo de DeliverysController.CrearDeliveryRequest. */
+export interface CrearDeliveryRequest {
+  clienteId: number;
+  referenciaCliente: string | null;
+  origenUbicacionId: number;
+  destinoUbicacionId: number;
+  destinatarioNombre: string;
+  destinatarioTelefono: string;
+  bultos: number;
+  pesoKg: number | null;
+  valorDeclarado: number | null;
+  fechaEntrega: string;
+  urgente: boolean;
+  tipoVehiculo: TipoVehiculo;
+  peajes: number;
+  kmManual: number | null;
+  precioManual: number | null;
+  observaciones: string | null;
 }
