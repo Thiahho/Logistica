@@ -94,7 +94,14 @@ export default function Mapa({ marcadores, recorrido, alto = "h-80", onSeleccion
   }
 
   return (
-    <div className={`${alto} overflow-hidden rounded-lg border`}>
+    // `isolate` (isolation: isolate) no es cosmético: Leaflet reparte z-index altos por diseño
+    // (.leaflet-pane 400, .leaflet-top/.leaflet-control 1000) y su contenedor no crea contexto de
+    // apilamiento propio, así que esos valores competían directo contra el z-50 de Dialog y del
+    // popup de Combobox (components/ui/dialog.tsx, combobox.tsx) y les ganaban: el mapa se dibujaba
+    // encima del diálogo de reasignar repartidor en /rutas/[id] y tapaba su desplegable. Aislar acá
+    // encierra toda la escala interna de Leaflet en un contexto propio y lo arregla para cualquier
+    // diálogo, popover o dropdown que se superponga al mapa, sin subir z-index en cadena.
+    <div className={`${alto} isolate overflow-hidden rounded-lg border`}>
       <MapContainer center={[centro.lat, centro.lng]} zoom={13} scrollWheelZoom style={{ height: "100%", width: "100%" }}>
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'

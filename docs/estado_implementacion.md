@@ -1,6 +1,6 @@
 # Estado de implementación — relevamiento de código
 
-**Generado:** 13/09/2026, actualizado puntualmente el 15/09/2026 (monitor de jornada, changelog 4.4) y el 16/09/2026 (deliverys/recargo por km, changelog 4.5 — no es una repasada completa del resto) · **Rama:** `demo-d` · **Fuente:** lectura directa del código (backend ASP.NET Core 8 + PostgreSQL, frontend Next.js), cruzado contra `acta_sistema.md` v4.5 y `Anexo_I_Alcance_V2.docx`.
+**Generado:** 13/09/2026, actualizado puntualmente el 15/09/2026 (monitor de jornada, changelog 4.4), el 16/09/2026 (deliverys/recargo por km, changelog 4.5) y el 17/09/2026 (disponibilidad de repartidores, changelog 4.6 — ninguna de las tres es una repasada completa del resto) · **Rama:** `demo-d` · **Fuente:** lectura directa del código (backend ASP.NET Core 8 + PostgreSQL, frontend Next.js), cruzado contra `acta_sistema.md` v4.6 y `Anexo_I_Alcance_V2.docx`.
 
 Este documento no reemplaza a `acta_sistema.md` (reglas de negocio) ni a `construccion_v1.md` (especificación técnica). Es un inventario de qué existe hoy en el repositorio, con la referencia a qué requisito/decisión de las actas cubre cada pieza, para poder auditar alcance sin releer código.
 
@@ -10,13 +10,13 @@ Este documento no reemplaza a `acta_sistema.md` (reglas de negocio) ni a `constr
 
 | | |
 |---|---|
-| Controladores API | 18 (suma `DeliverysController`, changelog 4.5) |
-| Endpoints | ~78 |
-| Pantallas frontend (`page.tsx`) | 26 (suma `/deliverys` y `/deliverys/nuevo`) |
-| Entidades / tablas núcleo | 20 (sin cambio — delivery es un `Pedido` con `tipo='delivery'`, no una tabla nueva) |
+| Controladores API | 19 (suma `RepartidoresController`, changelog 4.6) |
+| Endpoints | 97 acciones `[Http*]` en `Controllers/*.cs` (2 de ellas nuevas en changelog 4.6). El "~78" que figuraba acá venía desactualizado de varias versiones atrás; este conteo es mecánico y reproducible: `grep -cE '^\s*\[Http(Get\|Post\|Put\|Patch\|Delete)' backend/Logistica/Controllers/*.cs` |
+| Pantallas frontend (`page.tsx`) | 31 (suma `/repartidores` y `/repartidores/[id]`; el "26" previo tampoco contaba `/cobranza` de changelog 4.3 — ver §4) |
+| Entidades / tablas núcleo | 20 (sin cambio — un repartidor es `usuarios.rol='repartidor'`, no una entidad; acta §4) |
 | Migraciones aplicadas | 12 (`Inicial` → `AgregarPrecioPorKm` — el conteo previo de 10 ya estaba desactualizado, faltaba `AgregarTipoEventoAvisoCobranza` de changelog 4.3, ver §5) |
 | Roles | administracion, operacion, repartidor (personal interno) + cliente (`clientes_usuarios`, tabla separada) |
-| Última etapa cerrada | **E1 — Cuenta corriente y facturación** (Anexo I §5, changelog acta 4.2). El monitor de jornada (4.4) y los deliverys/recargo por km (4.5) son ampliaciones sobre etapas ya cerradas (§9.3 y D14/§10.2-N respectivamente), no etapas nuevas del Anexo I. |
+| Última etapa cerrada | **E1 — Cuenta corriente y facturación** (Anexo I §5, changelog acta 4.2). El monitor de jornada (4.4), los deliverys/recargo por km (4.5) y el panel de repartidores (4.6) son ampliaciones sobre etapas ya cerradas (§9.3, D14/§10.2-N y RF-15/§9.3 respectivamente), no etapas nuevas del Anexo I. |
 
 ---
 
@@ -27,13 +27,13 @@ Definidos en `Program.cs` como políticas de autorización:
 | Política | Roles que la cumplen | Uso típico |
 |---|---|---|
 | `Administracion` | administracion | Tarifas, usuarios, vehículos (ABM), clientes, facturación, cuenta corriente, precio manual |
-| `BackOffice` | administracion + operacion | Alta de pedidos, armado de rutas, catálogos operativos, deliverys (`DeliverysController`, changelog 4.5) |
+| `BackOffice` | administracion + operacion | Alta de pedidos, armado de rutas, catálogos operativos, deliverys (`DeliverysController`, changelog 4.5), disponibilidad de repartidores (`RepartidoresController`, changelog 4.6) |
 | `Operacion` | operacion | (reservada, sin uso exclusivo hoy) |
 | `Repartidor` | repartidor | `/api/mis-paradas` — superficie de escritura de la PWA |
 | `Cliente` | cliente (tabla `clientes_usuarios`) | `/api/mi-cuenta`, `/mis-envios` |
 | `Recorrido` | administracion + operacion + repartidor | Ruteo real por calles (OSRM) |
 
-Regla de diseño repetida en varios controladores (`ClientesController`, `UsuariosController`, `VehiculosController`, `PruebasEntregaController`): **sin `[Authorize]` de clase cuando conviven acciones con público distinto**, porque ASP.NET Core combina el atributo de clase y el de acción con AND, no lo reemplaza.
+Regla de diseño repetida en varios controladores (`ClientesController`, `UsuariosController`, `VehiculosController`, `PruebasEntregaController`): **sin `[Authorize]` de clase cuando conviven acciones con público distinto**, porque ASP.NET Core combina el atributo de clase y el de acción con AND, no lo reemplaza. El recíproco también vale y se aplica en `JornadaController` y `RepartidoresController`: cuando todas las acciones comparten una sola política, se declara una vez a nivel de clase.
 
 ---
 
@@ -106,9 +106,19 @@ Resuelve Anexo I D14 (servicio punto a punto ad-hoc, sin retiro programado) y §
 - **Congelamiento:** `km_cobrados`/`recargo_km`/`km_fuente`/`km_manual` quedan protegidos por `fn_congelar_pedido` (P1) una vez confirmado — mismo mecanismo que `precio_manual` (changelog 4.1).
 - **Pendiente, no construido en esta versión:** la "ventana de urgencias" del acta §7 (inserción de una urgencia en una ruta ya en curso, una sola ventana a las 13:00, tope de 3 paradas desplazadas) — caso distinto del delivery ad-hoc de D14, sigue sin código propio.
 
+### 3.12 Disponibilidad y carga de repartidores (`RepartidoresController`) — RF-34, changelog acta 4.6
+
+`GET /api/repartidores?desde=&hasta=` y `GET /api/repartidores/{id}?desde=&hasta=` (BackOffice de clase). Una fila por usuario con rol `repartidor` — **incluidos los inactivos** — con su disponibilidad de hoy (`inactivo` > `en_ruta` > `asignado` > `libre`, derivada de `usuarios.activo` y del estado de la ruta de hoy) y el acumulado de paradas del rango. Rango opcional, default últimos 7 días; `400` si viene invertido; `404` en el detalle si el usuario existe pero no es repartidor.
+
+Round-trips constantes, no crecen con la cantidad de repartidores ni de rutas — mismo patrón anti-N+1 de `JornadaController.Resumen` (varias queries planas + composición en memoria). **Listado: 5** (usuarios repartidor · rutas de hoy · paradas de hoy agrupadas por ruta · rutas del rango agrupadas por repartidor · paradas del rango agrupadas por repartidor). **Detalle: 3, o 4 si el rango no incluye hoy** (la disponibilidad es siempre la de hoy y en ese caso cuesta una query extra acotada a `Fecha == hoy`).
+
+Lo que agrega sobre lo que ya existía: `/jornada` parte de las rutas del día y filtra `RepartidorId is not null`, así que **el repartidor sin ruta asignada no aparecía en ninguna pantalla** — justo el que hace falta ver para asignar. Acá la query arranca de `usuarios`.
+
+**Cero tablas, entidades, migraciones e índices nuevos** — sigue en 20 entidades / 17 tablas núcleo. No hay ausencias declaradas (franco/vacaciones/licencia): un repartidor de vacaciones figura `libre`, decisión documentada en acta §4. **No es el tablero B2 (§6) ni liquidación al repartidor (B4/E2, §6)** — no toca `rutas.pago_repartidor` ni muestra importes.
+
 ---
 
-## 4. Pantallas del frontend (26)
+## 4. Pantallas del frontend (31)
 
 | Ruta | Pantalla |
 |---|---|
@@ -117,6 +127,7 @@ Resuelve Anexo I D14 (servicio punto a punto ad-hoc, sin retiro programado) y §
 | `/pedidos`, `/pedidos/nuevo`, `/pedidos/[id]` | Carga y detalle de pedidos |
 | `/deliverys`, `/deliverys/nuevo` | Deliverys/urgencias punto a punto — alta con origen y destino propios, precio en vivo con recargo por km (changelog 4.5) |
 | `/jornada` | Monitor del día en curso: contadores por estado, rutas del día, panel por repartidor (changelog 4.4) |
+| `/repartidores`, `/repartidores/[id]` | Disponibilidad de hoy y carga acumulada por rango; incluye al repartidor sin ruta, que `/jornada` no muestra (changelog 4.6) |
 | `/rutas`, `/rutas/nueva`, `/rutas/[id]`, `/rutas/[id]/armar`, `/rutas/[id]/cierre` | Planificación, detalle (cualquier estado, changelog 4.4) y cierre de rutas |
 | `/hoy`, `/hoy/parada/[paradaId]` | PWA del repartidor |
 | `/mis-envios` | Portal de consulta del cliente |
@@ -126,6 +137,7 @@ Resuelve Anexo I D14 (servicio punto a punto ad-hoc, sin retiro programado) y §
 | `/tarifas` | Tarifas + localidades sin zona |
 | `/depositos` | Catálogo de depósitos |
 | `/facturas` | Facturación / cuenta corriente (E1) |
+| `/cobranza` | Panel de riesgo de cuenta corriente y aviso de vencimiento (changelog 4.3) |
 | `/exportar` | Exportación CSV |
 
 ---
@@ -156,19 +168,19 @@ Nota: `AgregarTipoEventoAvisoCobranza` (changelog 4.3, una fila de catálogo) fa
 Coincide con lo que el Anexo I declara en §4/§7 como brecha o exclusión — se lista acá solo lo verificado en esta pasada, no una copia del Anexo:
 
 - **Modo sin conexión de la PWA (B10 / RNF-01):** no hay cola local, compresión de fotos ni sincronización diferida en `MisParadasController` ni en el frontend de `/hoy`.
-- **Tablero de indicadores (B2):** sigue sin construir. `/jornada` (changelog 4.4) agrega contadores, pero no calcula ninguna de las 10 métricas que B2 prevé (entregas/día, km, tiempo, margen, NPS, ocupación de flota) ni acumula/compara períodos — es un monitor del día en curso, mismo encuadre que `/cobranza` (changelog 4.3). `ExportarController` sigue siendo la única vía de análisis histórico (CSV).
+- **Tablero de indicadores (B2):** sigue sin construir. `/jornada` (changelog 4.4) agrega contadores y `/repartidores` (changelog 4.6) suma paradas por rango, pero ninguno calcula las 10 métricas que B2 prevé (entregas/día, km, tiempo, margen, NPS, ocupación de flota) ni compara períodos entre sí ni arma series: el acumulado de `/repartidores` es una sumatoria recalculada en cada request, sin persistir, para decidir a quién asignar — mismo encuadre que `/cobranza` (changelog 4.3). `ExportarController` sigue siendo la única vía de análisis histórico (CSV).
 - **Motor de rango de cliente (B3):** los tres indicadores (`ColorPago/Trato/Oper`) son manuales, no hay cálculo periódico ni efecto sobre tarifa/prioridad/crédito.
-- **Liquidación al repartidor (B4):** no hay controlador ni tabla de liquidación; el pago se sigue tipeando a mano en el cierre de ruta.
+- **Liquidación al repartidor (B4):** no hay controlador ni tabla de liquidación; el pago se sigue tipeando a mano en el cierre de ruta. `RepartidoresController` (changelog 4.6) **no** lo acerca: no lee ni escribe `rutas.pago_repartidor` y no expone un solo importe, ni en el listado ni en el detalle.
 - **Portal de carga del cliente (B5):** `MiCuentaController` es de solo lectura; no hay endpoint de alta de pedido para el rol cliente.
-- **Notificaciones (B6):** sin integración de correo/WhatsApp en el código.
+- **Notificaciones (B6):** sigue sin construir *como sistema de notificaciones*, pero la línea previa ("sin integración de correo/WhatsApp en el código") quedó desactualizada en changelog 4.3 y no se había corregido acá. Lo que sí existe, y solo para el aviso de vencimiento del panel de cobranza: `Servicios/EmailService.cs` (HttpClient tipado contra la API REST de Resend, best-effort, nunca propaga excepción), `Servicios/AvisosCobranzaService.cs`, `Servicios/PlantillasAviso.cs` y `Dominio/EnlaceWhatsApp.cs` (link `wa.me` con el mensaje precargado — **sin API de WhatsApp**, Anexo I R7). Lo que no existe: notificación al cliente por cambio de estado del pedido, aviso al repartidor, y cualquier envío que no lo dispare una persona desde la pantalla — el sistema sigue sin scheduler.
 - **Costos fijos y rentabilidad objetivo (B7):** el margen se calcula por ruta, no hay tabla de costos fijos ni prorrateo.
 
 ---
 
 ## 7. Fuentes
 
-- `docs/acta_sistema.md` v4.5 (reglas de negocio vigentes)
+- `docs/acta_sistema.md` v4.6 (reglas de negocio vigentes)
 - `docs/Anexo_I_Alcance_V2.docx` v1.0 (alcance comercial, brechas, decisiones D1-D15, definiciones §10.2)
 - `docs/construccion_v1.md` (especificación técnica, changelog detallado)
 - `docs/schema_v3.sql` (DDL)
-- Lectura directa de `backend/Logistica/{Controllers,Entidades,Dominio,Datos}` y `frontend/app` en la rama `demo-d`, 13/09/2026 (§3.11 y los conteos de §1/§4/§5 actualizados puntualmente el 16/09/2026 para changelog 4.5 — no es una repasada completa del resto del documento)
+- Lectura directa de `backend/Logistica/{Controllers,Entidades,Dominio,Datos}` y `frontend/app` en la rama `demo-d`, 13/09/2026 (§3.11 y los conteos de §1/§4/§5 actualizados puntualmente el 16/09/2026 para changelog 4.5; §3.12, los conteos de §1/§4 y tres ítems de §6 —B2, B4, B6— actualizados el 17/09/2026 para changelog 4.6, con `RepartidoresController` releído línea por línea — no es una repasada completa del resto del documento)

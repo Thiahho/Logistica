@@ -840,3 +840,62 @@ export interface CrearDeliveryRequest {
   precioManual: number | null;
   observaciones: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Repartidores (RF-34, acta changelog 4.6) — espejo de RepartidoresController.
+// No hay entidad `Repartidor`: es `usuarios.rol='repartidor'` con disponibilidad
+// y carga derivadas de rutas/ruta_paradas en lectura (acta §4).
+// ---------------------------------------------------------------------------
+
+/** Derivada, nunca declarada. Precedencia: inactivo > en_ruta > asignado > libre.
+ * Siempre es el estado de HOY, aunque el rango de fechas elegido sea otro — el rango
+ * gobierna solo el acumulado. No existen ausencias (franco/vacaciones/licencia): un
+ * repartidor de vacaciones figura "libre", costo asumido en el acta. */
+export type Disponibilidad = "inactivo" | "en_ruta" | "asignado" | "libre";
+
+/** Espejo de RepartidoresController.RepartidorListado. */
+export interface RepartidorListado {
+  id: string;
+  nombre: string;
+  activo: boolean;
+  disponibilidad: Disponibilidad;
+  rutaHoyId: number | null;
+  rutaHoyEstado: EstadoRuta | null;
+  vehiculoHoyPatente: string | null;
+  paradasHoy: number;
+  completadasHoy: number;
+  fallidasHoy: number;
+  pendientesHoy: number;
+  rutasRango: number;
+  paradasRango: number;
+  completadasRango: number;
+  fallidasRango: number;
+}
+
+/** Espejo de RepartidoresController.RutaDelRango. */
+export interface RutaDelRango {
+  rutaId: number;
+  fecha: string;
+  estado: EstadoRuta;
+  vehiculoPatente: string | null;
+  paradas: number;
+  completadas: number;
+  fallidas: number;
+  pendientes: number;
+}
+
+/** Espejo de RepartidoresController.RepartidorDetalle. */
+export interface RepartidorDetalle {
+  id: string;
+  nombre: string;
+  email: string;
+  activo: boolean;
+  disponibilidad: Disponibilidad;
+  desde: string;
+  hasta: string;
+  rutasRango: number;
+  paradasRango: number;
+  completadasRango: number;
+  fallidasRango: number;
+  rutas: RutaDelRango[];
+}
