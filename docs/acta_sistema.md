@@ -1,5 +1,5 @@
 # Acta del Sistema de Gestión Logística
-**Versión 4.6 — Documento consolidado · 17/09/2026**
+**Versión 4.7 — Documento consolidado · 17/09/2026**
 *(antes `acta_sistema_v3.md` — mismo documento, nombre sin número de versión desde esta edición)*
 
 Reemplaza y deja sin efecto: Acta de alcance v1.0, v1.1 y v2.0, y el Acta funcional v1.0.
@@ -88,6 +88,16 @@ Dos entidades concentran las relaciones: `pedidos` (qué se prometió y a qué p
 | `precio_manual`, `precio_manual_por`, `precio_manual_en` | `pedidos` | B9 del Anexo I (§4, "+40 km → Cotización"): precio fijado a mano cuando la zona no tiene tarifa cargada en ningún tipo de vehículo. Sustituye solo el origen de `precio_base` — la fórmula del §6 de `construccion_v1.md` no cambia. Solo editable en Borrador; el trigger que congela el precio lo protege igual que al resto una vez confirmado (P1). Quién y cuándo, porque es un criterio subjetivo con efecto sobre el precio. |
 | `ciclo_facturacion` | `clientes` | E1 (Anexo I §10.2-A/D2): quincenal o mensual, elegido por cliente. Se copia a cada `factura` al emitirla — cambiarlo después no reescribe el historial. |
 | `corte_suspendido_hasta`, `corte_suspendido_motivo`, `corte_suspendido_por`, `corte_suspendido_en` | `clientes` | E1 (§10.2-L4, plan de cuotas): mientras la fecha no pasó, el corte de servicio por deuda vencida no bloquea altas nuevas. Sin cronograma de cuotas propio — con dos clientes cerrados, llevarlo es papel (P6); admin extiende la fecha cada vez que entra una cuota. |
+| `retiro_confirmado_en`, `retiro_bultos_esperados`, `retiro_bultos_contados`, `retiro_observaciones`, `retiro_firma_path`, `retiro_km_inicial`, `retiro_device_uuid` | `rutas` | RF-35 (changelog 4.7): el retiro de las 07:30 con conteo contra lista y firma, que §7 exigía desde la v3.0 sin tener dónde registrarse. `bultos_esperados` lo congela el sistema sumando los bultos de la ruta — es la lista contra la que se firmó, y tiene que sobrevivir a cualquier cambio posterior. `bultos_contados` distinto del esperado no bloquea la salida, pero exige observación: lo que la regla protege es que la discrepancia quede escrita **antes** de salir, no que los números coincidan. |
+| `cierre_repartidor_en`, `cierre_repartidor_km_final`, `cierre_repartidor_combustible`, `cierre_repartidor_peajes`, `cierre_repartidor_notas`, `cierre_repartidor_device_uuid` | `rutas` | RF-26 en dos actores (changelog 4.7): lo que el repartidor **declara** desde la calle. No son las columnas económicas del cierre (`km_inicial`, `km_final`, `combustible_monto`, `peajes_monto`), que sigue escribiendo solo administración: son un segundo juego, deliberado, para que el número de la calle y el número del cierre convivan en la fila y el desvío entre ambos sea evidencia en vez de un dato perdido. |
+| `cerrada_por` | `rutas` | Quién cerró económicamente la ruta, que es el mismo acto que aprobar la declaración del repartidor (changelog 4.7). `rutas` no tiene log de eventos propio y crearlo cruzaría el techo de tablas: esta columna es la única huella del actor de la aprobación. |
+| `documento_numero`, `foto_documento_path`, `foto_documento_borrada_en` | `pruebas_entrega` | RF-23 reescrito (changelog 4.7). `foto_documento_borrada_en` no es metadata de mantenimiento: es la constancia de que la imagen existió y se purgó al vencer la retención. El número sobrevive a la purga; la imagen no. |
+
+**Sigue en 17 tablas.** Ninguna de estas columnas abre una tabla nueva. El único agregado
+estructural es un trigger, `trg_congelar_declaracion_repartidor`, que impide editar el retiro
+firmado y el cierre declarado una vez sellados — mismo mecanismo y mismo motivo que
+`trg_congelar_pedido` con el precio: un dato que quien lo recibe puede reescribir no es evidencia
+de nada.
 
 ---
 
@@ -126,13 +136,44 @@ Dos entidades concentran las relaciones: `pedidos` (qué se prometió y a qué p
 - **RF-20** Prueba de entrega con foto, nombre del receptor, posición y hora de captura.
 - **RF-21** Motivo de entrega fallida desde lista cerrada de opciones.
 - **RF-22** Contacto telefónico directo con el destinatario desde la parada.
-- **RF-23** Verificación de identidad registrada sin almacenar imagen del documento.
+- **RF-23** Verificación de identidad del receptor registrada con número de documento e imagen del documento, retenida por un plazo definido y purgada al vencer: el número sobrevive a la purga, la imagen no.
 - **RF-24** Registro de hora de llegada y de salida por parada.
 - **RF-25** Operación completa sin conexión (ver RNF-01).
+- **RF-35** Retiro registrado con conteo de bultos contra la lista de la ruta y firma del repartidor, antes de la primera parada.
+
+**Sobre RF-23 — esto revierte la redacción anterior, no la amplía.** Hasta la versión 4.6 este
+requisito decía, textual: *"Verificación de identidad registrada **sin almacenar imagen del
+documento**"*, y el sistema lo cumplía con un booleano (`pruebas_entrega.identidad_verificada`).
+La inversión es decisión explícita del usuario, 17/09/2026, tomada después de que se le señalara
+que contradecía este RF y RNF-09. Se anota como inversión y no se reescribe en silencio porque un
+requisito dado vuelta sin dejar rastro se lee, seis meses después, como si el original nunca
+hubiera existido — y el original era una decisión, no un descuido.
+
+Lo que la decisión trae consigo, no como mejora futura sino como parte del mismo cambio: plazo de
+retención configurado y purgado que borra el archivo dejando constancia de la fecha
+(`foto_documento_borrada_en`, §4.1); el número de documento persistido aparte, porque es lo único
+que sobrevive a la purga y sin él la foto no sirve para el conflicto de dentro de seis meses;
+acceso a la imagen restringido a administración, más estricto que la foto de la entrega; y la
+consulta legal de §11.2 pasa de agendada a **bloqueante** — ver ahí. El riesgo asumido está en §12.
+
+**Sobre RF-35:** el número rompe la secuencia igual que RF-34, y por el mismo motivo — los RF no
+se renumeran nunca. Va en §5.3 y no en §5.2 porque es un acto de la calle, no de planificación.
+El requisito no es nuevo como regla: §7 lo exige desde la v3.0 (*"ninguna ruta sale sin conteo
+firmado"*). Lo que era nuevo hasta el changelog 4.7 es que existiera un lugar donde registrarlo:
+la regla estaba escrita en el acta y en ningún lado del sistema.
 
 ### 5.4 Cierre y trazabilidad
 
 - **RF-26** Cierre de ruta con kilómetros, combustible, peajes, entregas efectivas, fallidas y reprogramadas.
+
+**Sobre RF-26 — dos actores y dos actos, desde el changelog 4.7.** El requisito no cambia de
+contenido: cambia el actor que le faltaba. El repartidor **declara** desde la calle los km del
+odómetro, el combustible y los peajes que pagó, y esa declaración queda **pendiente e inmutable**.
+Administración la **compara con sus propios números y la aprueba o la corrige con motivo escrito**
+al cerrar la economía de la ruta, que es lo único que agrega lo que el repartidor no ve (otros
+costos, pago al repartidor, margen — RNF-08). Cerrar la ruta *es* el acto de aprobar: no hay un
+estado "aprobado" aparte. Hasta esta versión el dato de la calle llegaba en papel y administración
+lo tipeaba, con lo cual no había ninguna declaración contra la que comparar.
 - **RF-27** Resultado económico de cada ruta disponible el mismo día.
 - **RF-28** Registro inmutable de toda transición de estado.
 - **RF-29** Cálculo del desvío entre la prueba de entrega y el destino, con marcado sobre umbral.
@@ -185,7 +226,8 @@ Codificadas en el software, no libradas al criterio del día.
 
 - **El corte de carga no se cede.** Sin conjunto cerrado no hay planificación; sin planificación no hay densidad; sin densidad la operación es mensajería cara. Es la primera regla que un cliente va a pedir excepcionar. **El delivery/urgencia ad-hoc (D14, changelog 4.5) no es una excepción a esta regla: es otro producto**, fuera de la ruta planificada de la jornada, con su propio recargo — no compite por lugar en el conjunto cerrado ni lo diluye.
 - **Las urgencias entran en una sola ventana**, solo si desplazan menos de tres paradas, siempre con recargo. Una urgencia fuera de ventana no cuesta el recargo no cobrado: cuesta las entregas que llegaron tarde. **Sigue sin código propio** (verificado en changelog 4.5): esta regla es sobre insertar una urgencia dentro de una ruta ya en curso, un caso distinto del delivery ad-hoc de D14.
-- **Ninguna ruta sale sin conteo firmado.** El primer conflicto serio no será por un retraso sino por un bulto faltante, y sin firma contra lista esa discusión se pierde siempre.
+- **Ninguna ruta sale sin conteo firmado.** El primer conflicto serio no será por un retraso sino por un bulto faltante, y sin firma contra lista esa discusión se pierde siempre. **Codificada desde el changelog 4.7** (RF-35): sin retiro confirmado, el sistema no acepta registrar llegada ni cerrar ninguna parada. Un conteo distinto al esperado no bloquea la salida — bloquearla por un bulto de diferencia cuesta la jornada entera — pero exige observación escrita antes de firmar.
+- **El número de la calle no se reescribe.** Lo que el repartidor declaró al retirar y al cerrar su jornada queda como lo declaró, para siempre. Administración puede cerrar con otro número, pero entonces tiene que decir por qué, y los dos quedan a la vista uno al lado del otro. Sin esta regla el circuito es teatro: quien recibe el dato lo corrige en silencio y el dato de la calle no existió nunca. Lo impone un trigger, no la aplicación (§4.1).
 - **Primer reintento por ausente sin cargo; el segundo genera envío nuevo.** Sin regla escrita cada caso se negocia, y el cliente siempre tiene más urgencia de discutir.
 - **El bulto no entregado vuelve y el retorno se registra como servicio.** Si no, cada devolución es un viaje regalado.
 - **La hora de cierre es fija.** Lo que no salió se reprograma. Estirar la jornada convierte a la empresa en el proveedor al que se le puede pedir cualquier cosa.
@@ -297,6 +339,15 @@ Hoy cada pedido va del depósito del cliente al destino en un tramo. Un operador
 
 Los puntos 1 y 3, más el tratamiento de datos del destinatario, se resuelven en una única consulta legal, agendada antes de la primera ruta y no después del primer conflicto.
 
+**Desde el changelog 4.7 esa consulta pasa de agendada a bloqueante en un punto concreto:** el
+tratamiento de datos del destinatario ya no es una pregunta abierta sobre datos que el sistema
+guarda de todos modos (nombre, teléfono, dirección), es la condición para operar RF-23 reescrito,
+que guarda **la imagen del documento de identidad** de una persona que no es cliente y no
+consintió nada (RNF-09). El plazo de retención con el que el sistema arranca (30 días) es un
+valor provisional puesto para poder construir el purgado, no una decisión tomada: el plazo real,
+y si la captura es admisible, salen de esa consulta. **Ninguna ruta real debería capturar imágenes
+de documento antes de tenerla hecha.**
+
 ---
 
 ## 12. Riesgos reconocidos
@@ -310,6 +361,8 @@ Los puntos 1 y 3, más el tratamiento de datos del destinatario, se resuelven en
 **Sobreconstrucción.** Escribir software cuesta cada vez menos; mantenerlo y depurarlo, no. Cada módulo hecho sobre suposiciones se reescribe cuando aparece la realidad, y cuesta más tirarlo porque ya está escrito. El principio P6 existe para contener esto, ahora por dos puertas: dolor medido o ciclo cerrado (§9.3). Lo que no entra por ninguna de las dos, no se construye.
 
 **Presión sobre el corte de carga.** Es la regla que más se va a poner a prueba y la que sostiene el modelo entero.
+
+**Imágenes de documento de identidad de terceros (changelog 4.7).** Es el riesgo más nuevo y el único de esta lista que el propio sistema crea en vez de administrar. RF-23 pasó a guardar la foto del documento del receptor: una persona que no contrató nada, no es cliente y no consintió (RNF-09). Lo que lo contiene es operativo y frágil — retención con plazo, purgado que hay que correr, acceso restringido a administración — y depende de que el purgado efectivamente se ejecute: un endpoint que nadie dispara deja las imágenes para siempre y convierte la retención en una declaración de intenciones. La consulta legal de §11.2 pasa a bloquear este punto. Si el dictamen dice que la captura no corresponde, lo que se revierte es el requisito, no la implementación: las columnas quedan, se dejan de llenar y se purga lo capturado.
 
 ---
 
@@ -345,3 +398,4 @@ Se definen con la operación en marcha o con asesoramiento específico. Ponerlos
 | **4.4** | **15/09/2026** | **Sin cambio de código — entrada puramente documental.** Cierra la brecha entre la auditoría del 03/09 y este changelog: los cuatro hallazgos de pisos numéricos y validación cruzada que esa auditoría señalaba ya estaban corregidos desde changelog 4.1 / `construccion_v1.md` 1.17 (11/09), pero nunca quedaron marcados acá con trazabilidad explícita hallazgo-por-hallazgo. Verificado contra el código actual, no solo contra el texto de 1.17: `RutasController.Cerrar` rechaza `KmFinal < KmInicial` (`RutasController.cs:416` — chequeo cruzado manual, no expresable como `[Range]` por involucrar dos campos); `PedidosController.CrearPedidoRequest` tiene `[Range(0, double.MaxValue)]` en `Peajes` y en `ValorDeclarado`; `Trim()` ya aplicado en los campos de texto libre de negocio que la auditoría señalaba (`DestinatarioNombre`, `DestinatarioTelefono`, `Patente`). El piso de `PesoKg` (parte del mismo hallazgo original de la auditoría) también existe en código (`[Range(0, double.MaxValue)]`) pero queda fuera de este seguimiento por decisión del usuario. |
 | **4.5** | **16/09/2026** | **Módulo de deliverys/urgencias punto a punto (D14) y recargo por kilómetro (Anexo I §10.2-N).** Resuelve §10.2-N por la lectura (ii) que el propio Anexo describía: "precio proporcional al kilometraje recorrido", **declarada ahí mismo como cambio de alcance según Anexo I §6** ("agregar un término a la fórmula de precio") — a diferencia del resto de este changelog, esto no es config, es la fórmula misma de `construccion_v1.md` §6 con un término nuevo: `recargo_km = precio_base × factor_km(km)`, entre `precio_base` y `recargo_urgencia`. La escala de tramos de km (`Precio:TramosKm`, % por tramo) es parámetro de configuración, vacía por defecto — sin valores de fábrica, mismo criterio que el resto de los parámetros comerciales (§13): con la escala vacía, `recargo_km = 0` siempre y la fórmula se comporta exactamente igual que antes de esta versión para todo pedido programado. **La decisión comercial de qué escala cargar sigue sin tomarse** — el Anexo I abrió la pregunta, este changelog cierra cuál de las dos lecturas implementa el sistema si la Empresa la activa, no el número. De dónde sale el kilómetro es también configuración (`Distancia:Fuente`): distancia real por calles (OSRM, con fallback automático a línea recta si el proveedor no responde) o un valor cargado a mano por pedido — nunca bloquea una cotización. P3 (§3) gana la excepción puntual correspondiente. **Delivery (D14, "solo entrega, sin retiro programado"):** no es una tabla nueva — sigue en 17 (techo de `construccion_v1.md` §1) — es un `pedido` con `tipo='delivery'` nuevo en el discriminador existente, con origen arbitrario (no el depósito) y el tipo de vehículo elegido por el operador en el alta misma, así que el precio se cotiza y congela ahí, sin esperar a que una ruta cierre su planificación (a diferencia de un pedido programado desde changelog 3.11). Zona sin tarifa cargada (B9) exige un precio manual en la misma alta — no hay una segunda pasada futura como con un pedido en Borrador. Pantalla `/deliverys` (alta y listado), reusa el detalle de pedido existente. **Pendiente, no tocado en este changelog:** `Precio:FactorUrgencia` sigue en el valor provisional 0,20 — el Anexo I (gap B14, §10.2-H) preveía 0,40–0,60 para el recargo de urgencia, decisión comercial que sigue sin cerrarse. Detalle técnico en `construccion_v1.md` §6/§12, changelog 1.19; DDL en `schema_v3.sql`. |
 | **4.6** | **17/09/2026** | **Panel de disponibilidad y carga de repartidores (RF-34), pantalla `/repartidores`.** Cierra un hueco operativo, no comercial: la asignación de repartidor existe desde RF-15 y la reasignación sobre ruta en curso desde changelog 4.4, pero **quién está libre no aparecía en ninguna pantalla** — `/jornada` parte de las rutas del día y filtra las que tienen repartidor, así que el repartidor sin ruta es exactamente el que el monitor no muestra, que es el que se necesita ver para asignar. Este panel invierte el punto de partida: arranca de `usuarios` con rol repartidor y le cuelga la ruta de hoy si la tiene. **Cero tablas nuevas: sigue en 17.** La disponibilidad no se declara, se deriva en lectura, con cuatro estados y una precedencia fija: `inactivo` (`usuarios.activo=false`, gana sobre cualquier ruta asignada), `en_ruta` (ruta de hoy `en_curso`), `asignado` (ruta de hoy `planificada`), `libre` (activo, sin ruta hoy). **No hay ausencias declaradas** — franco, vacaciones y licencia no se registran en ningún lado y siguen sin registrarse: guardarlas es lo único que justificaría la tabla `repartidores`, que §4 mantiene fuera del modelo inicial (nota agregada ahí en esta misma versión). El costo de esa decisión es explícito: un repartidor de vacaciones figura "libre" y quien planifica tiene que saberlo por fuera del sistema, igual que hoy. **No es el tablero de indicadores** (B2/E3, Anexo I §5, sigue fuera de alcance): el acumulado por rango de fechas es una sumatoria de paradas de `ruta_paradas` recalculada en cada request, sin persistir, sin comparar períodos entre sí, sin serie temporal y sin ninguna de las 10 métricas que ese ítem prevé (entregas/día, km, tiempo, margen, NPS, ocupación de flota). Existe para responder "¿a quién le cargo la ruta de mañana?", no para medir rendimiento. Mismo encuadre declarado que `/jornada` (changelog 4.4) y `/cobranza` (changelog 4.3). **Tampoco es liquidación al repartidor** (B4/E2, Anexo I; disparador "segundo repartidor" según §9.2, y bloqueada por la definición abierta §10.2-C): no toca `rutas.pago_repartidor`, no calcula ni muestra un solo importe. Detalle técnico en `construccion_v1.md` §4.5/§12, changelog 1.20. |
+| **4.7** | **17/09/2026** | **Jornada del repartidor: retiro firmado (RF-35), verificación de identidad con imagen (RF-23 reescrito) y cierre de ruta en dos actores (RF-26).** Tres cosas que el acta exigía desde la v3.0 y que el sistema no tenía dónde registrar, más una que **invierte** una decisión anterior. **RF-35** codifica la regla de §7 (*"ninguna ruta sale sin conteo firmado"*): el retiro de las 07:30 con conteo de bultos contra la lista congelada por el sistema y firma del repartidor, sin el cual no se puede registrar llegada ni cerrar parada. Un conteo distinto al esperado no bloquea la salida pero exige observación escrita — lo que la regla protege es que la discrepancia quede firmada antes de salir, no que los números coincidan. **RF-23 se invierte**: hasta esta versión decía "sin almacenar imagen del documento" y el sistema lo cumplía con un booleano; ahora guarda número de documento e imagen, con plazo de retención, purgado que deja constancia de la fecha de borrado, y acceso a la imagen restringido a administración (más estricto que la foto de la entrega, que es back-office). Decisión explícita del usuario tomada después de que se le señalara la contradicción con este RF y con RNF-09; anotada como inversión en §5.3, con su riesgo en §12 y la consulta legal de §11.2 pasando de agendada a **bloqueante** — el plazo de 30 días con el que arranca es provisional, puesto para poder construir el purgado, no una decisión tomada. **RF-26 pasa a dos actores y dos actos:** el repartidor declara km, combustible y peajes desde la calle sobre un juego de columnas propio, esa declaración queda inmutable, y administración la compara y la **aprueba o la corrige con motivo escrito** al cerrar la economía. Decisión explícita del usuario, que revierte el diseño original de un solo juego de columnas: el costo son seis columnas más, lo que compra es que el número de la calle y el del cierre convivan en la fila y que nadie pueda tapar el primero. Regla nueva en §7 (*"el número de la calle no se reescribe"*), impuesta por trigger y no por la aplicación, mismo mecanismo que el congelamiento del precio. **Cero tablas nuevas: sigue en 17**, con columnas en `rutas` y `pruebas_entrega` (§4.1) y un trigger nuevo. **Lo que este changelog NO cierra: H2/E5.** La PWA del repartidor sigue sin cola offline — sin Dexie, sin service worker, sin manifest — así que la prueba de modo avión (criterio de aceptación 3, `construccion_v1.md` §7) no se puede correr y el hito sigue abierto. Las escrituras que esta versión agrega nacen **fuera** de la cola, contra la regla 3.5 de `construccion_v1.md`: son tres más para migrar cuando la cola se construya, decisión tomada a sabiendas y no un olvido. **Esta fila se escribió en la fase de gobernanza, antes del código**, mismo procedimiento que 4.6: el alcance se acuerda acá primero y el detalle de implementación de `construccion_v1.md` 1.21 se relee y corrige contra el código al cerrar la tanda. Detalle técnico en `construccion_v1.md` §4.2/§7/§12, changelog 1.21. |

@@ -17,7 +17,8 @@ public class PruebaEntrega
     public string? MotivoFallo { get; set; }
     public string? ReceptorNombre { get; set; }
 
-    /// <summary>RF-23: verificación sin almacenar imagen del documento</summary>
+    /// <summary>RF-23 en su redacción anterior a acta changelog 4.7 (solo el booleano, sin imagen).
+    /// Se conserva cuando 4.7 sume documento_numero/foto_documento_path: responde "¿se verificó?".</summary>
     public bool IdentidadVerificada { get; set; }
 
     public string? FotoPath { get; set; }

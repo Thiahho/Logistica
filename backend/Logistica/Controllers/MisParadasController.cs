@@ -40,7 +40,13 @@ public class MisParadasController(
     public record JornadaDelDia(
         DateOnly? Fecha, long? RutaId, int Total, int Completadas, int Fallidas,
         IReadOnlyList<string> MotivosFallo, int UmbralDesvioMetros, OrigenRuta? Origen,
-        Recorrido? Recorrido, List<ParadaDelDia> Paradas);
+        Recorrido? Recorrido, List<ParadaDelDia> Paradas,
+        // Acta changelog 4.7: viajan acá y no en un GET propio de /api/mi-jornada porque RNF-07
+        // pide un solo request antes de salir — tres campos no justifican un segundo round-trip.
+        // BultosEsperados se recalcula en vivo mientras el retiro no está confirmado (es lo que
+        // la pantalla de retiro muestra para contar) y sale de la fila una vez firmado (es contra
+        // qué se contó, congelado).
+        DateTimeOffset? RetiroConfirmadoEn, int BultosEsperados, DateTimeOffset? CierreRepartidorEn);
 
     public record RegistrarLlegadaRequest(DateTimeOffset LlegadaEn, string DeviceUuid);
 
@@ -61,7 +67,8 @@ public class MisParadasController(
 
         public string? ReceptorNombre { get; set; }
 
-        /// <summary>RF-23: verificación sin almacenar imagen del documento.</summary>
+        /// <summary>RF-23 en su redacción anterior a acta changelog 4.7 (solo el booleano, sin imagen).
+        /// La imagen del documento y su retención son fase 2 de la tanda de 4.7, todavía sin construir.</summary>
         public bool IdentidadVerificada { get; set; }
 
         public string? MotivoFallo { get; set; }
@@ -105,7 +112,7 @@ public class MisParadasController(
             .FirstOrDefaultAsync(ct);
 
         if (ruta is null)
-            return Ok(new JornadaDelDia(null, null, 0, 0, 0, opciones.Value.MotivosFallo, opciones.Value.UmbralDesvioMetros, null, null, []));
+            return Ok(new JornadaDelDia(null, null, 0, 0, 0, opciones.Value.MotivosFallo, opciones.Value.UmbralDesvioMetros, null, null, [], null, 0, null));
 
         // JornadaService.ArmarAsync es el mismo bundle que arma /api/rutas/{id}/jornada para el
         // back-office (JornadaController) — acá se le suma la config propia del repartidor
@@ -119,10 +126,19 @@ public class MisParadasController(
         if (bundle.Origen is null)
             throw new InvalidOperationException($"La ruta {ruta.Id} está en curso sin origen resuelto.");
 
+        // Una query más, solo mientras el retiro no está firmado: es el número que la pantalla de
+        // retiro pone arriba para contra qué contar. Una vez firmado sale de la fila, porque lo
+        // que importa desde ahí es contra qué se contó, no cuántos bultos tiene la ruta ahora.
+        var bultosEsperados = ruta.RetiroBultosEsperados
+            ?? await db.ParadaPedidos
+                .Where(pp => pp.Parada.RutaId == ruta.Id)
+                .SumAsync(pp => (int?)pp.Pedido.Bultos, ct) ?? 0;
+
         return Ok(new JornadaDelDia(
             ruta.Fecha, ruta.Id, bundle.Total, bundle.Completadas, bundle.Fallidas,
             opciones.Value.MotivosFallo, opciones.Value.UmbralDesvioMetros,
-            bundle.Origen, bundle.Recorrido, bundle.Paradas));
+            bundle.Origen, bundle.Recorrido, bundle.Paradas,
+            ruta.RetiroConfirmadoEn, bultosEsperados, ruta.CierreRepartidorEn));
     }
 
     /// <summary>RF-24. Idempotente: si ya hay una llegada registrada, se conserva la primera —

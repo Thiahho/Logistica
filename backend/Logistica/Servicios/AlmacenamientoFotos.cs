@@ -9,6 +9,11 @@ namespace Logistica.Servicios;
 /// el proyecto es 100% self-hosted). Ruta determinista pruebas/{paradaId}/{deviceUuid}.jpg: una
 /// parada consolidada (RF-14, N pedidos) tiene una sola foto, y el mismo deviceUuid en un
 /// reintento sobreescribe el mismo archivo — idempotente sin lógica extra.
+///
+/// Desde acta changelog 4.7 la carpeta y el sufijo del nombre son parámetros, con los valores de
+/// antes como default: la firma del retiro (RF-35) va a retiros/{rutaId}/{deviceUuid}.jpg y la
+/// foto del documento a pruebas/{paradaId}/{deviceUuid}-documento.jpg. Los archivos ya guardados
+/// no se mueven — el default reproduce exactamente la ruta anterior.
 /// </summary>
 public class AlmacenamientoFotos(IOptions<OpcionesPruebaEntrega> opciones)
 {
@@ -17,7 +22,13 @@ public class AlmacenamientoFotos(IOptions<OpcionesPruebaEntrega> opciones)
 
     private string RaizAbsoluta => Path.GetFullPath(_opciones.RaizFotos);
 
-    public async Task<string> GuardarAsync(long paradaId, string deviceUuid, Stream contenido, long tamanoBytes, CancellationToken ct)
+    /// <param name="carpeta">Primer segmento de la ruta relativa. Literal del código, nunca del
+    /// cliente — de ahí que no se valide como sí se valida deviceUuid.</param>
+    /// <param name="sufijo">Se agrega al nombre antes de la extensión, para poder guardar más de
+    /// un archivo por (carpeta, id, dispositivo) sin que uno pise al otro.</param>
+    public async Task<string> GuardarAsync(
+        long paradaId, string deviceUuid, Stream contenido, long tamanoBytes, CancellationToken ct,
+        string carpeta = "pruebas", string sufijo = "")
     {
         // deviceUuid llega del cliente (multipart) y termina en la ruta de disco: sin este chequeo,
         // un valor tipo "../../../etc/algo" escribiría fuera de RaizFotos (path traversal).
@@ -33,7 +44,7 @@ public class AlmacenamientoFotos(IOptions<OpcionesPruebaEntrega> opciones)
             throw new InvalidOperationException("La foto debe ser un JPEG válido.");
         contenido.Position = 0;
 
-        var rutaRelativa = Path.Combine("pruebas", paradaId.ToString(), $"{deviceUuid}.jpg");
+        var rutaRelativa = Path.Combine(carpeta, paradaId.ToString(), $"{deviceUuid}{sufijo}.jpg");
         var rutaAbsoluta = Path.Combine(RaizAbsoluta, rutaRelativa);
         Directory.CreateDirectory(Path.GetDirectoryName(rutaAbsoluta)!);
 
