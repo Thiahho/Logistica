@@ -12,11 +12,11 @@ Este documento no reemplaza a `acta_sistema.md` (reglas de negocio) ni a `constr
 
 | | |
 |---|---|
-| Controladores API | 19 (suma `RepartidoresController`, changelog 4.6) |
-| Endpoints | 97 acciones `[Http*]` en `Controllers/*.cs` (2 de ellas nuevas en changelog 4.6). El "~78" que figuraba acá venía desactualizado de varias versiones atrás; este conteo es mecánico y reproducible: `grep -cE '^\s*\[Http(Get\|Post\|Put\|Patch\|Delete)' backend/Logistica/Controllers/*.cs` |
-| Pantallas frontend (`page.tsx`) | 31 (suma `/repartidores` y `/repartidores/[id]`; el "26" previo tampoco contaba `/cobranza` de changelog 4.3 — ver §4) |
-| Entidades / tablas núcleo | 20 (sin cambio — un repartidor es `usuarios.rol='repartidor'`, no una entidad; acta §4) |
-| Migraciones aplicadas | 12 (`Inicial` → `AgregarPrecioPorKm` — el conteo previo de 10 ya estaba desactualizado, faltaba `AgregarTipoEventoAvisoCobranza` de changelog 4.3, ver §5) |
+| Controladores API | 21 (suma `MiJornadaController`, changelog 4.7, y `NovedadesController`, changelog 4.8) |
+| Endpoints | 107 acciones `[Http*]` en `Controllers/*.cs` — conteo mecánico y reproducible: `grep -cE '^\s*\[Http(Get\|Post\|Put\|Patch\|Delete)' backend/Logistica/Controllers/*.cs`. Diez más que las 97 de changelog 4.6: retiro, cierre de jornada, alta y acuse de novedades del repartidor (4), `NovedadesController` (4), contacto de pedido y `interrumpir` ruta |
+| Pantallas frontend (`page.tsx`) | 34 (suma `/hoy/retiro` y `/hoy/cierre` —changelog 4.7— y `/hoy/problema` —4.8—; recontado con `find frontend/app -name page.tsx`, no adelantado) |
+| Entidades / tablas núcleo | 21 entidades / 18 tablas núcleo (suma `Novedad`, changelog 4.8: cruza el techo de 17 con justificación en acta §4.1) |
+| Migraciones aplicadas | 14 (`Inicial` → `AgregarNovedades`; suman `AgregarRetiroDeRuta`, changelog 4.7, y `AgregarNovedades`, 4.8) |
 | Roles | administracion, operacion, repartidor (personal interno) + cliente (`clientes_usuarios`, tabla separada) |
 | Última etapa cerrada | **E1 — Cuenta corriente y facturación** (Anexo I §5, changelog acta 4.2). El monitor de jornada (4.4), los deliverys/recargo por km (4.5) y el panel de repartidores (4.6) son ampliaciones sobre etapas ya cerradas (§9.3, D14/§10.2-N y RF-15/§9.3 respectivamente), no etapas nuevas del Anexo I. |
 
@@ -75,10 +75,10 @@ RF-10 a RF-17: candidatos por zona (`GET /api/pedidos/candidatos-ruta`), armado 
 ### 3.6 Ejecución en calle (`MisParadasController`, `RecorridoController`, `PruebasEntregaController`)
 RF-18 a RF-24: lista de paradas del repartidor autenticado (`GET /dia`, bundle único de RNF-07 armado por `Servicios/JornadaService.cs`), registro de llegada (`POST /{paradaId}/llegada`) y cierre de parada con prueba de entrega (foto, receptor, posición, hora — `POST /{paradaId}/cierre`, multipart atómico, idempotente por `device_uuid` con respuesta `duplicado: true` distinguible de un conflicto real). Fotos servidas solo autenticadas, nunca por `wwwroot` estático (RNF-09). Ruteo real por calles vía OSRM (`RecorridoController`, changelog 3.4). Verificación de identidad: hoy solo el booleano `pruebas_entrega.identidad_verificada`, sin imagen — es RF-23 **en su redacción anterior** a la del changelog 4.7.
 
-**Sin implementar:** modo sin conexión (B10/RNF-01) — confirmado ausente, no hay cola local ni sincronización diferida en el código revisado. Retiro con conteo firmado (RF-35), imagen del documento (RF-23 reescrito), salto automático a la parada siguiente y cierre de jornada del repartidor: **diseñados en acta changelog 4.7 / `construccion_v1.md` 1.21, todavía no escritos**. Mientras no lo estén, `/hoy` deja cerrar paradas sin retiro confirmado y el dato de calle del cierre de ruta sigue llegando en papel.
+**Construido desde changelog 4.7/4.8:** gate del retiro (sin retiro firmado, `/llegada` y `/cierre` devuelven `409`), `POST /api/mi-jornada/retiro` y `/cierre` (`MiJornadaController`), `SiguienteParadaId` en el cierre de parada, y las novedades (§3.13). **Sin implementar:** modo sin conexión (B10/RNF-01) — confirmado ausente, no hay cola local ni sincronización diferida. Imagen del documento con retención y purga (RF-23 reescrito): diseñada en acta 4.7, **sin código** (`identidad_verificada` sigue siendo solo el booleano).
 
 ### 3.7 Cierre y trazabilidad (`RutasController.Cierre`, triggers de base)
-RF-26/RF-27: cierre económico con km, combustible, peajes, costos, resultado disponible el mismo día. **Un solo actor por ahora:** administración tipea los cuatro datos de calle (km inicial y final, combustible, peajes) y `Cerrar` los asigna sin condición sobre `rutas`, con el formulario arrancando vacío — el paso a dos actores con declaración inmutable del repartidor y aprobación/corrección de administración está diseñado en acta RF-26 (changelog 4.7) y **no construido**. RF-28/RNF-04: trazabilidad automática por trigger de base de datos (`trg_*`, ver `schema_v3.sql`), no por código de aplicación — verificado en los comentarios de `Factura`/`Pago` (`trg_facturas_inmutable`, `trg_pagos_inmutable`). `rutas` **no** tiene log de eventos propio: reasignar repartidor, reordenar paradas y cerrar no quedan registrados en ninguna tabla (gap aceptado por escrito en `construccion_v1.md` §4.3).
+RF-26/RF-27: cierre económico con km, combustible, peajes, costos, resultado disponible el mismo día. **Dos actores, desde changelog 4.7 (construido):** el repartidor declara km final, combustible y peajes (`POST /api/mi-jornada/cierre`, inmutable por `trg_congelar_declaracion_repartidor`); `RutasController.Cerrar` exige la declaración salvo `SinDeclaracionDelRepartidor`, pide `NotasCierre` si algún valor difiere del declarado, sella `cerrada_por` y `ResultadoRuta.Aprobacion` marca `tal_cual`/`corregido`/`sin_declaracion` derivado en lectura. RF-28/RNF-04: trazabilidad automática por trigger de base de datos (`trg_*`, ver `schema_v3.sql`), no por código de aplicación — verificado en los comentarios de `Factura`/`Pago` (`trg_facturas_inmutable`, `trg_pagos_inmutable`). `rutas` **no** tiene log de eventos propio: reasignar repartidor, reordenar paradas y cerrar no quedan registrados en ninguna tabla (gap aceptado por escrito en `construccion_v1.md` §4.3); la única huella del actor de cierre es `cerrada_por`. Lo que sí queda registrado desde 4.8 es lo que el repartidor y operación se dijeron durante la jornada (`novedades`).
 
 ### 3.8 Cuenta corriente y facturación — E1 (`FacturasController`, `ClientesController`, `Dominio/CiclosFacturacion.cs`, `Servicios/CuentaCorrienteService.cs`)
 Última etapa cerrada (Anexo I §5, acta changelog 4.2):
@@ -121,11 +121,13 @@ Lo que agrega sobre lo que ya existía: `/jornada` parte de las rutas del día y
 
 ---
 
-## 4. Pantallas del frontend (31)
+### 3.13 Novedades de la calle (`MiJornadaController`, `NovedadesController`) — RF-36/RF-37, changelog acta 4.8
 
-**El conteo sigue en 31 a propósito.** El changelog 4.7 diseña dos pantallas más (`/hoy/retiro` y
-`/hoy/cierre`) y este documento cuenta lo que existe, no lo que está acordado: pasa a 33 cuando
-estén escritas, no cuando estén planeadas. Aparecen abajo marcadas, sin sumar al número.
+Tabla nueva `novedades` (la 18ª): cinco tipos en una sola fila-forma — `incidencia_ruta`, `problema_carga`, `cambio_propuesto` (origen repartidor) y `cambio_operacion`, `cancelacion` (origen operación); check de coherencia origen/tipo; `trg_novedades_inmutable` impide editar lo informado (solo estado, resolución y `visto_en` se completan). Repartidor: `POST /api/mi-jornada/novedades` (multipart, idempotente por `device_uuid`) y `POST .../{id}/visto`. Back-office: `GET /api/novedades`, `GET /api/rutas/{id}/novedades`, `GET /api/novedades/{id}/foto`, `PUT /api/novedades/{id}/resolver`. Complementos: `PUT /api/pedidos/{id}/contacto` (corrección de teléfono, nombre y observaciones; destino y precio siguen congelados por P1), aviso y parada `cancelada` al cancelar un pedido en ruta (`PedidosController.CambiarEstado`), y `POST /api/rutas/{id}/interrumpir` (`RutasController`). `JornadaController.Resumen` suma `NovedadesAbiertas` por ruta y en total. **Verificado con `curl`/SQL contra la API real** (idempotencia, 404 por parada/pedido ajenos, whitelist de campos, aceptar aplica el cambio, doble resolución 409, cancelación con parada consolidada, interrumpir, cierre posterior de la ruta, trigger de inmutabilidad). Las pantallas **no** se probaron en un navegador real.
+
+## 4. Pantallas del frontend (34)
+
+**El conteo pasó de 31 a 34 cuando el código existió, no antes:** `/hoy/retiro` y `/hoy/cierre` (changelog 4.7) y `/hoy/problema` (4.8). Recontado con `find frontend/app -name page.tsx`. Este documento cuenta lo que existe, no lo que está acordado — y que exista no es que se haya probado en un teléfono: ninguna se verificó en un navegador real.
 
 | Ruta | Pantalla |
 |---|---|
@@ -136,8 +138,8 @@ estén escritas, no cuando estén planeadas. Aparecen abajo marcadas, sin sumar 
 | `/jornada` | Monitor del día en curso: contadores por estado, rutas del día, panel por repartidor (changelog 4.4) |
 | `/repartidores`, `/repartidores/[id]` | Disponibilidad de hoy y carga acumulada por rango; incluye al repartidor sin ruta, que `/jornada` no muestra (changelog 4.6) |
 | `/rutas`, `/rutas/nueva`, `/rutas/[id]`, `/rutas/[id]/armar`, `/rutas/[id]/cierre` | Planificación, detalle (cualquier estado, changelog 4.4) y cierre de rutas |
-| `/hoy`, `/hoy/parada/[paradaId]` | PWA del repartidor — mapa, recorrido, cierre de parada con foto. Sin cola offline (H2/E5 abierto) |
-| ~~`/hoy/retiro`, `/hoy/cierre`~~ | Retiro con conteo firmado (RF-35) y cierre de jornada del repartidor (RF-26). **Diseñadas en changelog 4.7, no construidas** — no cuentan en el 31 |
+| `/hoy`, `/hoy/parada/[paradaId]` | PWA del repartidor — mapa, recorrido, avisos de operación con acuse (sondeo cada 20 s), cierre de parada con foto y salto a la siguiente, "Corregir un dato". Navegación propia del repartidor en `Shell` (barra inferior en pantalla chica, sidebar desde `md`). Sin cola offline (H2/E5 abierto) |
+| `/hoy/retiro`, `/hoy/cierre`, `/hoy/problema` | Retiro con conteo firmado (RF-35), cierre de jornada del repartidor (RF-26, declaración pendiente de revisión) y reporte de un problema (RF-36) |
 | `/mis-envios` | Portal de consulta del cliente |
 | `/clientes`, `/clientes/nuevo`, `/clientes/[id]` | ABM de clientes |
 | `/usuarios`, `/usuarios/nuevo` | ABM de usuarios internos |
@@ -152,19 +154,19 @@ estén escritas, no cuando estén planeadas. Aparecen abajo marcadas, sin sumar 
 
 ## 5. Modelo de datos
 
-20 entidades (`Entidades/*.cs`), agrupadas según §4 de `acta_sistema.md`:
+21 entidades (`Entidades/*.cs`), agrupadas según §4 de `acta_sistema.md`:
 
 | Bloque | Tablas |
 |---|---|
 | Geografía | `zonas`, `localidades`, `ubicaciones` |
 | Comercial | `clientes`, `tarifas` |
 | Núcleo | `pedidos`, `pedido_eventos` |
-| Operación | `rutas`, `ruta_paradas`, `parada_pedidos`, `pruebas_entrega`, `vehiculos` |
+| Operación | `rutas`, `ruta_paradas`, `parada_pedidos`, `pruebas_entrega`, `vehiculos`, `novedades` |
 | Registro sin maquinaria | `tipos_evento_cliente`, `eventos_cliente` |
 | Cuenta corriente (E1) | `facturas`, `factura_items`, `pagos` |
 | Usuarios | `usuarios`, `clientes_usuarios`, `refresh_tokens` |
 
-DDL completo en `docs/schema_v3.sql`. Historial de migraciones (12, cronológico):
+DDL completo en `docs/schema_v3.sql`. Historial de migraciones (14, cronológico; las dos últimas son `AgregarRetiroDeRuta`, changelog 4.7, y `AgregarNovedades`, 4.8):
 `Inicial` → `ReglasDeBaseDeDatos` → `AgregarVehiculos` → `AgregarKmZonas` → `SepararUsuariosCliente` → `AgregarOrigenRuta` → `AgregarCatalogoDepositos` → `AgregarTipoVehiculo` → `AgregarPrecioManual` → `AgregarCuentaCorriente` → `AgregarTipoEventoAvisoCobranza` → `AgregarPrecioPorKm`.
 
 Nota: `AgregarTipoEventoAvisoCobranza` (changelog 4.3, una fila de catálogo) faltaba en esta lista desde su propia versión — el conteo de "10" en §1 antes de esta pasada ya estaba desactualizado; quedó corregido acá de paso, no es parte del alcance de changelog 4.5.
@@ -176,7 +178,7 @@ Nota: `AgregarTipoEventoAvisoCobranza` (changelog 4.3, una fila de catálogo) fa
 Coincide con lo que el Anexo I declara en §4/§7 como brecha o exclusión — se lista acá solo lo verificado en esta pasada, no una copia del Anexo:
 
 - **Modo sin conexión de la PWA (B10 / RNF-01 / H2-E5):** no hay cola local ni sincronización diferida, ni `manifest.json`, ni service worker, ni Dexie en `package.json` — verificado archivo por archivo. Lo que sí existe y la cola no tiene que reinventar: `device_uuid` generado en la captura y persistido (`lib/captura/dispositivo.ts`), compresión de la foto antes de enviar (`lib/captura/foto.ts`) e idempotencia del lado del servidor. **Las pantallas de `/hoy` sí están construidas** desde changelog 3.4 — `construccion_v1.md` §4.2 decía "sin construir" hasta la corrección de 1.21. Lo que mantiene H2/E5 abierto es solo la cola: sin ella no se puede correr la prueba de modo avión (criterio de aceptación 3 del acta), y por decisión del 17/09/2026 se construye **después** de la tanda de changelog 4.7, para envolver los cinco caminos de escritura de una sola vez en vez de migrarlos de a uno.
-- **Jornada del repartidor, changelog 4.7 (RF-35, RF-23 reescrito, RF-26 en dos actores):** diseñado y acordado, **nada escrito todavía**. Ver §3.6 y §3.7.
+- **Imagen del documento con retención y purga (RF-23 reescrito, changelog 4.7):** diseñada y acordada, **sin código** — ni segunda foto en el cierre de parada, ni `documento_numero`, ni purgado, ni endpoint de la imagen. Bloqueada por la consulta legal de acta §11.2. El retiro firmado, el cierre en dos actores y las novedades (changelog 4.7/4.8) sí están construidos: ver §3.6, §3.7 y §3.13.
 - **Tablero de indicadores (B2):** sigue sin construir. `/jornada` (changelog 4.4) agrega contadores y `/repartidores` (changelog 4.6) suma paradas por rango, pero ninguno calcula las 10 métricas que B2 prevé (entregas/día, km, tiempo, margen, NPS, ocupación de flota) ni compara períodos entre sí ni arma series: el acumulado de `/repartidores` es una sumatoria recalculada en cada request, sin persistir, para decidir a quién asignar — mismo encuadre que `/cobranza` (changelog 4.3). `ExportarController` sigue siendo la única vía de análisis histórico (CSV).
 - **Motor de rango de cliente (B3):** los tres indicadores (`ColorPago/Trato/Oper`) son manuales, no hay cálculo periódico ni efecto sobre tarifa/prioridad/crédito.
 - **Liquidación al repartidor (B4):** no hay controlador ni tabla de liquidación; el pago se sigue tipeando a mano en el cierre de ruta. `RepartidoresController` (changelog 4.6) **no** lo acerca: no lee ni escribe `rutas.pago_repartidor` y no expone un solo importe, ni en el listado ni en el detalle.
@@ -193,3 +195,4 @@ Coincide con lo que el Anexo I declara en §4/§7 como brecha o exclusión — s
 - `docs/construccion_v1.md` (especificación técnica, changelog detallado)
 - `docs/schema_v3.sql` (DDL)
 - Lectura directa de `backend/Logistica/{Controllers,Entidades,Dominio,Datos}` y `frontend/app` en la rama `demo-d`, 13/09/2026 (§3.11 y los conteos de §1/§4/§5 actualizados puntualmente el 16/09/2026 para changelog 4.5; §3.12, los conteos de §1/§4 y tres ítems de §6 —B2, B4, B6— actualizados el 17/09/2026 para changelog 4.6, con `RepartidoresController` releído línea por línea — no es una repasada completa del resto del documento). Segunda pasada del 17/09/2026 para la fase de gobernanza de changelog 4.7: §3.6, §3.7, la nota de §4, el ítem de modo sin conexión de §6 y la regla del encabezado, con `MisParadasController`, `JornadaService`, `AlmacenamientoFotos`, `app/hoy/*` y `app/rutas/[id]/cierre` releídos — **ningún conteo se movió, porque no se escribió código en esa pasada**
+- Pasada del 18/09/2026 (changelog 4.8, `next build` incluido — pasa): §1, §3.6, §3.7, §3.13 nuevo, §4, §5 y §6, con `MiJornadaController`, `NovedadesController`, `MisParadasController`, `RutasController`, `PedidosController`, `JornadaController` y `frontend/app/hoy/*` releídos. Conteos recontados mecánicamente. **Las pantallas nuevas pasan `tsc`, `eslint` y compilan bajo `next dev`, pero no se abrieron en un navegador**; los flujos de API sí se probaron con `curl` y `psql`.

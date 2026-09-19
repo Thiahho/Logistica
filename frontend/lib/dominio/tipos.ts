@@ -338,6 +338,19 @@ export interface RutaDetalle {
   origenUbicacionId: number | null;
   /** Resuelto a partir de `origenUbicacionId` — null en la misma situación que ese campo. */
   origen: OrigenRuta | null;
+  /** Declaración de la calle (acta changelog 4.7). Conviven con las columnas económicas de arriba,
+   * que son el cierre de administración: nunca se pisan una a la otra. */
+  retiroConfirmadoEn: string | null;
+  retiroBultosEsperados: number | null;
+  retiroBultosContados: number | null;
+  retiroObservaciones: string | null;
+  retiroKmInicial: number | null;
+  cierreRepartidorEn: string | null;
+  cierreRepartidorKmFinal: number | null;
+  cierreRepartidorCombustible: number | null;
+  cierreRepartidorPeajes: number | null;
+  cierreRepartidorNotas: string | null;
+  cerradaPor: string | null;
 }
 
 /** Candidato a entrar en una ruta (GET /api/pedidos/candidatos-ruta). */
@@ -394,7 +407,8 @@ export interface ParadaArmada {
   lng: number | null;
   anclada: boolean;
   orden: number;
-  estado: "pendiente" | "completada" | "fallida";
+  /** Igual que ParadaDelDia: cancelada = todos sus pedidos los canceló operación con la ruta en curso. */
+  estado: "pendiente" | "completada" | "fallida" | "cancelada";
   llegadaEn: string | null;
   salidaEn: string | null;
   pedidoIds: number[];
@@ -407,6 +421,25 @@ export interface ResultadoRuta {
   efectivas: number;
   fallidas: number;
   reprogramadas: number;
+  /** Derivado en lectura: "tal_cual" (administración cerró con los números del repartidor),
+   * "corregido", "sin_declaracion", o null si la ruta todavía no se cerró. */
+  aprobacion: "tal_cual" | "corregido" | "sin_declaracion" | null;
+}
+
+/** Espejo de MiJornadaController.CierreJornadaResultado (POST /api/mi-jornada/cierre). */
+export interface CierreJornadaResultado {
+  rutaId: number;
+  cierreConfirmadoEn: string;
+  total: number;
+  entregadas: number;
+  fallidas: number;
+  kmInicial: number;
+  kmFinal: number;
+  kmRecorridos: number;
+  combustibleMonto: number;
+  peajesMonto: number;
+  notas: string | null;
+  duplicado: boolean;
 }
 
 /** Espejo de Servicios/RuteoService.cs. Recorrido real por calles vía OSRM, trazado siempre en
@@ -429,6 +462,9 @@ export interface PedidoDeParada {
   destinatarioTelefono: string;
   bultos: number;
   observaciones: string | null;
+  /** Estado del pedido (EnRuta, Cancelado...). Un pedido Cancelado lo canceló operación con la ruta
+   * en curso: no se entrega, y el cierre de la parada lo saltea. */
+  estado: EstadoPedido;
 }
 
 /** Espejo de MisParadasController.ParadaDelDia (GET /api/mis-paradas/dia). */
@@ -437,7 +473,8 @@ export interface ParadaDelDia {
   rutaId: number;
   orden: number;
   tipo: string;
-  estado: "pendiente" | "completada" | "fallida";
+  /** cancelada: todos sus pedidos los canceló operación. Terminal, sin prueba de entrega. */
+  estado: "pendiente" | "completada" | "fallida" | "cancelada";
   llegadaEn: string | null;
   salidaEn: string | null;
   calleNumero: string;
@@ -485,6 +522,7 @@ export interface JornadaDelDia {
   total: number;
   completadas: number;
   fallidas: number;
+  canceladas: number;
   motivosFallo: string[];
   umbralDesvioMetros: number;
   /** Solo null cuando no hay ruta en curso (`rutaId === null`) — una ruta en_curso siempre tiene
@@ -492,6 +530,110 @@ export interface JornadaDelDia {
   origen: OrigenRuta | null;
   recorrido: Recorrido | null;
   paradas: ParadaDelDia[];
+  /** RF-35: null hasta que el repartidor firma el conteo — sin eso el servidor rechaza llegada y
+   * cierre de parada (409, acta §7). */
+  retiroConfirmadoEn: string | null;
+  /** Bultos de la ruta: en vivo mientras el retiro no está firmado, congelados una vez firmado. */
+  bultosEsperados: number;
+  /** RF-26: declaración de cierre del repartidor. No es el cierre de la ruta: queda pendiente de
+   * revisión de administración. */
+  cierreRepartidorEn: string | null;
+  /** Novedades abiertas o sin ver de la ruta (acta changelog 4.8, RF-36/RF-37). */
+  novedades: NovedadDelDia[];
+  /** Listas cerradas, en configuración del servidor (provisionales). */
+  categoriasIncidencia: string[];
+  categoriasCarga: string[];
+}
+
+export type TipoNovedad =
+  | "incidencia_ruta"
+  | "problema_carga"
+  | "cambio_propuesto"
+  | "cambio_operacion"
+  | "cancelacion";
+
+/** Espejo de MisParadasController.NovedadDelDia. `sinVer`: el repartidor todavía no acusó recibo — un
+ * aviso de operación (cambio, cancelación) o la respuesta a algo que él informó. */
+export interface NovedadDelDia {
+  id: number;
+  tipo: TipoNovedad;
+  origen: "repartidor" | "operacion";
+  categoria: string | null;
+  descripcion: string;
+  propuestaCampo: string | null;
+  propuestaValorNuevo: string | null;
+  paradaId: number | null;
+  pedidoId: number | null;
+  estado: "abierta" | "resuelta" | "rechazada";
+  resolucion: string | null;
+  creadaEn: string;
+  resueltaEn: string | null;
+  sinVer: boolean;
+}
+
+/** Espejo de MiJornadaController.NovedadResultado (POST /api/mi-jornada/novedades). */
+export interface NovedadResultado {
+  id: number;
+  tipo: TipoNovedad;
+  estado: string;
+  duplicado: boolean;
+}
+
+/** Espejo de NovedadesController.NovedadResumen: la vista de back-office. */
+export interface NovedadResumen {
+  id: number;
+  rutaId: number;
+  rutaFecha: string;
+  repartidorNombre: string | null;
+  paradaId: number | null;
+  paradaOrden: number | null;
+  pedidoId: number | null;
+  pedidoDestinatario: string | null;
+  tipo: TipoNovedad;
+  origen: "repartidor" | "operacion";
+  categoria: string | null;
+  descripcion: string;
+  propuestaCampo: string | null;
+  propuestaValorAnterior: string | null;
+  propuestaValorNuevo: string | null;
+  tieneFoto: boolean;
+  estado: "abierta" | "resuelta" | "rechazada";
+  creadaPorNombre: string;
+  creadaEn: string;
+  resueltaPorNombre: string | null;
+  resueltaEn: string | null;
+  resolucion: string | null;
+  vistoEn: string | null;
+}
+
+export const ETIQUETA_TIPO_NOVEDAD: Record<TipoNovedad, string> = {
+  incidencia_ruta: "Incidencia de ruta",
+  problema_carga: "Problema con la carga",
+  cambio_propuesto: "Corrección propuesta",
+  cambio_operacion: "Cambio de operación",
+  cancelacion: "Pedido cancelado",
+};
+
+export const ETIQUETA_CAMPO_EDITABLE: Record<string, string> = {
+  destinatario_telefono: "Teléfono",
+  destinatario_nombre: "Nombre del destinatario",
+  observaciones: "Observaciones",
+};
+
+/** "bulto_danado" → "Bulto danado". Las categorías son valores de configuración, no traducciones. */
+export function etiquetaCategoria(categoria: string): string {
+  const s = categoria.replaceAll("_", " ");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Espejo de MiJornadaController.RetiroResultado (POST /api/mi-jornada/retiro). */
+export interface RetiroResultado {
+  rutaId: number;
+  retiroConfirmadoEn: string;
+  bultosEsperados: number;
+  bultosContados: number;
+  discrepancia: boolean;
+  duplicado: boolean;
 }
 
 /** Espejo de Servicios/JornadaService.JornadaRuta (GET /api/rutas/{id}/jornada) — mismo bundle
@@ -503,6 +645,7 @@ export interface JornadaRuta {
   total: number;
   completadas: number;
   fallidas: number;
+  canceladas: number;
   origen: OrigenRuta | null;
   recorrido: Recorrido | null;
   paradas: ParadaDelDia[];
@@ -516,6 +659,8 @@ export interface CierreResultado {
   desvioMetros: number | null;
   desvioAlto: boolean;
   duplicado: boolean;
+  /** Pendiente de menor orden, resuelta por el servidor tras aplicar el cierre. null = no queda ninguna. */
+  siguienteParadaId: number | null;
 }
 
 // ==================== E1 — cuenta corriente y facturación ====================
@@ -746,6 +891,10 @@ export interface ResumenJornada {
   rutasDelDia: RutaDelDia[];
   repartidores: RepartidorDelDia[];
   generadoEn: string;
+  /** Rutas en curso con la declaración de cierre del repartidor esperando revisión de administración. */
+  declaracionesPendientes: number;
+  /** Novedades del repartidor sin responder, sumadas sobre todas las rutas de la fecha. */
+  novedadesAbiertas: number;
 }
 
 export interface ContadorRutas {
@@ -786,6 +935,12 @@ export interface RepartidorDelDia {
   pendientes: number;
   primeraLlegada: string | null;
   ultimaActividad: string | null;
+  retiroConfirmadoEn: string | null;
+  retiroBultosEsperados: number | null;
+  retiroBultosContados: number | null;
+  cierreRepartidorEn: string | null;
+  /** Lo que informó el repartidor desde la calle y nadie respondió todavía. */
+  novedadesAbiertas: number;
 }
 
 // ==================== Deliverys / urgencias (Anexo I D14, §10.2-N) ====================

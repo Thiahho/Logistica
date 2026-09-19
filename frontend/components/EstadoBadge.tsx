@@ -9,12 +9,14 @@ const ESTILO_PARADA: Record<string, string> = {
   pendiente: "bg-blue-100 text-blue-700",
   completada: "bg-green-100 text-green-700",
   fallida: "bg-red-100 text-red-700",
+  cancelada: "bg-neutral-200 text-neutral-700",
 };
 
 const ETIQUETA_PARADA: Record<string, string> = {
   pendiente: "Pendiente",
   completada: "Entregada",
   fallida: "Fallida",
+  cancelada: "Cancelada",
 };
 
 const ESTILO_RUTA: Record<EstadoRuta, string> = {

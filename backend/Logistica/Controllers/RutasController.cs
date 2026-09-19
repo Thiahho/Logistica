@@ -38,7 +38,13 @@ public class RutasController(
         int CapacidadParadas, string Estado, int CantidadParadas, int? KmInicial, int? KmFinal,
         decimal? CombustibleMonto, decimal? PeajesMonto, decimal? OtrosCostos, decimal? PagoRepartidor,
         string? NotasCierre, DateTimeOffset? CerradaEn,
-        long? OrigenUbicacionId, OrigenRuta? Origen);
+        long? OrigenUbicacionId, OrigenRuta? Origen,
+        // Declaración de la calle (acta changelog 4.7): lo que el repartidor firmó/declaró. Conviven con
+        // las columnas económicas de arriba, que son el cierre de administración — nunca se pisan.
+        DateTimeOffset? RetiroConfirmadoEn, int? RetiroBultosEsperados, int? RetiroBultosContados,
+        string? RetiroObservaciones, int? RetiroKmInicial,
+        DateTimeOffset? CierreRepartidorEn, int? CierreRepartidorKmFinal, decimal? CierreRepartidorCombustible,
+        decimal? CierreRepartidorPeajes, string? CierreRepartidorNotas, Guid? CerradaPor);
 
     public record CerrarRutaRequest(
         [Range(0, int.MaxValue, ErrorMessage = "El km inicial no puede ser negativo.")] int KmInicial,
@@ -47,9 +53,15 @@ public class RutasController(
         [Range(0, double.MaxValue, ErrorMessage = "Los peajes no pueden ser negativos.")] decimal PeajesMonto,
         [Range(0, double.MaxValue, ErrorMessage = "Otros costos no pueden ser negativos.")] decimal OtrosCostos,
         [Range(0, double.MaxValue, ErrorMessage = "El pago al repartidor no puede ser negativo.")] decimal PagoRepartidor,
-        string? NotasCierre);
+        string? NotasCierre,
+        // M2: cerrar sin que el repartidor haya declarado su cierre (teléfono muerto, se olvidó) es posible,
+        // pero hay que decir que se cierra con datos que nadie verificó en la calle.
+        bool SinDeclaracionDelRepartidor = false);
 
-    public record ResultadoRuta(decimal Ingresos, decimal Costos, decimal Margen, int Efectivas, int Fallidas, int Reprogramadas);
+    /// <summary>Aprobacion (M5) se deriva en lectura comparando los dos juegos de columnas, nunca se persiste:
+    /// "tal_cual" (administración cerró con los números del repartidor), "corregido" (cerró con otros),
+    /// "sin_declaracion" (el repartidor no declaró) o null (la ruta todavía no se cerró).</summary>
+    public record ResultadoRuta(decimal Ingresos, decimal Costos, decimal Margen, int Efectivas, int Fallidas, int Reprogramadas, string? Aprobacion = null);
 
     public record CrearRutaRequest(DateOnly Fecha);
     public record ActualizarRutaRequest(
@@ -64,6 +76,9 @@ public class RutasController(
         List<long> PedidoIds);
 
     public record ReasignarRepartidorRequest(Guid RepartidorId);
+
+    public record InterrumpirRutaRequest(string Motivo);
+    public record InterrupcionResultado(int ParadasInterrumpidas, int PedidosFallidos);
     public record ReordenarParadasRequest(List<long> ParadaIds);
 
     /// <summary>
@@ -159,7 +174,11 @@ public class RutasController(
             ruta.RepartidorId, ruta.Repartidor?.Nombre,
             ruta.CapacidadParadas, ruta.Estado, cantidadParadas, ruta.KmInicial, ruta.KmFinal,
             ruta.CombustibleMonto, ruta.PeajesMonto, ruta.OtrosCostos, ruta.PagoRepartidor,
-            ruta.NotasCierre, ruta.CerradaEn, ruta.OrigenUbicacionId, origen));
+            ruta.NotasCierre, ruta.CerradaEn, ruta.OrigenUbicacionId, origen,
+            ruta.RetiroConfirmadoEn, ruta.RetiroBultosEsperados, ruta.RetiroBultosContados,
+            ruta.RetiroObservaciones, ruta.RetiroKmInicial,
+            ruta.CierreRepartidorEn, ruta.CierreRepartidorKmFinal, ruta.CierreRepartidorCombustible,
+            ruta.CierreRepartidorPeajes, ruta.CierreRepartidorNotas, ruta.CerradaPor));
     }
 
     /// <summary>Bundle de paradas con estado/horarios/pedidos para el detalle de ruta del
@@ -199,6 +218,42 @@ public class RutasController(
         ruta.RepartidorId = req.RepartidorId;
         await db.SaveChangesAsync(ct);
         return NoContent();
+    }
+
+    /// <summary>
+    /// La ruta no sigue (avería, accidente, el repartidor no puede continuar) y no se reasigna: lo que
+    /// quedó pendiente se declara fallido con motivo y entra al circuito de reprogramación de siempre
+    /// (D13: tres gratis, la cuarta genera un pedido nuevo). Sin esto una ruta rota no se puede cerrar
+    /// limpia: sus paradas pendientes se quedarían pendientes para siempre. No toca lo ya resuelto.
+    /// Para que otro repartidor siga la ruta, la herramienta es PUT /{id}/repartidor, no esta.
+    /// </summary>
+    [HttpPost("{id:long}/interrumpir")]
+    public async Task<IActionResult> Interrumpir(long id, InterrumpirRutaRequest req, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(req.Motivo))
+            return BadRequest("Hace falta el motivo de la interrupción.");
+
+        var ruta = await db.Rutas.SingleOrDefaultAsync(r => r.Id == id, ct);
+        if (ruta is null) return NotFound();
+        if (ruta.Estado != "en_curso")
+            return Conflict("Solo se interrumpe una ruta en curso.");
+
+        var pendientes = await db.RutaParadas.Where(p => p.RutaId == id && p.Estado == "pendiente").ToListAsync(ct);
+        var paradaIds = pendientes.Select(p => p.Id).ToList();
+        var pedidos = await db.ParadaPedidos
+            .Where(pp => paradaIds.Contains(pp.ParadaId) && pp.Pedido.Estado == EstadoPedido.EnRuta)
+            .Select(pp => pp.Pedido)
+            .Distinct()
+            .ToListAsync(ct);
+
+        foreach (var parada in pendientes) parada.Estado = "fallida";
+        foreach (var pedido in pedidos) pedido.Estado = EstadoPedido.Fallido;
+
+        // GuardarComoAsync (regla 7): cambia Pedido.Estado, fn_log_estado_pedido tiene que registrar
+        // a quién interrumpió y por qué.
+        await db.GuardarComoAsync(User.UsuarioId(), $"ruta_interrumpida: {req.Motivo.Trim()}", ct);
+
+        return Ok(new InterrupcionResultado(pendientes.Count, pedidos.Count));
     }
 
     /// <summary>Reordena las paradas todavía `pendiente` de una ruta ya en curso (RF-12: el
@@ -522,6 +577,30 @@ public class RutasController(
         // de pasar a en_curso (acta changelog 3.8), así que si esta ruta llegó hasta acá, su
         // origen_ubicacion_id ya es un id concreto — nunca null.
 
+        // M2: sin declaración del repartidor no se cierra en silencio. El escape existe (un teléfono
+        // muerto no puede volver inoperable la ruta) pero hay que pedirlo a propósito.
+        if (ruta.CierreRepartidorEn is null && !req.SinDeclaracionDelRepartidor)
+            return Conflict("La ruta no tiene el cierre de jornada del repartidor. Si querés cerrarla igual, confirmá que se cierra sin declaración de la calle.");
+
+        // M3: corregir sí, corregir en silencio no. Aprobar (mandar los mismos números) no pide nada;
+        // cambiar alguno exige motivo escrito, con el detalle de qué campo difiere y en cuánto.
+        if (ruta.CierreRepartidorEn is not null && string.IsNullOrWhiteSpace(req.NotasCierre))
+        {
+            var diferencias = new List<string>();
+            void Comparar(string campo, decimal? declarado, decimal cerrado)
+            {
+                if (declarado is not null && declarado != cerrado)
+                    diferencias.Add($"{campo}: el repartidor declaró {declarado}, vos cerrás con {cerrado}");
+            }
+            Comparar("km inicial", ruta.RetiroKmInicial, req.KmInicial);
+            Comparar("km final", ruta.CierreRepartidorKmFinal, req.KmFinal);
+            Comparar("combustible", ruta.CierreRepartidorCombustible, req.CombustibleMonto);
+            Comparar("peajes", ruta.CierreRepartidorPeajes, req.PeajesMonto);
+
+            if (diferencias.Count > 0)
+                return BadRequest("Corregís lo que declaró el repartidor: hace falta una nota con el motivo. " + string.Join("; ", diferencias) + ".");
+        }
+
         ruta.KmInicial = req.KmInicial;
         ruta.KmFinal = req.KmFinal;
         ruta.CombustibleMonto = req.CombustibleMonto;
@@ -531,6 +610,9 @@ public class RutasController(
         ruta.NotasCierre = req.NotasCierre;
         ruta.Estado = "cerrada";
         ruta.CerradaEn = DateTimeOffset.UtcNow;
+        // M4: cerrar la ruta ES aprobar la declaración. rutas no tiene log de eventos propio, así que
+        // esta columna es la única huella de quién aprobó.
+        ruta.CerradaPor = User.UsuarioId();
 
         await db.SaveChangesAsync(ct);
 
@@ -557,11 +639,23 @@ public class RutasController(
                 Fallidas = pedidosDeLaRuta.Count(p => p.Estado == EstadoPedido.Fallido),
                 Reprogramadas = pedidosDeLaRuta.Count(p => p.Estado == EstadoPedido.Reprogramado),
                 Costos = (r.CombustibleMonto ?? 0) + (r.PeajesMonto ?? 0) + (r.OtrosCostos ?? 0) + (r.PagoRepartidor ?? 0),
+                // M5: derivado en lectura de los dos juegos de columnas, sin columna de estado.
+                r.CerradaEn,
+                Declaro = r.CierreRepartidorEn != null,
+                TalCual = r.CierreRepartidorEn != null
+                    && r.KmInicial == r.RetiroKmInicial
+                    && r.KmFinal == r.CierreRepartidorKmFinal
+                    && r.CombustibleMonto == r.CierreRepartidorCombustible
+                    && r.PeajesMonto == r.CierreRepartidorPeajes,
             })
             .SingleAsync(ct);
 
+        var aprobacion = resultado.CerradaEn is null ? null
+            : !resultado.Declaro ? "sin_declaracion"
+            : resultado.TalCual ? "tal_cual" : "corregido";
+
         return new ResultadoRuta(
             resultado.Ingresos, resultado.Costos, resultado.Ingresos - resultado.Costos,
-            resultado.Efectivas, resultado.Fallidas, resultado.Reprogramadas);
+            resultado.Efectivas, resultado.Fallidas, resultado.Reprogramadas, aprobacion);
     }
 }

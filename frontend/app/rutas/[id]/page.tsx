@@ -17,7 +17,16 @@ import { MapaDinamico } from "@/components/mapa/MapaDinamico";
 import type { MarcadorMapa, VarianteMarcador } from "@/components/mapa/Mapa";
 import { leerError, leerJson } from "@/lib/api/errores";
 import { useSondeo } from "@/lib/hooks/useSondeo";
-import type { JornadaRuta, ParadaDelDia, ResultadoRuta, RutaDetalle, UsuarioSeleccion } from "@/lib/dominio/tipos";
+import { Input } from "@/components/ui/input";
+import { TarjetaNovedades } from "@/components/PanelNovedades";
+import type {
+  JornadaRuta,
+  NovedadResumen,
+  ParadaDelDia,
+  ResultadoRuta,
+  RutaDetalle,
+  UsuarioSeleccion,
+} from "@/lib/dominio/tipos";
 
 export default function RutaDetallePage() {
   return (
@@ -31,6 +40,7 @@ const VARIANTE_POR_ESTADO: Record<string, VarianteMarcador> = {
   pendiente: "pendiente",
   completada: "completada",
   fallida: "fallida",
+  cancelada: "cancelada",
 };
 
 /** El agujero principal que tapa esta pantalla: hasta ahora `/rutas/{id}` no existía —
@@ -83,8 +93,16 @@ function RutaDetalleContenido() {
     repetir: ruta?.estado === "en_curso",
   });
 
+  // Lo que informó el repartidor desde la calle. Pollea junto con la ruta: una incidencia o un
+  // problema de carga es justo lo que no puede esperar a que alguien recargue.
+  const { datos: novedades, recargar: recargarNovedades } = useSondeo<NovedadResumen[]>(
+    `/api/rutas/${id}/novedades`,
+    { intervaloMs: 20_000, repetir: ruta?.estado === "en_curso" },
+  );
+
   const [dialogoRepartidor, setDialogoRepartidor] = useState(false);
   const [dialogoOrden, setDialogoOrden] = useState(false);
+  const [dialogoInterrumpir, setDialogoInterrumpir] = useState(false);
 
   if (!ruta) {
     return (
@@ -179,9 +197,24 @@ function RutaDetalleContenido() {
             >
               Reordenar pendientes
             </Button>
+            {ruta.estado === "en_curso" && (
+              <Button size="sm" variant="destructive" onClick={() => setDialogoInterrumpir(true)}>
+                Interrumpir ruta
+              </Button>
+            )}
           </CardContent>
         )}
       </Card>
+
+      {novedades && novedades.length > 0 && (
+        <TarjetaNovedades
+          novedades={novedades}
+          onCambio={() => {
+            recargarNovedades();
+            recargarJornada();
+          }}
+        />
+      )}
 
       {resultado && (
         <Card>
@@ -206,9 +239,14 @@ function RutaDetalleContenido() {
         <>
           {paradas.length > 0 && (
             <div className="flex flex-col gap-2">
-              <ProgresoParadas total={bundle.total} completadas={bundle.completadas} fallidas={bundle.fallidas} />
+              <ProgresoParadas
+                total={bundle.total}
+                completadas={bundle.completadas}
+                fallidas={bundle.fallidas}
+                canceladas={bundle.canceladas}
+              />
               <p className="text-sm text-muted-foreground">
-                {bundle.completadas + bundle.fallidas} de {bundle.total} paradas resueltas
+                {bundle.completadas + bundle.fallidas + bundle.canceladas} de {bundle.total} paradas resueltas
               </p>
             </div>
           )}
@@ -239,6 +277,20 @@ function RutaDetalleContenido() {
             setDialogoRepartidor(false);
             cargarRuta();
             recargarJornada();
+          }}
+        />
+      )}
+
+      {dialogoInterrumpir && (
+        <DialogoInterrumpir
+          rutaId={ruta.id}
+          pendientes={paradas.filter((p) => p.estado === "pendiente").length}
+          onCerrar={() => setDialogoInterrumpir(false)}
+          onListo={() => {
+            setDialogoInterrumpir(false);
+            cargarRuta();
+            recargarJornada();
+            recargarNovedades();
           }}
         />
       )}
@@ -354,6 +406,71 @@ function DialogoReasignarRepartidor({
             </Button>
             <Button onClick={confirmar} disabled={!elegido || enviando}>
               {enviando ? "Guardando…" : "Guardar"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** La ruta no sigue y no se reasigna. Las pendientes pasan a fallidas con motivo y sus pedidos entran al
+ * circuito de reprogramación de siempre (D13) — sin esto una ruta rota no se puede cerrar limpia. Si lo
+ * que hace falta es que OTRO repartidor la continúe, es "Reasignar repartidor", no esto. */
+function DialogoInterrumpir({
+  rutaId,
+  pendientes,
+  onCerrar,
+  onListo,
+}: {
+  rutaId: number;
+  pendientes: number;
+  onCerrar: () => void;
+  onListo: () => void;
+}) {
+  const { fetchConSesion } = useAuth();
+  const [motivo, setMotivo] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirmar() {
+    setError(null);
+    setEnviando(true);
+    try {
+      const resp = await fetchConSesion(`/api/rutas/${rutaId}/interrumpir`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motivo }),
+      });
+      if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
+      onListo();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo interrumpir la ruta.");
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onCerrar()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Interrumpir ruta</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-3 pt-2">
+          <p className="text-sm text-muted-foreground">
+            {pendientes === 0
+              ? "No quedan paradas pendientes: no hay nada para declarar fallido."
+              : `Las ${pendientes} parada(s) pendientes pasan a fallidas y sus pedidos entran al circuito de reprogramación. Lo ya resuelto no se toca. Si otro repartidor tiene que continuarla, usá "Reasignar repartidor".`}
+          </p>
+          <Input placeholder="Motivo (obligatorio)" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onCerrar} disabled={enviando}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={confirmar} disabled={enviando || !motivo.trim()}>
+              {enviando ? "Interrumpiendo…" : "Interrumpir ruta"}
             </Button>
           </div>
         </div>

@@ -124,6 +124,17 @@ function Jornada() {
 
           <section className="flex flex-col gap-2">
             <p className="text-sm font-medium text-muted-foreground">Repartidores</p>
+            {datos.novedadesAbiertas > 0 && (
+              <p className="rounded-lg border border-amber-500 bg-amber-50/60 p-3 text-sm">
+                {datos.novedadesAbiertas} novedad(es) del repartidor esperando respuesta — entrá a la ruta para
+                responderlas.
+              </p>
+            )}
+            {datos.declaracionesPendientes > 0 && (
+              <p className="rounded-lg border border-blue-500 bg-blue-50/60 p-3 text-sm">
+                {datos.declaracionesPendientes} ruta(s) con el cierre del repartidor esperando tu revisión.
+              </p>
+            )}
             {datos.repartidores.length === 0 ? (
               <p className="text-muted-foreground">Ningún repartidor tiene ruta asignada esta fecha.</p>
             ) : (
@@ -140,6 +151,31 @@ function Jornada() {
                       {rp.completadas + rp.fallidas} de {rp.paradas} resueltas
                       {rp.pendientes > 0 ? ` · ${rp.pendientes} pendientes` : ""}
                     </p>
+                    <div className="flex flex-col gap-0.5 text-xs">
+                      {rp.retiroConfirmadoEn === null ? (
+                        <span className="text-amber-700">Retiro sin firmar</span>
+                      ) : (
+                        <span
+                          className={
+                            rp.retiroBultosContados !== rp.retiroBultosEsperados
+                              ? "font-medium text-destructive"
+                              : "text-muted-foreground"
+                          }
+                        >
+                          Retiro {new Date(rp.retiroConfirmadoEn).toLocaleTimeString("es-AR")}: {rp.retiroBultosContados} de{" "}
+                          {rp.retiroBultosEsperados} bultos
+                          {rp.retiroBultosContados !== rp.retiroBultosEsperados ? " — no coincide" : ""}
+                        </span>
+                      )}
+                      {rp.novedadesAbiertas > 0 && (
+                        <span className="font-medium text-amber-700">
+                          {rp.novedadesAbiertas} novedad(es) sin responder
+                        </span>
+                      )}
+                      {rp.cierreRepartidorEn && rp.rutaEstado === "en_curso" && (
+                        <span className="font-medium text-blue-700">Cierre declarado: pendiente de revisión</span>
+                      )}
+                    </div>
                     <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                       {rp.primeraLlegada && <span>Primera llegada: {new Date(rp.primeraLlegada).toLocaleTimeString("es-AR")}</span>}
                       {rp.ultimaActividad && <span>Última actividad: {new Date(rp.ultimaActividad).toLocaleTimeString("es-AR")}</span>}

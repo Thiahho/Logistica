@@ -6,7 +6,7 @@ import { useEffect, useMemo } from "react";
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 import type { Punto } from "@/lib/dominio/geo";
 
-export type VarianteMarcador = "pendiente" | "completada" | "fallida" | "origen" | "dudosa";
+export type VarianteMarcador = "pendiente" | "completada" | "fallida" | "cancelada" | "origen" | "dudosa";
 
 export interface MarcadorMapa {
   id: number | string;
@@ -32,6 +32,7 @@ const COLOR_VARIANTE: Record<VarianteMarcador, string> = {
   pendiente: "#2563eb", // blue-600
   completada: "#16a34a", // green-600
   fallida: "#dc2626", // red-600
+  cancelada: "#737373", // neutral-500
   origen: "#171717", // neutral-900
   dudosa: "#d97706", // amber-600
 };

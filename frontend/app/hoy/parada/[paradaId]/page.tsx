@@ -9,6 +9,7 @@ import {
   Clock,
   Navigation,
   Package,
+  Pencil,
   Phone,
   XCircle,
 } from "lucide-react";
@@ -23,7 +24,13 @@ import { leerError, leerJson } from "@/lib/api/errores";
 import { comprimirFoto } from "@/lib/captura/foto";
 import { limpiarUuidDeCaptura, uuidDeCaptura } from "@/lib/captura/dispositivo";
 import { EstadoParadaBadge, etiquetaEstadoParada } from "@/components/EstadoBadge";
-import type { CierreResultado, JornadaDelDia, ParadaDelDia } from "@/lib/dominio/tipos";
+import {
+  ETIQUETA_CAMPO_EDITABLE,
+  type CierreResultado,
+  type JornadaDelDia,
+  type NovedadResultado,
+  type ParadaDelDia,
+} from "@/lib/dominio/tipos";
 
 export default function ParadaPage() {
   return (
@@ -33,7 +40,7 @@ export default function ParadaPage() {
   );
 }
 
-type Modo = "detalle" | "entregado" | "fallido";
+type Modo = "detalle" | "entregado" | "fallido" | "corregir";
 
 /** Timeout corto a propósito (RF-29): nunca vale la pena bloquear el cierre esperando un fix
  * de GPS. Sin posición, el servidor no calcula desvío y sigue andando igual. */
@@ -68,6 +75,14 @@ function ParadaDetalle() {
 
   const [enviando, setEnviando] = useState(false);
   const [envioError, setEnvioError] = useState<string | null>(null);
+
+  // "Corregir un dato" (RF-36): propone un cambio, no lo hace. El pedido no cambia hasta que operación
+  // lo acepta. El uuid nace al abrir el formulario, no al enviar, por la misma razón que el del cierre.
+  const [corregirPedidoId, setCorregirPedidoId] = useState<number | null>(null);
+  const [corregirCampo, setCorregirCampo] = useState("destinatario_telefono");
+  const [corregirValor, setCorregirValor] = useState("");
+  const [corregirUuid, setCorregirUuid] = useState("");
+  const [correccionEnviada, setCorreccionEnviada] = useState(false);
 
   useEffect(() => {
     fetchConSesion("/api/mis-paradas/dia")
@@ -138,11 +153,46 @@ function ParadaDetalle() {
 
       const resp = await fetchConSesion(`/api/mis-paradas/${paradaId}/cierre`, { method: "POST", body: form });
       if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
-      await leerJson<CierreResultado>(resp);
+      const cierre = await leerJson<CierreResultado>(resp);
       limpiarUuidDeCaptura(Number(paradaId));
-      router.push("/hoy");
+      // replace, no push: atrás desde la parada siguiente no debe volver a una ya cerrada, que
+      // solo puede mostrar "ya quedó completada".
+      router.replace(cierre.siguienteParadaId ? `/hoy/parada/${cierre.siguienteParadaId}` : "/hoy");
     } catch (err) {
       setEnvioError(err instanceof Error ? err.message : "No se pudo cerrar la parada.");
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  function abrirCorreccion() {
+    const vivos = parada?.pedidos.filter((p) => p.estado !== "Cancelado") ?? [];
+    setCorregirPedidoId(vivos[0]?.pedidoId ?? null);
+    setCorregirCampo("destinatario_telefono");
+    setCorregirValor("");
+    setCorregirUuid(crypto.randomUUID());
+    setCorreccionEnviada(false);
+    setEnvioError(null);
+    setModo("corregir");
+  }
+
+  async function enviarCorreccion() {
+    setEnviando(true);
+    setEnvioError(null);
+    try {
+      const form = new FormData();
+      form.append("deviceUuid", corregirUuid);
+      form.append("tipo", "cambio_propuesto");
+      form.append("pedidoId", String(corregirPedidoId));
+      form.append("campo", corregirCampo);
+      form.append("valorNuevo", corregirValor.trim());
+
+      const resp = await fetchConSesion("/api/mi-jornada/novedades", { method: "POST", body: form });
+      if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
+      await leerJson<NovedadResultado>(resp);
+      setCorreccionEnviada(true);
+    } catch (err) {
+      setEnvioError(err instanceof Error ? err.message : "No se pudo enviar la corrección.");
     } finally {
       setEnviando(false);
     }
@@ -167,6 +217,8 @@ function ParadaDetalle() {
   }
 
   const tieneCoordenadas = parada.lat !== null && parada.lng !== null;
+  // Un pedido que operación canceló con la ruta en curso no se entrega ni se llama: se muestra tachado.
+  const pedidosVivos = parada.pedidos.filter((p) => p.estado !== "Cancelado");
 
   return (
     <div className="p-4 flex flex-col gap-4 pb-8">
@@ -217,8 +269,16 @@ function ParadaDetalle() {
 
       <div className="flex flex-col gap-2">
         {parada.pedidos.map((pedido) => (
-          <div key={pedido.pedidoId} className="rounded-lg border p-3 flex flex-col gap-1">
-            <p className="font-medium">{pedido.destinatarioNombre}</p>
+          <div
+            key={pedido.pedidoId}
+            className={`rounded-lg border p-3 flex flex-col gap-1 ${pedido.estado === "Cancelado" ? "border-red-300 bg-red-50/40" : ""}`}
+          >
+            <p className={`font-medium ${pedido.estado === "Cancelado" ? "line-through" : ""}`}>
+              {pedido.destinatarioNombre}
+            </p>
+            {pedido.estado === "Cancelado" && (
+              <p className="text-sm font-medium text-red-700">Cancelado por operación: no entregar.</p>
+            )}
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
               <Package className="size-3.5" />
               {pedido.bultos} bulto(s)
@@ -236,7 +296,7 @@ function ParadaDetalle() {
         <div className="flex flex-col gap-2">
           <Button
             variant="outline"
-            render={<a href={`tel:${parada.pedidos[0]?.destinatarioTelefono}`} />}
+            render={<a href={`tel:${pedidosVivos[0]?.destinatarioTelefono ?? ""}`} />}
             nativeButton={false}
             className="h-12 w-full text-base"
           >
@@ -256,6 +316,13 @@ function ParadaDetalle() {
             </Button>
           ) : null}
 
+          {parada.estado === "pendiente" && jornada.cierreRepartidorEn === null && pedidosVivos.length > 0 && (
+            <Button variant="outline" className="h-12 w-full text-base" onClick={abrirCorreccion}>
+              <Pencil className="size-4" />
+              Corregir un dato
+            </Button>
+          )}
+
           {parada.estado === "pendiente" ? (
             <>
               <Button className="h-12 w-full text-base" onClick={() => setModo("entregado")}>
@@ -273,6 +340,94 @@ function ParadaDetalle() {
             <p className="text-center text-sm text-muted-foreground">
               Esta parada ya quedó {etiquetaEstadoParada(parada.estado).toLowerCase()}.
             </p>
+          )}
+        </div>
+      )}
+
+      {modo === "corregir" && (
+        <div className="flex flex-col gap-3 rounded-lg border p-4">
+          {correccionEnviada ? (
+            <>
+              <p className="font-medium">Corrección enviada</p>
+              <p className="text-sm text-muted-foreground">
+                El dato no cambia hasta que operación la acepte. Te avisamos en Hoy cuando responda.
+              </p>
+              <Button className="h-12 w-full text-base" onClick={() => setModo("detalle")}>
+                Volver a la parada
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Solo se corrige el teléfono, el nombre o las observaciones. Si la dirección está mal, informá la
+                entrega como fallida.
+              </p>
+              {pedidosVivos.length > 1 && (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="corregir-pedido">Pedido</Label>
+                  <select
+                    id="corregir-pedido"
+                    className="h-12 rounded-lg border bg-background px-2.5 text-base"
+                    value={corregirPedidoId ?? ""}
+                    onChange={(e) => setCorregirPedidoId(Number(e.target.value))}
+                  >
+                    {pedidosVivos.map((p) => (
+                      <option key={p.pedidoId} value={p.pedidoId}>
+                        {p.destinatarioNombre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="corregir-campo">Qué dato</Label>
+                <select
+                  id="corregir-campo"
+                  className="h-12 rounded-lg border bg-background px-2.5 text-base"
+                  value={corregirCampo}
+                  onChange={(e) => setCorregirCampo(e.target.value)}
+                >
+                  {Object.entries(ETIQUETA_CAMPO_EDITABLE).map(([valor, etiqueta]) => (
+                    <option key={valor} value={valor}>
+                      {etiqueta}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Ahora dice:{" "}
+                  {(() => {
+                    const p = parada.pedidos.find((x) => x.pedidoId === corregirPedidoId);
+                    if (!p) return "—";
+                    const actual =
+                      corregirCampo === "destinatario_telefono"
+                        ? p.destinatarioTelefono
+                        : corregirCampo === "destinatario_nombre"
+                          ? p.destinatarioNombre
+                          : p.observaciones;
+                    return actual || "(vacío)";
+                  })()}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="corregir-valor">Valor correcto</Label>
+                <Input
+                  id="corregir-valor"
+                  className="h-12 text-base"
+                  value={corregirValor}
+                  onChange={(e) => setCorregirValor(e.target.value)}
+                />
+              </div>
+              <Button
+                className="h-12 w-full text-base"
+                disabled={enviando || corregirPedidoId === null || !corregirValor.trim()}
+                onClick={enviarCorreccion}
+              >
+                {enviando ? "Enviando…" : "Proponer corrección"}
+              </Button>
+              <Button variant="outline" className="h-12 w-full text-base" disabled={enviando} onClick={() => setModo("detalle")}>
+                Cancelar
+              </Button>
+            </>
           )}
         </div>
       )}

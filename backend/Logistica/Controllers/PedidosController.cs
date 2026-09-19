@@ -49,6 +49,10 @@ public class PedidosController(
     /// igual, pero el pedido va a necesitar un precio manual antes de poder rutearse.</summary>
     public record CotizacionEstimada(DesglosePrecio? Camioneta, DesglosePrecio? Moto, bool RequiereCotizacion);
 
+    /// <summary>null = no se toca ese campo. Observaciones en blanco lo borra. Destino y precio no están
+    /// acá a propósito: fn_congelar_pedido los protege desde que el pedido sale de Borrador (P1).</summary>
+    public record EditarContactoRequest(string? DestinatarioTelefono, string? DestinatarioNombre, string? Observaciones);
+
     public record FijarPrecioManualRequest(
         [Range(0.01, double.MaxValue, ErrorMessage = "El precio debe ser mayor a cero.")] decimal Precio);
 
@@ -746,8 +750,118 @@ public class PedidosController(
         }
 
         pedido.Estado = nuevo;
+
+        // Acta changelog 4.8: cancelar un pedido que el repartidor ya lleva no puede pasar en silencio.
+        if (nuevo == EstadoPedido.Cancelado)
+            await AvisarCancelacionAlRepartidorAsync(pedido, req.Motivo, ct);
+
         await db.GuardarComoAsync(User.UsuarioId(), req.Motivo, ct);
 
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Si el pedido va en una ruta en curso, deja un aviso para el repartidor y, cuando la cancelación
+    /// deja a la parada sin ningún pedido activo, la pasa a `cancelada` (terminal, sin prueba de
+    /// entrega). Sin esto el repartidor seguiría yendo a una dirección donde ya no hay nada para
+    /// entregar y el cierre de esa parada terminaría en un 409. Se agrega al mismo SaveChanges que la
+    /// transición del pedido: o quedan las dos cosas o ninguna.
+    /// </summary>
+    private async Task AvisarCancelacionAlRepartidorAsync(Pedido pedido, string? motivo, CancellationToken ct)
+    {
+        var enRuta = await db.ParadaPedidos
+            .Where(pp => pp.PedidoId == pedido.Id && pp.Parada.Ruta.Estado == "en_curso")
+            .Select(pp => new { pp.ParadaId, pp.Parada.RutaId })
+            .FirstOrDefaultAsync(ct);
+        if (enRuta is null) return;
+
+        var quedanActivos = await db.ParadaPedidos.AnyAsync(pp =>
+            pp.ParadaId == enRuta.ParadaId && pp.PedidoId != pedido.Id && pp.Pedido.Estado != EstadoPedido.Cancelado, ct);
+        if (!quedanActivos)
+        {
+            var parada = await db.RutaParadas.SingleAsync(p => p.Id == enRuta.ParadaId, ct);
+            if (parada.Estado == "pendiente") parada.Estado = "cancelada";
+        }
+
+        db.Novedades.Add(new Novedad
+        {
+            RutaId = enRuta.RutaId,
+            ParadaId = enRuta.ParadaId,
+            PedidoId = pedido.Id,
+            Tipo = "cancelacion",
+            Origen = "operacion",
+            Descripcion = $"Operación canceló el pedido #{pedido.Id} ({pedido.DestinatarioNombre})."
+                + (string.IsNullOrWhiteSpace(motivo) ? "" : $" Motivo: {motivo.Trim()}"),
+            CreadaPor = User.UsuarioId(),
+            CreadaEn = DateTimeOffset.UtcNow,
+        });
+    }
+
+    /// <summary>
+    /// Corrección de datos de contacto de un pedido (RF-37). Solo lo que P1 no congela: teléfono, nombre del
+    /// destinatario y observaciones. Con el pedido ya en una ruta en curso, el cambio le llega al
+    /// repartidor como aviso — sin eso él seguiría llamando al teléfono viejo. Más estricta que la clase
+    /// (BackOffice sobre administracion+operacion+cliente): combinación AND, regla 8 — el cliente no edita.
+    /// </summary>
+    [HttpPut("{id:long}/contacto")]
+    [Authorize(Policy = "BackOffice")]
+    public async Task<IActionResult> EditarContacto(long id, EditarContactoRequest req, CancellationToken ct)
+    {
+        if (req.DestinatarioTelefono is null && req.DestinatarioNombre is null && req.Observaciones is null)
+            return BadRequest("No hay nada para cambiar.");
+        if (req.DestinatarioTelefono is not null && string.IsNullOrWhiteSpace(req.DestinatarioTelefono))
+            return BadRequest("El teléfono no puede quedar en blanco.");
+        if (req.DestinatarioNombre is not null && string.IsNullOrWhiteSpace(req.DestinatarioNombre))
+            return BadRequest("El nombre del destinatario no puede quedar en blanco.");
+
+        var pedido = await db.Pedidos.SingleOrDefaultAsync(p => p.Id == id, ct);
+        if (pedido is null) return NotFound();
+
+        if (pedido.Estado is not (EstadoPedido.Borrador or EstadoPedido.Confirmado or EstadoPedido.EnRuta))
+            return Conflict($"El pedido ya está {pedido.Estado}: sus datos de contacto no se editan.");
+
+        var cambios = new List<string>();
+        if (req.DestinatarioTelefono is not null && req.DestinatarioTelefono.Trim() != pedido.DestinatarioTelefono)
+        {
+            cambios.Add($"teléfono {pedido.DestinatarioTelefono} → {req.DestinatarioTelefono.Trim()}");
+            pedido.DestinatarioTelefono = req.DestinatarioTelefono.Trim();
+        }
+        if (req.DestinatarioNombre is not null && req.DestinatarioNombre.Trim() != pedido.DestinatarioNombre)
+        {
+            cambios.Add($"destinatario {pedido.DestinatarioNombre} → {req.DestinatarioNombre.Trim()}");
+            pedido.DestinatarioNombre = req.DestinatarioNombre.Trim();
+        }
+        if (req.Observaciones is not null)
+        {
+            var nuevas = string.IsNullOrWhiteSpace(req.Observaciones) ? null : req.Observaciones.Trim();
+            if (nuevas != pedido.Observaciones)
+            {
+                cambios.Add(nuevas is null ? "observaciones borradas" : $"observaciones: {nuevas}");
+                pedido.Observaciones = nuevas;
+            }
+        }
+        if (cambios.Count == 0) return NoContent();
+
+        var enRuta = await db.ParadaPedidos
+            .Where(pp => pp.PedidoId == id && pp.Parada.Ruta.Estado == "en_curso")
+            .Select(pp => new { pp.ParadaId, pp.Parada.RutaId })
+            .FirstOrDefaultAsync(ct);
+        if (enRuta is not null)
+        {
+            db.Novedades.Add(new Novedad
+            {
+                RutaId = enRuta.RutaId,
+                ParadaId = enRuta.ParadaId,
+                PedidoId = id,
+                Tipo = "cambio_operacion",
+                Origen = "operacion",
+                Descripcion = $"Operación cambió el pedido #{id}: {string.Join("; ", cambios)}.",
+                CreadaPor = User.UsuarioId(),
+                CreadaEn = DateTimeOffset.UtcNow,
+            });
+        }
+
+        await db.GuardarComoAsync(User.UsuarioId(), null, ct);
         return NoContent();
     }
 

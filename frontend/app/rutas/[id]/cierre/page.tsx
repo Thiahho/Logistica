@@ -36,6 +36,7 @@ function CierreRuta() {
   const [otros, setOtros] = useState("");
   const [pagoRepartidor, setPagoRepartidor] = useState("");
   const [notas, setNotas] = useState("");
+  const [sinDeclaracion, setSinDeclaracion] = useState(false);
 
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +45,19 @@ function CierreRuta() {
   const cargar = useCallback(() => {
     fetchConSesion(`/api/rutas/${id}`)
       .then((r) => leerJson<RutaDetalle>(r))
-      .then(setRuta)
+      .then((r) => {
+        setRuta(r);
+        // M1: el formulario arranca con lo que declaró la calle, no vacío — así "aprobar" es no
+        // tocar nada y corregir es cambiar un número a propósito. otros_costos y pago_repartidor
+        // siguen vacíos: no los declara nadie más que administración. Solo si todavía no se
+        // escribió nada (una recarga no pisa lo que el usuario ya tipeó).
+        if (r.estado !== "cerrada" && r.cierreRepartidorEn) {
+          setKmInicial((v) => v || String(r.retiroKmInicial ?? ""));
+          setKmFinal((v) => v || String(r.cierreRepartidorKmFinal ?? ""));
+          setCombustible((v) => v || String(r.cierreRepartidorCombustible ?? ""));
+          setPeajes((v) => v || String(r.cierreRepartidorPeajes ?? ""));
+        }
+      })
       .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudo cargar la ruta."));
   }, [fetchConSesion, id]);
 
@@ -75,6 +88,7 @@ function CierreRuta() {
           otrosCostos: Number(otros) || 0,
           pagoRepartidor: Number(pagoRepartidor) || 0,
           notasCierre: notas || null,
+          sinDeclaracionDelRepartidor: sinDeclaracion,
         }),
       });
       if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
@@ -104,6 +118,12 @@ function CierreRuta() {
       <Button variant="outline" render={<Link href="/rutas" />} nativeButton={false} className="self-start">
         ← Rutas
       </Button>
+
+      <DeclaracionDeLaCalle
+        ruta={ruta}
+        actuales={{ kmInicial, kmFinal, combustible, peajes }}
+        cerrada={ruta.estado === "cerrada"}
+      />
 
       {ruta.estado !== "cerrada" ? (
         <form onSubmit={cerrar} className="flex flex-col gap-6">
@@ -178,8 +198,19 @@ function CierreRuta() {
               </div>
             </CardContent>
           </Card>
+          {!ruta.cierreRepartidorEn && (
+            <label className="flex items-start gap-2 rounded-lg border border-amber-500 bg-amber-50/60 p-3 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={sinDeclaracion}
+                onChange={(e) => setSinDeclaracion(e.target.checked)}
+              />
+              <span>El repartidor no declaró su cierre. Cerrar igual, con datos que nadie verificó en la calle.</span>
+            </label>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" disabled={enviando}>
+          <Button type="submit" disabled={enviando || (!ruta.cierreRepartidorEn && !sinDeclaracion)}>
             {enviando ? "Cerrando…" : "Cerrar ruta"}
           </Button>
         </form>
@@ -205,7 +236,18 @@ function CierreRuta() {
       {resultado && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Resultado económico</CardTitle>
+            <CardTitle className="text-base">
+              Resultado económico
+              {resultado.aprobacion && (
+                <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal">
+                  {resultado.aprobacion === "tal_cual"
+                    ? "Aprobado tal cual"
+                    : resultado.aprobacion === "corregido"
+                      ? "Corregido por administración"
+                      : "Cerrado sin declaración de la calle"}
+                </span>
+              )}
+            </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-2 text-sm">
             <Fila etiqueta="Ingresos" valor={`$${resultado.ingresos.toLocaleString("es-AR")}`} />
@@ -234,5 +276,83 @@ function Fila({ etiqueta, valor }: { etiqueta: string; valor: React.ReactNode })
       <span className="text-muted-foreground shrink-0">{etiqueta}</span>
       <span className="text-right">{valor}</span>
     </div>
+  );
+}
+
+/** M5: la declaración de la calle al lado de lo que administración va a cerrar, con el delta cuando
+ * difieren. Solo lectura: lo declarado no se edita (trg_congelar_declaracion_repartidor). */
+function DeclaracionDeLaCalle({
+  ruta,
+  actuales,
+  cerrada,
+}: {
+  ruta: RutaDetalle;
+  actuales: { kmInicial: string; kmFinal: string; combustible: string; peajes: string };
+  cerrada: boolean;
+}) {
+  if (!ruta.retiroConfirmadoEn && !ruta.cierreRepartidorEn) {
+    return (
+      <p className="rounded-lg border p-3 text-sm text-muted-foreground">
+        El repartidor todavía no cargó nada desde la calle.
+      </p>
+    );
+  }
+
+  const filas: { etiqueta: string; declarado: number | null; actual: string }[] = [
+    { etiqueta: "Km inicial", declarado: ruta.retiroKmInicial, actual: actuales.kmInicial },
+    { etiqueta: "Km final", declarado: ruta.cierreRepartidorKmFinal, actual: actuales.kmFinal },
+    { etiqueta: "Combustible", declarado: ruta.cierreRepartidorCombustible, actual: actuales.combustible },
+    { etiqueta: "Peajes", declarado: ruta.cierreRepartidorPeajes, actual: actuales.peajes },
+  ];
+  const discrepanciaBultos =
+    ruta.retiroBultosContados !== null && ruta.retiroBultosContados !== ruta.retiroBultosEsperados;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Declarado por el repartidor</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2 text-sm">
+        {ruta.retiroConfirmadoEn && (
+          <Fila
+            etiqueta="Retiro"
+            valor={
+              <span className={discrepanciaBultos ? "font-medium text-destructive" : undefined}>
+                {ruta.retiroBultosContados} de {ruta.retiroBultosEsperados} bultos
+                {discrepanciaBultos && ruta.retiroObservaciones ? ` — "${ruta.retiroObservaciones}"` : ""}
+              </span>
+            }
+          />
+        )}
+        {ruta.cierreRepartidorEn ? (
+          <>
+            <p className="text-xs text-muted-foreground">
+              Cargado desde la calle a las {new Date(ruta.cierreRepartidorEn).toLocaleTimeString()}
+            </p>
+            {filas.map((f) => {
+              const actual = f.actual === "" ? null : Number(f.actual);
+              const difiere = !cerrada && f.declarado !== null && actual !== null && actual !== f.declarado;
+              return (
+                <Fila
+                  key={f.etiqueta}
+                  etiqueta={f.etiqueta}
+                  valor={
+                    <span className={difiere ? "font-medium text-destructive" : undefined}>
+                      {f.declarado ?? "—"}
+                      {difiere && actual !== null && f.declarado !== null
+                        ? ` (Δ ${(actual - f.declarado).toLocaleString("es-AR")})`
+                        : ""}
+                    </span>
+                  }
+                />
+              );
+            })}
+            {ruta.cierreRepartidorNotas && <Fila etiqueta="Notas" valor={ruta.cierreRepartidorNotas} />}
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground">Todavía no declaró el cierre de su jornada.</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

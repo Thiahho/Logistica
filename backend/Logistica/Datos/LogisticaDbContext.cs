@@ -46,6 +46,7 @@ public class LogisticaDbContext(DbContextOptions<LogisticaDbContext> options) : 
     public DbSet<Factura> Facturas => Set<Factura>();
     public DbSet<FacturaItem> FacturaItems => Set<FacturaItem>();
     public DbSet<Pago> Pagos => Set<Pago>();
+    public DbSet<Novedad> Novedades => Set<Novedad>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -76,6 +77,9 @@ public class LogisticaDbContext(DbContextOptions<LogisticaDbContext> options) : 
             b.Property(x => x.Lat).HasColumnName("lat");
             b.Property(x => x.Lng).HasColumnName("lng");
             b.Property(x => x.Localidad).HasColumnName("localidad");
+            // Estado del pedido, para que la PWA pueda marcar uno cancelado por operación. Es un
+            // estado, no un importe: la regla 3.4 (la vista no tiene precios) sigue intacta.
+            b.Property(x => x.PedidoEstado).HasColumnName("pedido_estado").HasColumnType("estado_pedido");
         });
 
         // E1: saldo por factura derivado por FIFO (v_facturas_saldo, docs/schema_v3.sql). Igual
@@ -135,4 +139,5 @@ public class ParadaRepartidor
     public decimal? Lat { get; set; }
     public decimal? Lng { get; set; }
     public string? Localidad { get; set; }
+    public EstadoPedido PedidoEstado { get; set; }
 }

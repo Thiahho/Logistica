@@ -38,7 +38,7 @@ public class MisParadasController(
     /// salir (RNF-07). Recorrido es null si no se pudo trazar (OSRM caído): el mapa cae a línea
     /// recta entre los puntos, nunca rompe.</summary>
     public record JornadaDelDia(
-        DateOnly? Fecha, long? RutaId, int Total, int Completadas, int Fallidas,
+        DateOnly? Fecha, long? RutaId, int Total, int Completadas, int Fallidas, int Canceladas,
         IReadOnlyList<string> MotivosFallo, int UmbralDesvioMetros, OrigenRuta? Origen,
         Recorrido? Recorrido, List<ParadaDelDia> Paradas,
         // Acta changelog 4.7: viajan acá y no en un GET propio de /api/mi-jornada porque RNF-07
@@ -46,7 +46,20 @@ public class MisParadasController(
         // BultosEsperados se recalcula en vivo mientras el retiro no está confirmado (es lo que
         // la pantalla de retiro muestra para contar) y sale de la fila una vez firmado (es contra
         // qué se contó, congelado).
-        DateTimeOffset? RetiroConfirmadoEn, int BultosEsperados, DateTimeOffset? CierreRepartidorEn);
+        DateTimeOffset? RetiroConfirmadoEn, int BultosEsperados, DateTimeOffset? CierreRepartidorEn,
+        // Acta changelog 4.8: novedades abiertas o sin ver de la ruta (pocas filas) y las listas
+        // cerradas de categorías, por la misma razón — un solo request antes de salir (RNF-07).
+        List<NovedadDelDia> Novedades, IReadOnlyList<string> CategoriasIncidencia, IReadOnlyList<string> CategoriasCarga);
+
+    /// <summary>SinVer: true si el repartidor todavía no acusó recibo. Una respuesta de operación a lo que
+    /// él informó vuelve a SinVer al resolverse, para que le llegue.</summary>
+    public record NovedadDelDia(
+        long Id, string Tipo, string Origen, string? Categoria, string Descripcion,
+        string? PropuestaCampo, string? PropuestaValorNuevo, long? ParadaId, long? PedidoId,
+        string Estado, string? Resolucion, DateTimeOffset CreadaEn, DateTimeOffset? ResueltaEn, bool SinVer);
+
+    private const string MensajeRetiroPendiente =
+        "La ruta no tiene el retiro confirmado (acta §7): ninguna ruta sale sin conteo firmado.";
 
     public record RegistrarLlegadaRequest(DateTimeOffset LlegadaEn, string DeviceUuid);
 
@@ -77,7 +90,11 @@ public class MisParadasController(
         public IFormFile? Foto { get; set; }
     }
 
-    public record CierreResultado(long ParadaId, string EstadoParada, int PedidosActualizados, int? DesvioMetros, bool DesvioAlto, bool Duplicado);
+    /// <summary>SiguienteParadaId lo resuelve el servidor (no el bundle que el cliente tiene en memoria):
+    /// el back-office puede reordenar las pendientes en vivo justo mientras el repartidor llena el
+    /// formulario. Va también en los caminos de duplicado: un reintento tras recuperar señal tiene que
+    /// llevar al mismo lugar que el intento original.</summary>
+    public record CierreResultado(long ParadaId, string EstadoParada, int PedidosActualizados, int? DesvioMetros, bool DesvioAlto, bool Duplicado, long? SiguienteParadaId);
 
     /// <summary>Versión plana original, una fila por (parada, pedido) — RF-14 hace que una parada
     /// consolidada aparezca duplicada. Reemplazada por Dia() de abajo; queda hasta que /hoy deje
@@ -112,7 +129,8 @@ public class MisParadasController(
             .FirstOrDefaultAsync(ct);
 
         if (ruta is null)
-            return Ok(new JornadaDelDia(null, null, 0, 0, 0, opciones.Value.MotivosFallo, opciones.Value.UmbralDesvioMetros, null, null, [], null, 0, null));
+            return Ok(new JornadaDelDia(null, null, 0, 0, 0, 0, opciones.Value.MotivosFallo, opciones.Value.UmbralDesvioMetros, null, null, [], null, 0, null,
+                [], opciones.Value.CategoriasIncidencia, opciones.Value.CategoriasCarga));
 
         // JornadaService.ArmarAsync es el mismo bundle que arma /api/rutas/{id}/jornada para el
         // back-office (JornadaController) — acá se le suma la config propia del repartidor
@@ -134,11 +152,22 @@ public class MisParadasController(
                 .Where(pp => pp.Parada.RutaId == ruta.Id)
                 .SumAsync(pp => (int?)pp.Pedido.Bultos, ct) ?? 0;
 
+        var novedades = await db.Novedades.AsNoTracking()
+            // Sin acusar, o lo que él informó y sigue abierto. Un aviso de operación ya acusado sale del
+            // bundle aunque su estado siga "abierta" (nadie lo resuelve: no espera respuesta).
+            .Where(n => n.RutaId == ruta.Id && (n.VistoEn == null || (n.Origen == "repartidor" && n.Estado == "abierta")))
+            .OrderBy(n => n.CreadaEn)
+            .Select(n => new NovedadDelDia(
+                n.Id, n.Tipo, n.Origen, n.Categoria, n.Descripcion, n.PropuestaCampo, n.PropuestaValorNuevo,
+                n.ParadaId, n.PedidoId, n.Estado, n.Resolucion, n.CreadaEn, n.ResueltaEn, n.VistoEn == null))
+            .ToListAsync(ct);
+
         return Ok(new JornadaDelDia(
-            ruta.Fecha, ruta.Id, bundle.Total, bundle.Completadas, bundle.Fallidas,
+            ruta.Fecha, ruta.Id, bundle.Total, bundle.Completadas, bundle.Fallidas, bundle.Canceladas,
             opciones.Value.MotivosFallo, opciones.Value.UmbralDesvioMetros,
             bundle.Origen, bundle.Recorrido, bundle.Paradas,
-            ruta.RetiroConfirmadoEn, bultosEsperados, ruta.CierreRepartidorEn));
+            ruta.RetiroConfirmadoEn, bultosEsperados, ruta.CierreRepartidorEn,
+            novedades, opciones.Value.CategoriasIncidencia, opciones.Value.CategoriasCarga));
     }
 
     /// <summary>RF-24. Idempotente: si ya hay una llegada registrada, se conserva la primera —
@@ -151,6 +180,8 @@ public class MisParadasController(
             .Include(p => p.Ruta)
             .SingleOrDefaultAsync(p => p.Id == paradaId && p.Ruta.RepartidorId == repartidorId && p.Ruta.Estado == "en_curso", ct);
         if (parada is null) return NotFound();
+
+        if (parada.Ruta.RetiroConfirmadoEn is null) return Conflict(MensajeRetiroPendiente);
 
         if (parada.LlegadaEn is null)
         {
@@ -188,8 +219,17 @@ public class MisParadasController(
             .SingleOrDefaultAsync(p => p.Id == paradaId && p.Ruta.RepartidorId == repartidorId && p.Ruta.Estado == "en_curso", ct);
         if (parada is null) return NotFound();
 
-        var pedidoIds = await db.ParadaPedidos.Where(pp => pp.ParadaId == paradaId).Select(pp => pp.PedidoId).ToListAsync(ct);
-        if (pedidoIds.Count == 0) return NotFound();
+        var idsDeLaParada = await db.ParadaPedidos.Where(pp => pp.ParadaId == paradaId).Select(pp => pp.PedidoId).ToListAsync(ct);
+        if (idsDeLaParada.Count == 0) return NotFound();
+
+        // Un pedido que operación canceló con la ruta en curso (acta changelog 4.8) no se entrega ni se
+        // falla: se excluye del cierre en vez de dejar que dispare el Conflict de más abajo y bloquee
+        // a los demás pedidos de la parada consolidada. Se decide acá, antes del chequeo de
+        // idempotencia, para que un reintento compare contra el mismo conjunto que el intento original.
+        var todosLosPedidos = await db.Pedidos.Where(p => idsDeLaParada.Contains(p.Id)).ToListAsync(ct);
+        var pedidoIds = todosLosPedidos.Where(p => p.Estado != EstadoPedido.Cancelado).Select(p => p.Id).ToList();
+        if (pedidoIds.Count == 0)
+            return Conflict("Operación canceló todos los pedidos de esta parada: no hay nada para entregar.");
 
         // Chequeo de idempotencia EXPLÍCITO primero (RNF-02): si ya existe una prueba para todos
         // los pedidos de la parada con este device_uuid, no es un conflicto — es un reintento. Un
@@ -202,8 +242,13 @@ public class MisParadasController(
         {
             var previo = existentes[0];
             return Ok(new CierreResultado(paradaId, parada.Estado, existentes.Count,
-                previo.DesvioMetros, previo.DesvioMetros > opciones.Value.UmbralDesvioMetros, Duplicado: true));
+                previo.DesvioMetros, previo.DesvioMetros > opciones.Value.UmbralDesvioMetros, Duplicado: true,
+                await SiguienteParadaAsync(parada.RutaId, ct)));
         }
+
+        // Después del chequeo de idempotencia a propósito: un reintento de algo ya cerrado sigue
+        // respondiendo duplicado: true aunque alguien haya limpiado el retiro a mano en la base.
+        if (parada.Ruta.RetiroConfirmadoEn is null) return Conflict(MensajeRetiroPendiente);
 
         if (req.Resultado is not ("entregado" or "fallido"))
             return BadRequest("Resultado inválido.");
@@ -219,7 +264,7 @@ public class MisParadasController(
         if (req.Resultado == "entregado" && (req.Foto is null || string.IsNullOrWhiteSpace(req.ReceptorNombre)))
             return BadRequest("La entrega exige foto y nombre del receptor.");
 
-        var pedidos = await db.Pedidos.Where(p => pedidoIds.Contains(p.Id)).ToListAsync(ct);
+        var pedidos = todosLosPedidos.Where(p => pedidoIds.Contains(p.Id)).ToList();
         if (pedidos.Any(p => !TransicionesPedido.Permitida(p.Estado, nuevoEstadoPedido)))
             return Conflict("Alguno de los pedidos de la parada ya cambió de estado; volvé a cargar la jornada.");
 
@@ -290,11 +335,21 @@ public class MisParadasController(
                 .Where(pe => pe.DeviceUuid == req.DeviceUuid && pedidoIds.Contains(pe.PedidoId))
                 .ToListAsync(ct);
             return Ok(new CierreResultado(paradaId, parada.Estado, yaExistentes.Count,
-                yaExistentes.FirstOrDefault()?.DesvioMetros, desvioAlto, Duplicado: true));
+                yaExistentes.FirstOrDefault()?.DesvioMetros, desvioAlto, Duplicado: true,
+                await SiguienteParadaAsync(parada.RutaId, ct)));
         }
 
-        return Ok(new CierreResultado(paradaId, parada.Estado, pedidos.Count, desvioMetros, desvioAlto, Duplicado: false));
+        return Ok(new CierreResultado(paradaId, parada.Estado, pedidos.Count, desvioMetros, desvioAlto, Duplicado: false,
+            await SiguienteParadaAsync(parada.RutaId, ct)));
     }
+
+    /// <summary>La pendiente de menor Orden de la ruta, ya aplicado el cierre. Una query.</summary>
+    private async Task<long?> SiguienteParadaAsync(long rutaId, CancellationToken ct) =>
+        await db.RutaParadas.AsNoTracking()
+            .Where(p => p.RutaId == rutaId && p.Estado == "pendiente")
+            .OrderBy(p => p.Orden)
+            .Select(p => (long?)p.Id)
+            .FirstOrDefaultAsync(ct);
 
     private static bool EsViolacionDeUnique(DbUpdateException ex) =>
         ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };

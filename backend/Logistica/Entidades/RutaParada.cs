@@ -18,7 +18,8 @@ public class RutaParada
     /// <summary>urgentes: no se reordenan</summary>
     public bool Anclada { get; set; }
 
-    /// <summary>pendiente | completada | fallida</summary>
+    /// <summary>pendiente | completada | fallida | cancelada (todos sus pedidos los canceló operación
+    /// con la ruta en curso, acta changelog 4.8: terminal, sin prueba de entrega)</summary>
     public string Estado { get; set; } = "pendiente";
 
     public DateTimeOffset? LlegadaEn { get; set; }

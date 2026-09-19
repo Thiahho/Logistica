@@ -15,6 +15,7 @@ import {
   type ReintentoCreado,
 } from "@/lib/dominio/tipos";
 import { ETIQUETA_TRANSICION, motivoObligatorio, transicionesDisponibles } from "@/lib/dominio/estados";
+import { ContactoYNovedadesDePedido } from "@/components/ContactoYNovedadesDePedido";
 
 interface PedidoDetalleContenidoProps {
   pedidoId: number;
@@ -478,6 +479,16 @@ export function PedidoDetalleContenido({ pedidoId, onCambio, onAbrirPedidoOrigen
             )}
           </CardContent>
         </Card>
+      )}
+
+      {(usuario?.rol === "administracion" || usuario?.rol === "operacion") && (
+        <ContactoYNovedadesDePedido
+          pedido={pedido}
+          onCambio={() => {
+            cargar();
+            onCambio?.();
+          }}
+        />
       )}
 
       <Card>

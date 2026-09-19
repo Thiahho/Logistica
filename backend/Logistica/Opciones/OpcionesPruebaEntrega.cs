@@ -21,4 +21,11 @@ public class OpcionesPruebaEntrega
 
     /// <summary>RF-21: lista cerrada de motivos de entrega fallida. Provisional.</summary>
     public string[] MotivosFallo { get; set; } = [];
+
+    /// <summary>RF-36: categorías de incidencia de ruta/vehículo que el repartidor puede informar.
+    /// Provisional, mismo estatus que MotivosFallo.</summary>
+    public string[] CategoriasIncidencia { get; set; } = [];
+
+    /// <summary>RF-36: categorías de problema con la carga. Provisional, igual que las anteriores.</summary>
+    public string[] CategoriasCarga { get; set; } = [];
 }

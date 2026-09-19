@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import {
+  AlertTriangle,
   Maximize2,
   MapPin,
   Navigation,
@@ -13,12 +14,19 @@ import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
 import { Button } from "@/components/ui/button";
-import { leerJson } from "@/lib/api/errores";
+import { useSondeo } from "@/lib/hooks/useSondeo";
+import { leerError } from "@/lib/api/errores";
 import { MapaDinamico } from "@/components/mapa/MapaDinamico";
 import type { MarcadorMapa, VarianteMarcador } from "@/components/mapa/Mapa";
 import { EstadoParadaBadge } from "@/components/EstadoBadge";
 import { ProgresoParadas } from "@/components/ProgresoParadas";
-import type { JornadaDelDia, ParadaDelDia } from "@/lib/dominio/tipos";
+import {
+  ETIQUETA_TIPO_NOVEDAD,
+  etiquetaCategoria,
+  type JornadaDelDia,
+  type NovedadDelDia,
+  type ParadaDelDia,
+} from "@/lib/dominio/tipos";
 
 export default function HoyPage() {
   return (
@@ -32,6 +40,7 @@ const VARIANTE_POR_ESTADO: Record<string, VarianteMarcador> = {
   pendiente: "pendiente",
   completada: "completada",
   fallida: "fallida",
+  cancelada: "cancelada",
 };
 
 function urlComoLlegar(p: { lat: number | null; lng: number | null }) {
@@ -39,32 +48,21 @@ function urlComoLlegar(p: { lat: number | null; lng: number | null }) {
 }
 
 function GuiaDeRuta() {
-  const { fetchConSesion } = useAuth();
-  const [jornada, setJornada] = useState<JornadaDelDia | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Sondeo y no una carga única: el back-office puede reordenar las pendientes, cancelar un pedido
+  // o cambiar un teléfono con el repartidor ya en la calle, y tiene que enterarse sin recargar.
+  // useSondeo pausa con la pestaña oculta y conserva lo último bueno si un ciclo falla.
+  const { datos: jornada, error, recargar } = useSondeo<JornadaDelDia>("/api/mis-paradas/dia");
   const [mapaExpandido, setMapaExpandido] = useState(false);
-
-  useEffect(() => {
-    fetchConSesion("/api/mis-paradas/dia")
-      .then((r) => leerJson<JornadaDelDia>(r))
-      .then(setJornada)
-      .catch((err) => setError(err instanceof Error ? err.message : "No se pudo cargar la jornada."));
-  }, [fetchConSesion]);
-
-  if (error) {
-    return (
-      <div className="p-4">
-        <CabeceraSesion titulo="Hoy" />
-        <p className="text-sm text-destructive">{error}</p>
-      </div>
-    );
-  }
 
   if (!jornada) {
     return (
       <div className="p-4">
         <CabeceraSesion titulo="Hoy" />
-        <p className="text-muted-foreground">Cargando…</p>
+        {error ? (
+          <p className="text-sm text-destructive">{error}</p>
+        ) : (
+          <p className="text-muted-foreground">Cargando…</p>
+        )}
       </div>
     );
   }
@@ -107,12 +105,26 @@ function GuiaDeRuta() {
       })),
   ];
 
-  const resueltas = jornada.completadas + jornada.fallidas;
+  const resueltas = jornada.completadas + jornada.fallidas + jornada.canceladas;
   const proxima = jornada.paradas.find((p) => p.estado === "pendiente");
+  // RF-35 / acta §7: sin retiro firmado el servidor rechaza llegada y cierre (409), así que la UI
+  // ni ofrece abrir una parada. El mapa se sigue viendo: saber a dónde vas antes de cargar sirve.
+  const retiroPendiente = jornada.retiroConfirmadoEn === null;
+
+  const avisos = jornada.novedades.filter((n) => n.sinVer);
+  const esperandoRespuesta = jornada.novedades.filter((n) => n.origen === "repartidor" && n.estado === "abierta");
 
   return (
     <div className="p-4 flex flex-col gap-4 pb-8">
       <CabeceraSesion titulo="Hoy" />
+
+      {avisos.length > 0 && (
+        <div className="flex flex-col gap-2">
+          {avisos.map((n) => (
+            <Aviso key={n.id} novedad={n} jornada={jornada} onAcuse={recargar} />
+          ))}
+        </div>
+      )}
 
       {/* Panel de progreso — "ventana" de estado, siempre visible arriba. */}
       <div className="rounded-lg border p-4 flex flex-col gap-2">
@@ -122,7 +134,12 @@ function GuiaDeRuta() {
           </span>
           <span className="text-sm text-muted-foreground">paradas resueltas</span>
         </div>
-        <ProgresoParadas total={jornada.total} completadas={jornada.completadas} fallidas={jornada.fallidas} />
+        <ProgresoParadas
+          total={jornada.total}
+          completadas={jornada.completadas}
+          fallidas={jornada.fallidas}
+          canceladas={jornada.canceladas}
+        />
         {jornada.origen && !jornada.origen.esDeposito && (
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <MapPin className="size-3.5 shrink-0" />
@@ -130,10 +147,23 @@ function GuiaDeRuta() {
             {jornada.origen.localidad ? `, ${jornada.origen.localidad}` : ""}
           </p>
         )}
+        {error && <p className="text-xs text-amber-700">Sin conexión: mostrando lo último que se pudo cargar.</p>}
       </div>
 
+      {retiroPendiente && (
+        <div className="rounded-lg border-2 border-amber-500 bg-amber-50/60 p-4 flex flex-col gap-3">
+          <div>
+            <span className="text-xs font-semibold uppercase tracking-wide text-amber-700">Retiro pendiente</span>
+            <p className="font-medium">Antes de salir: contá los {jornada.bultosEsperados} bulto(s) y firmá.</p>
+          </div>
+          <Button className="h-12 w-full text-base" render={<Link href="/hoy/retiro" />} nativeButton={false}>
+            Hacer el retiro
+          </Button>
+        </div>
+      )}
+
       {/* Próxima parada — la "ventana" funcional que importa primero: qué sigue, y cómo llegar. */}
-      {proxima && (
+      {!retiroPendiente && proxima && (
         <div className="rounded-lg border-2 border-blue-600 p-4 flex flex-col gap-3 bg-blue-50/50">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">Próxima parada</span>
@@ -142,7 +172,12 @@ function GuiaDeRuta() {
             </span>
           </div>
           <div>
-            <p className="font-medium">{proxima.pedidos.map((ped) => ped.destinatarioNombre).join(" · ")}</p>
+            <p className="font-medium">
+              {proxima.pedidos
+                .filter((ped) => ped.estado !== "Cancelado")
+                .map((ped) => ped.destinatarioNombre)
+                .join(" · ")}
+            </p>
             <p className="text-sm text-muted-foreground">
               {proxima.calleNumero}
               {proxima.localidad ? `, ${proxima.localidad}` : ""}
@@ -168,6 +203,50 @@ function GuiaDeRuta() {
               Ver detalle
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* Sin pendientes: la calle terminó. Si todavía no declaró el cierre, es lo único que sigue. */}
+      {!retiroPendiente && !proxima && jornada.total > 0 && (
+        <div className="rounded-lg border-2 border-green-600 bg-green-50/60 p-4 flex flex-col gap-3">
+          {jornada.cierreRepartidorEn ? (
+            <>
+              <span className="text-xs font-semibold uppercase tracking-wide text-green-700">Jornada cerrada</span>
+              <p className="font-medium">
+                Cargaste el cierre a las {new Date(jornada.cierreRepartidorEn).toLocaleTimeString()}. Queda pendiente
+                de revisión de administración.
+              </p>
+            </>
+          ) : (
+            <>
+              <span className="text-xs font-semibold uppercase tracking-wide text-green-700">Todas resueltas</span>
+              <p className="font-medium">No te quedan paradas pendientes. Cerrá la jornada para terminar.</p>
+              <Button className="h-12 w-full text-base" render={<Link href="/hoy/cierre" />} nativeButton={false}>
+                Cerrar la jornada
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
+      {!jornada.cierreRepartidorEn && (
+        <div className="flex flex-col gap-2">
+          <Button
+            variant="outline"
+            className="h-12 w-full text-base"
+            render={<Link href="/hoy/problema" />}
+            nativeButton={false}
+          >
+            <AlertTriangle className="size-4" />
+            Reportar un problema
+          </Button>
+          {esperandoRespuesta.map((n) => (
+            <p key={n.id} className="rounded-md bg-muted p-2 text-xs text-muted-foreground">
+              Informaste: {ETIQUETA_TIPO_NOVEDAD[n.tipo].toLowerCase()}
+              {n.categoria ? ` (${etiquetaCategoria(n.categoria).toLowerCase()})` : ""} — esperando respuesta de
+              operación.
+            </p>
+          ))}
         </div>
       )}
 
@@ -214,7 +293,7 @@ function GuiaDeRuta() {
           <p className="text-sm font-medium text-muted-foreground">Todas las paradas</p>
           <ul className="flex flex-col gap-2">
             {jornada.paradas.map((p) => (
-              <ParadaCard key={p.paradaId} parada={p} />
+              <ParadaCard key={p.paradaId} parada={p} bloqueada={retiroPendiente} />
             ))}
           </ul>
         </div>
@@ -223,13 +302,78 @@ function GuiaDeRuta() {
   );
 }
 
-function ParadaCard({ parada: p }: { parada: ParadaDelDia }) {
+/** Aviso de operación (cambio de un dato, cancelación) o respuesta a algo que informó el repartidor.
+ * No desaparece solo: "Entendido" es el acuse de recibo (POST .../visto), para que operación pueda
+ * saber que el mensaje llegó y no quedó en una pantalla que nadie miró. */
+function Aviso({
+  novedad: n,
+  jornada,
+  onAcuse,
+}: {
+  novedad: NovedadDelDia;
+  jornada: JornadaDelDia;
+  onAcuse: () => void;
+}) {
+  const { fetchConSesion } = useAuth();
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const parada = jornada.paradas.find((p) => p.paradaId === n.paradaId);
+  const respuesta = n.origen === "repartidor";
+  const titulo = respuesta
+    ? n.estado === "rechazada"
+      ? "Operación rechazó lo que informaste"
+      : "Operación respondió lo que informaste"
+    : ETIQUETA_TIPO_NOVEDAD[n.tipo];
+
+  async function acusar() {
+    setEnviando(true);
+    setError(null);
+    try {
+      const resp = await fetchConSesion(`/api/mi-jornada/novedades/${n.id}/visto`, { method: "POST" });
+      if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
+      onAcuse();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo confirmar.");
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <div
+      className={`rounded-lg border-2 p-3 flex flex-col gap-2 ${
+        n.tipo === "cancelacion" ? "border-red-500 bg-red-50/60" : "border-blue-500 bg-blue-50/60"
+      }`}
+    >
+      <span className="text-xs font-semibold uppercase tracking-wide">{titulo}</span>
+      <p className="text-sm">{n.descripcion}</p>
+      {respuesta && n.resolucion && <p className="text-sm font-medium">{n.resolucion}</p>}
+      {parada && (
+        <p className="text-xs text-muted-foreground">
+          Parada {parada.orden} · {parada.calleNumero}
+        </p>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <Button variant="outline" className="h-11 w-full text-base" disabled={enviando} onClick={acusar}>
+        {enviando ? "Enviando…" : "Entendido"}
+      </Button>
+    </div>
+  );
+}
+
+function ParadaCard({ parada: p, bloqueada }: { parada: ParadaDelDia; bloqueada: boolean }) {
   const resuelta = p.estado !== "pendiente";
+  const activos = p.pedidos.filter((ped) => ped.estado !== "Cancelado");
   return (
     <li>
       <Link
         href={`/hoy/parada/${p.paradaId}`}
-        className={`flex min-h-16 items-center gap-3 rounded-lg border p-3 ${resuelta ? "opacity-60" : ""}`}
+        aria-disabled={bloqueada}
+        tabIndex={bloqueada ? -1 : undefined}
+        className={`flex min-h-16 items-center gap-3 rounded-lg border p-3 ${resuelta ? "opacity-60" : ""} ${
+          bloqueada ? "pointer-events-none opacity-50" : ""
+        }`}
       >
         <span
           className={`flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
@@ -237,13 +381,17 @@ function ParadaCard({ parada: p }: { parada: ParadaDelDia }) {
               ? "bg-green-600 text-white"
               : p.estado === "fallida"
                 ? "bg-red-600 text-white"
-                : "bg-neutral-200 text-neutral-700"
+                : p.estado === "cancelada"
+                  ? "bg-neutral-400 text-white"
+                  : "bg-neutral-200 text-neutral-700"
           }`}
         >
           {p.orden}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate font-medium">{p.pedidos.map((ped) => ped.destinatarioNombre).join(" · ")}</p>
+          <p className={`truncate font-medium ${p.estado === "cancelada" ? "line-through" : ""}`}>
+            {(activos.length > 0 ? activos : p.pedidos).map((ped) => ped.destinatarioNombre).join(" · ")}
+          </p>
           <p className="truncate text-sm text-muted-foreground">
             {p.calleNumero}
             {p.localidad ? `, ${p.localidad}` : ""}
@@ -254,7 +402,7 @@ function ParadaCard({ parada: p }: { parada: ParadaDelDia }) {
           <EstadoParadaBadge estado={p.estado} />
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Package className="size-3" />
-            {p.pedidos.reduce((n, ped) => n + ped.bultos, 0)}
+            {activos.reduce((n, ped) => n + ped.bultos, 0)}
           </span>
         </div>
       </Link>

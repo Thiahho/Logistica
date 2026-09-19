@@ -11,7 +11,7 @@ public class RutaParadaConfiguration : IEntityTypeConfiguration<RutaParada>
         b.ToTable("ruta_paradas", t =>
         {
             t.HasCheckConstraint("ck_ruta_paradas_tipo", "tipo in ('retiro','entrega','deposito')");
-            t.HasCheckConstraint("ck_ruta_paradas_estado", "estado in ('pendiente','completada','fallida')");
+            t.HasCheckConstraint("ck_ruta_paradas_estado", "estado in ('pendiente','completada','fallida','cancelada')");
         });
 
         b.HasKey(x => x.Id);

@@ -3,7 +3,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Logistica.Servicios;
 
-public record PedidoDeParada(long PedidoId, string DestinatarioNombre, string DestinatarioTelefono, int Bultos, string? Observaciones);
+/// <summary>Estado: el del pedido (EnRuta, Cancelado...). La PWA lo usa para marcar un pedido que operación
+/// canceló con la ruta en curso (acta changelog 4.8). Es un estado, no un importe.</summary>
+public record PedidoDeParada(long PedidoId, string DestinatarioNombre, string DestinatarioTelefono, int Bultos, string? Observaciones, string Estado);
 
 public record ParadaDelDia(
     long ParadaId, long RutaId, int Orden, string Tipo, string Estado,
@@ -15,7 +17,7 @@ public record ParadaDelDia(
 /// MisParadasController.JornadaDelDia, sin MotivosFallo/UmbralDesvioMetros (config del
 /// repartidor, no del back-office) y sin Fecha (ya la tiene RutaDetalle).</summary>
 public record JornadaRuta(
-    long RutaId, int Total, int Completadas, int Fallidas,
+    long RutaId, int Total, int Completadas, int Fallidas, int Canceladas,
     OrigenRuta? Origen, Recorrido? Recorrido, List<ParadaDelDia> Paradas);
 
 /// <summary>
@@ -49,7 +51,7 @@ public class JornadaService(LogisticaDbContext db, OrigenRutaService origenes, R
                     primero.ParadaId, primero.RutaId, primero.Orden, primero.Tipo, primero.Estado,
                     primero.LlegadaEn, primero.SalidaEn,
                     primero.CalleNumero, primero.Localidad, primero.Referencia, primero.Lat, primero.Lng,
-                    g.Select(f => new PedidoDeParada(f.PedidoId, f.DestinatarioNombre, f.DestinatarioTelefono, f.Bultos, f.Observaciones)).ToList());
+                    g.Select(f => new PedidoDeParada(f.PedidoId, f.DestinatarioNombre, f.DestinatarioTelefono, f.Bultos, f.Observaciones, f.PedidoEstado.ToString())).ToList());
             })
             .OrderBy(p => p.Orden)
             .ToList();
@@ -66,6 +68,7 @@ public class JornadaService(LogisticaDbContext db, OrigenRutaService origenes, R
         return new JornadaRuta(
             rutaId, paradas.Count,
             paradas.Count(p => p.Estado == "completada"), paradas.Count(p => p.Estado == "fallida"),
+            paradas.Count(p => p.Estado == "cancelada"),
             origen, recorrido, paradas);
     }
 }

@@ -28,12 +28,22 @@ public class JornadaController(LogisticaDbContext db) : ControllerBase
     public record RepartidorDelDia(
         Guid RepartidorId, string Nombre, long RutaId, string RutaEstado,
         string? VehiculoPatente, int Paradas, int Completadas, int Fallidas, int Pendientes,
-        DateTimeOffset? PrimeraLlegada, DateTimeOffset? UltimaActividad);
+        DateTimeOffset? PrimeraLlegada, DateTimeOffset? UltimaActividad,
+        // Acta §7 vista desde el escritorio: que la regla esté codificada no alcanza, tiene que verse
+        // que se cumplió. Son columnas de rutas, que esta query ya trae — ningún GroupBy nuevo.
+        DateTimeOffset? RetiroConfirmadoEn, int? RetiroBultosEsperados, int? RetiroBultosContados,
+        DateTimeOffset? CierreRepartidorEn,
+        // Lo que el repartidor informó (incidencia, carga, corrección) y todavía nadie respondió.
+        int NovedadesAbiertas);
 
     public record ResumenJornada(
         DateOnly Fecha, ContadorRutas Rutas, ContadorParadas Paradas,
         List<RutaDelDia> RutasDelDia, List<RepartidorDelDia> Repartidores,
-        DateTimeOffset GeneradoEn);
+        DateTimeOffset GeneradoEn,
+        // Rutas en curso con la declaración de cierre del repartidor ya cargada, esperando que
+        // administración la compare y la cierre.
+        int DeclaracionesPendientes,
+        int NovedadesAbiertas);
 
     /// <summary>Dos queries, no N+1: una trae las rutas de la fecha con vehículo/repartidor, otra
     /// agrupa ruta_paradas por ruta. La cantidad de rutas por día es de un dígito — el resto se
@@ -67,6 +77,14 @@ public class JornadaController(LogisticaDbContext db) : ControllerBase
             })
             .ToDictionaryAsync(g => g.RutaId, ct);
 
+        // Una query plana más, agrupada por ruta — mismo patrón anti-N+1 que paradasPorRuta.
+        // Solo lo que informó el repartidor: los avisos de operación no esperan respuesta de nadie.
+        var novedadesPorRuta = await db.Novedades.AsNoTracking()
+            .Where(n => rutaIds.Contains(n.RutaId) && n.Estado == "abierta" && n.Origen == "repartidor")
+            .GroupBy(n => n.RutaId)
+            .Select(g => new { RutaId = g.Key, Cantidad = g.Count() })
+            .ToDictionaryAsync(g => g.RutaId, g => g.Cantidad, ct);
+
         var rutasDelDia = rutas.Select(r =>
         {
             paradasPorRuta.TryGetValue(r.Id, out var p);
@@ -83,7 +101,9 @@ public class JornadaController(LogisticaDbContext db) : ControllerBase
                 return new RepartidorDelDia(
                     r.RepartidorId!.Value, r.Repartidor!.Nombre, r.Id, r.Estado, r.Vehiculo?.Patente,
                     p?.Total ?? 0, p?.Completadas ?? 0, p?.Fallidas ?? 0, p?.Pendientes ?? 0,
-                    p?.PrimeraLlegada, p?.UltimaActividad);
+                    p?.PrimeraLlegada, p?.UltimaActividad,
+                    r.RetiroConfirmadoEn, r.RetiroBultosEsperados, r.RetiroBultosContados, r.CierreRepartidorEn,
+                    novedadesPorRuta.GetValueOrDefault(r.Id));
             })
             .OrderBy(rd => rd.Nombre)
             .ToList();
@@ -101,6 +121,8 @@ public class JornadaController(LogisticaDbContext db) : ControllerBase
             paradasPorRuta.Values.Sum(p => p.Fallidas));
 
         return Ok(new ResumenJornada(
-            fechaValor, contadorRutas, contadorParadas, rutasDelDia, repartidores, DateTimeOffset.UtcNow));
+            fechaValor, contadorRutas, contadorParadas, rutasDelDia, repartidores, DateTimeOffset.UtcNow,
+            rutas.Count(r => r.Estado == "en_curso" && r.CierreRepartidorEn is not null),
+            novedadesPorRuta.Values.Sum()));
     }
 }
