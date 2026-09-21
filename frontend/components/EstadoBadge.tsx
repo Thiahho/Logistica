@@ -6,7 +6,7 @@ import { etiquetaEstadoRuta } from "@/lib/dominio/tipos";
  * ahora se mostraba crudo ("en_curso") en /rutas. Verde/amarillo/azul/rojo literales acá son
  * indicadores de estado (misma excepción que components/mapa/Mapa.tsx), no decoración. */
 const ESTILO_PARADA: Record<string, string> = {
-  pendiente: "bg-blue-100 text-blue-700",
+  pendiente: "bg-bf-celeste/20 text-bf-profundo",
   completada: "bg-green-100 text-green-700",
   fallida: "bg-red-100 text-red-700",
   cancelada: "bg-neutral-200 text-neutral-700",
@@ -21,7 +21,7 @@ const ETIQUETA_PARADA: Record<string, string> = {
 
 const ESTILO_RUTA: Record<EstadoRuta, string> = {
   planificada: "bg-neutral-100 text-neutral-700",
-  en_curso: "bg-blue-100 text-blue-700",
+  en_curso: "bg-bf-celeste/20 text-bf-profundo",
   cerrada: "bg-green-100 text-green-700",
 };
 
@@ -57,7 +57,7 @@ export function EstadoRutaBadge({ estado, size }: { estado: EstadoRuta; size?: "
 /** Disponibilidad del repartidor (RF-34). Vive acá y no en archivo propio porque es un badge de
  * estado más: reusa el mismo Badge y el mismo PADDING, sin una tercera copia del span. */
 const ESTILO_DISPONIBILIDAD: Record<Disponibilidad, string> = {
-  en_ruta: "bg-blue-100 text-blue-700",
+  en_ruta: "bg-bf-celeste/20 text-bf-profundo",
   asignado: "bg-amber-100 text-amber-700",
   libre: "bg-green-100 text-green-700",
   inactivo: "bg-neutral-100 text-neutral-500",

@@ -19,12 +19,12 @@ export function RequireRole({
     if (!cargando && !usuario) router.replace("/login");
   }, [cargando, usuario, router]);
 
-  if (cargando) return <p className="p-8 text-muted-foreground">Cargando…</p>;
+  if (cargando) return <p className="p-4 md:p-8 text-muted-foreground">Cargando…</p>;
   if (!usuario) return null;
 
   if (!roles.includes(usuario.rol)) {
     return (
-      <p className="p-8 text-destructive">
+      <p className="p-4 md:p-8 text-destructive">
         No autorizado: tu rol ({usuario.rol}) no puede ver esta pantalla.
       </p>
     );

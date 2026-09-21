@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
+  ChevronRight,
   Maximize2,
   MapPin,
   Navigation,
@@ -12,7 +13,7 @@ import {
 } from "lucide-react";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { CabeceraSesion } from "@/components/CabeceraSesion";
+import { CabeceraRepartidor } from "@/components/CabeceraRepartidor";
 import { Button } from "@/components/ui/button";
 import { useSondeo } from "@/lib/hooks/useSondeo";
 import { leerError } from "@/lib/api/errores";
@@ -57,7 +58,7 @@ function GuiaDeRuta() {
   if (!jornada) {
     return (
       <div className="p-4">
-        <CabeceraSesion titulo="Hoy" />
+        <CabeceraRepartidor titulo="Hoy" />
         {error ? (
           <p className="text-sm text-destructive">{error}</p>
         ) : (
@@ -70,7 +71,7 @@ function GuiaDeRuta() {
   if (jornada.rutaId === null) {
     return (
       <div className="p-4">
-        <CabeceraSesion titulo="Hoy" />
+        <CabeceraRepartidor titulo="Hoy" />
         <p className="text-muted-foreground">No tenés una ruta en curso.</p>
       </div>
     );
@@ -116,7 +117,7 @@ function GuiaDeRuta() {
 
   return (
     <div className="p-4 flex flex-col gap-4 pb-8">
-      <CabeceraSesion titulo="Hoy" />
+      <CabeceraRepartidor titulo="Hoy" />
 
       {avisos.length > 0 && (
         <div className="flex flex-col gap-2">
@@ -127,7 +128,7 @@ function GuiaDeRuta() {
       )}
 
       {/* Panel de progreso — "ventana" de estado, siempre visible arriba. */}
-      <div className="rounded-lg border p-4 flex flex-col gap-2">
+      <div className="rounded-2xl border bg-card shadow-sm p-4 flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <span className="text-2xl font-semibold">
             {resueltas} <span className="text-base font-normal text-muted-foreground">de {jornada.total}</span>
@@ -151,7 +152,7 @@ function GuiaDeRuta() {
       </div>
 
       {retiroPendiente && (
-        <div className="rounded-lg border-2 border-amber-500 bg-amber-50/60 p-4 flex flex-col gap-3">
+        <div className="rounded-2xl border-2 border-amber-500 bg-amber-50/60 p-4 flex flex-col gap-3">
           <div>
             <span className="text-xs font-semibold uppercase tracking-wide text-amber-700">Retiro pendiente</span>
             <p className="font-medium">Antes de salir: contá los {jornada.bultosEsperados} bulto(s) y firmá.</p>
@@ -164,10 +165,10 @@ function GuiaDeRuta() {
 
       {/* Próxima parada — la "ventana" funcional que importa primero: qué sigue, y cómo llegar. */}
       {!retiroPendiente && proxima && (
-        <div className="rounded-lg border-2 border-blue-600 p-4 flex flex-col gap-3 bg-blue-50/50">
+        <div className="rounded-2xl border-2 border-bf-azul p-4 flex flex-col gap-3 bg-bf-celeste/10">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">Próxima parada</span>
-            <span className="flex size-7 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
+            <span className="text-xs font-semibold uppercase tracking-wide text-bf-azul">Próxima parada</span>
+            <span className="flex size-7 items-center justify-center rounded-full bg-bf-azul text-sm font-bold text-white">
               {proxima.orden}
             </span>
           </div>
@@ -208,7 +209,7 @@ function GuiaDeRuta() {
 
       {/* Sin pendientes: la calle terminó. Si todavía no declaró el cierre, es lo único que sigue. */}
       {!retiroPendiente && !proxima && jornada.total > 0 && (
-        <div className="rounded-lg border-2 border-green-600 bg-green-50/60 p-4 flex flex-col gap-3">
+        <div className="rounded-2xl border-2 border-green-600 bg-green-50/60 p-4 flex flex-col gap-3">
           {jornada.cierreRepartidorEn ? (
             <>
               <span className="text-xs font-semibold uppercase tracking-wide text-green-700">Jornada cerrada</span>
@@ -250,7 +251,7 @@ function GuiaDeRuta() {
         </div>
       )}
 
-      <div className="relative">
+      <div className="relative overflow-hidden rounded-2xl border shadow-sm">
         {/* El mapa chico se saca del árbol mientras está expandido (no solo se tapa): los
         controles propios de Leaflet (zoom, atribución) usan z-index >1000 en su propia hoja de
         estilos, por encima de cualquier overlay razonable de la página — dos mapas vivos a la
@@ -262,7 +263,7 @@ function GuiaDeRuta() {
               <Button
                 variant="outline"
                 size="icon"
-                className="absolute right-2 top-2 z-[400] size-9 bg-background shadow"
+                className="absolute right-2 top-2 z-[400] size-9 rounded-full bg-card shadow"
                 onClick={() => setMapaExpandido(true)}
               >
                 <Maximize2 className="size-4" />
@@ -342,8 +343,8 @@ function Aviso({
 
   return (
     <div
-      className={`rounded-lg border-2 p-3 flex flex-col gap-2 ${
-        n.tipo === "cancelacion" ? "border-red-500 bg-red-50/60" : "border-blue-500 bg-blue-50/60"
+      className={`rounded-2xl border-2 p-3 flex flex-col gap-2 ${
+        n.tipo === "cancelacion" ? "border-red-500 bg-red-50/60" : "border-bf-azul bg-bf-celeste/10"
       }`}
     >
       <span className="text-xs font-semibold uppercase tracking-wide">{titulo}</span>
@@ -371,7 +372,7 @@ function ParadaCard({ parada: p, bloqueada }: { parada: ParadaDelDia; bloqueada:
         href={`/hoy/parada/${p.paradaId}`}
         aria-disabled={bloqueada}
         tabIndex={bloqueada ? -1 : undefined}
-        className={`flex min-h-16 items-center gap-3 rounded-lg border p-3 ${resuelta ? "opacity-60" : ""} ${
+        className={`flex min-h-16 items-center gap-3 rounded-2xl border bg-card shadow-sm p-3 ${resuelta ? "opacity-60" : ""} ${
           bloqueada ? "pointer-events-none opacity-50" : ""
         }`}
       >
@@ -383,7 +384,7 @@ function ParadaCard({ parada: p, bloqueada }: { parada: ParadaDelDia; bloqueada:
                 ? "bg-red-600 text-white"
                 : p.estado === "cancelada"
                   ? "bg-neutral-400 text-white"
-                  : "bg-neutral-200 text-neutral-700"
+                  : "bg-bf-gris text-bf-profundo"
           }`}
         >
           {p.orden}
@@ -405,6 +406,7 @@ function ParadaCard({ parada: p, bloqueada }: { parada: ParadaDelDia; bloqueada:
             {activos.reduce((n, ped) => n + ped.bultos, 0)}
           </span>
         </div>
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
       </Link>
     </li>
   );

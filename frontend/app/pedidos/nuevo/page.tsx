@@ -240,7 +240,7 @@ function FormularioAlta() {
   }
 
   return (
-    <div className="p-8 max-w-2xl">
+    <div className="p-4 md:p-8 max-w-2xl">
       <CabeceraSesion titulo="Nuevo pedido" />
       {errorCarga && <p className="text-sm text-destructive mb-4">{errorCarga}</p>}
       <form onSubmit={onSubmit} className="flex flex-col gap-6">

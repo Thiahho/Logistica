@@ -6,6 +6,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { rutaPorRol } from "@/lib/auth/types";
 import { Button } from "@/components/ui/button";
+import { LogoBF } from "@/components/LogoBF";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -53,11 +54,17 @@ function FormularioLogin() {
   }
 
   return (
-    <div className="flex flex-1 items-center justify-center p-4">
-      <Card className="w-full max-w-sm">
+    <div className="flex flex-1 flex-col items-center justify-center gap-6 bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className="flex flex-col items-center gap-2 text-center">
+        <LogoBF className="scale-150" />
+        <p className="mt-3 text-[0.7rem] font-medium uppercase tracking-[0.2em] text-muted-foreground">
+          Logística · Confianza · Resultados
+        </p>
+      </div>
+      <Card className="w-full max-w-sm rounded-2xl shadow-sm">
         <CardHeader>
-          <CardTitle>Logística</CardTitle>
-          <CardDescription>Ingresá con tu cuenta</CardDescription>
+          <CardTitle className="font-display text-xl font-bold text-bf-azul">Ingresá</CardTitle>
+          <CardDescription>Usá tu cuenta para continuar</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="flex flex-col gap-4">
@@ -68,6 +75,7 @@ function FormularioLogin() {
                 type="email"
                 required
                 autoComplete="username"
+                className="h-12"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
@@ -82,12 +90,12 @@ function FormularioLogin() {
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="pr-8"
+                  className="h-12 pr-10"
                 />
                 <button
                   type="button"
                   onClick={() => setMostrarPassword((v) => !v)}
-                  className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-muted-foreground hover:text-foreground"
+                  className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground hover:text-foreground"
                   aria-label={mostrarPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
                   tabIndex={-1}
                 >
@@ -96,7 +104,7 @@ function FormularioLogin() {
               </div>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button type="submit" disabled={enviando} className="mt-2">
+            <Button type="submit" disabled={enviando} className="mt-2 h-12 w-full text-base">
               {enviando ? "Ingresando…" : "Ingresar"}
             </Button>
           </form>

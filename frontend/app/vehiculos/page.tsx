@@ -62,7 +62,7 @@ function ListaVehiculos() {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo="Vehículos" />
 
       <div className="flex items-center justify-end mb-4">

@@ -106,7 +106,7 @@ function RutaDetalleContenido() {
 
   if (!ruta) {
     return (
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         <CabeceraSesion titulo="Ruta" />
         <p className={errorCarga ? "text-sm text-destructive" : "text-muted-foreground"}>
           {errorCarga ?? "Cargando…"}
@@ -144,7 +144,7 @@ function RutaDetalleContenido() {
   ];
 
   return (
-    <div className="p-8 max-w-4xl flex flex-col gap-6">
+    <div className="p-4 md:p-8 max-w-4xl flex flex-col gap-6">
       <CabeceraSesion titulo={`Ruta #${ruta.id} — ${ruta.fecha}`} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Button variant="outline" render={<Link href="/rutas" />} nativeButton={false}>

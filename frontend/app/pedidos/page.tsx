@@ -24,6 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
+import { OrdenMovil } from "@/components/OrdenMovil";
 import { ControlesPaginacion } from "@/components/ControlesPaginacion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PedidoDetalleContenido } from "@/components/PedidoDetalleContenido";
@@ -63,7 +64,7 @@ function ListaPedidos() {
 
   const {
     items: pedidos, totalRegistros, error, pagina, setPagina, tamanioPagina, setTamanioPagina,
-    totalPaginas, alternarOrden, indicadorOrden, conReinicioDePagina, recargar,
+    orden, totalPaginas, alternarOrden, indicadorOrden, conReinicioDePagina, recargar,
   } = useListadoPaginado<PedidoResumen>({
     ruta: "/api/pedidos",
     filtros: { q: q.trim(), fechaDesde, fechaHasta, estado, clienteId: clienteId ?? "" },
@@ -81,7 +82,7 @@ function ListaPedidos() {
 
   return (
     <>
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo="Pedidos del día" />
 
       <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
@@ -177,6 +178,7 @@ function ListaPedidos() {
         <p className="text-muted-foreground">No hay pedidos que coincidan con estos filtros.</p>
       ) : (
         <>
+          <OrdenMovil columnas={COLUMNAS} orden={orden} alternarOrden={alternarOrden} />
           <Table>
             <TableHeader>
               <TableRow>

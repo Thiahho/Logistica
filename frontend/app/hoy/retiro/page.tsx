@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, PenLine } from "lucide-react";
+import { PenLine } from "lucide-react";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { CabeceraSesion } from "@/components/CabeceraSesion";
+import { CabeceraRepartidor } from "@/components/CabeceraRepartidor";
 import { FirmaCanvas, type FirmaCanvasHandle } from "@/components/FirmaCanvas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,7 +50,7 @@ function Retiro() {
   if (errorCarga) {
     return (
       <div className="p-4">
-        <CabeceraSesion titulo="Retiro" />
+        <CabeceraRepartidor titulo="Retiro" />
         <p className="text-sm text-destructive">{errorCarga}</p>
       </div>
     );
@@ -59,7 +59,7 @@ function Retiro() {
   if (!jornada) {
     return (
       <div className="p-4">
-        <CabeceraSesion titulo="Retiro" />
+        <CabeceraRepartidor titulo="Retiro" />
         <p className="text-muted-foreground">Cargando…</p>
       </div>
     );
@@ -68,7 +68,7 @@ function Retiro() {
   if (jornada.rutaId === null) {
     return (
       <div className="p-4">
-        <CabeceraSesion titulo="Retiro" />
+        <CabeceraRepartidor titulo="Retiro" />
         <p className="text-muted-foreground">No tenés una ruta en curso.</p>
       </div>
     );
@@ -84,8 +84,8 @@ function Retiro() {
   if (jornada.retiroConfirmadoEn) {
     return (
       <div className="p-4 flex flex-col gap-4">
-        <CabeceraSesion titulo="Retiro" />
-        <p className="rounded-lg border p-4">
+        <CabeceraRepartidor titulo="Retiro" />
+        <p className="rounded-2xl border bg-card shadow-sm p-4">
           El retiro ya está firmado ({new Date(jornada.retiroConfirmadoEn).toLocaleTimeString()}).
         </p>
         <Button className="h-12 text-base" render={<Link href="/hoy" />} nativeButton={false}>
@@ -124,16 +124,10 @@ function Retiro() {
 
   return (
     <div className="p-4 flex flex-col gap-4 pb-8">
-      <div className="flex items-center justify-between">
-        <Button variant="outline" render={<Link href="/hoy" />} nativeButton={false} className="h-11 text-base">
-          <ChevronLeft className="size-4" />
-          Hoy
-        </Button>
-      </div>
-      <CabeceraSesion titulo="Retiro de la ruta" />
+      <CabeceraRepartidor titulo="Retiro de la ruta" volverA="/hoy" />
 
-      <div className="rounded-lg border-2 border-blue-600 bg-blue-50/50 p-4 text-center">
-        <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Bultos de la ruta</p>
+      <div className="rounded-2xl border-2 border-bf-azul bg-bf-celeste/10 p-4 text-center">
+        <p className="text-xs font-semibold uppercase tracking-wide text-bf-azul">Bultos de la ruta</p>
         <p className="text-5xl font-bold">{jornada.bultosEsperados}</p>
         <p className="text-sm text-muted-foreground">Contá lo que cargás y firmá antes de salir.</p>
       </div>

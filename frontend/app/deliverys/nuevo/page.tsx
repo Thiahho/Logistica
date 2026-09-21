@@ -162,7 +162,7 @@ function FormularioAltaDelivery() {
   }
 
   return (
-    <div className="p-8 max-w-2xl">
+    <div className="p-4 md:p-8 max-w-2xl">
       <CabeceraSesion titulo="Nuevo delivery" />
       <p className="text-sm text-muted-foreground mb-6">
         Servicio punto a punto ad-hoc (Anexo I D14): sin retiro programado. El precio se cotiza y

@@ -92,7 +92,7 @@ function PanelCobranza() {
 
   return (
     <>
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         <CabeceraSesion titulo="Cobranza" />
 
         {clientes && clientes.length > 0 && (

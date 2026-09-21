@@ -103,7 +103,7 @@ function CierreRuta() {
 
   if (!ruta) {
     return (
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         <CabeceraSesion titulo="Cierre de ruta" />
         <p className={errorCarga ? "text-sm text-destructive" : "text-muted-foreground"}>
           {errorCarga ?? "Cargando…"}
@@ -113,7 +113,7 @@ function CierreRuta() {
   }
 
   return (
-    <div className="p-8 max-w-xl flex flex-col gap-6">
+    <div className="p-4 md:p-8 max-w-xl flex flex-col gap-6">
       <CabeceraSesion titulo={`Cierre de ruta #${ruta.id} — ${ruta.fecha}`} />
       <Button variant="outline" render={<Link href="/rutas" />} nativeButton={false} className="self-start">
         ← Rutas

@@ -29,11 +29,11 @@ export interface MapaProps {
 // Color por variante, con la misma excepción a "siempre por token" que ya usa clientes/page.tsx
 // para los semáforos (verde/amarillo/rojo): son indicadores de estado, no decoración.
 const COLOR_VARIANTE: Record<VarianteMarcador, string> = {
-  pendiente: "#2563eb", // blue-600
+  pendiente: "#0057d9", // azul principal BF
   completada: "#16a34a", // green-600
   fallida: "#dc2626", // red-600
   cancelada: "#737373", // neutral-500
-  origen: "#171717", // neutral-900
+  origen: "#003b95", // azul profundo BF
   dudosa: "#d97706", // amber-600
 };
 
@@ -113,7 +113,7 @@ export default function Mapa({ marcadores, recorrido, alto = "h-80", onSeleccion
           <Polyline
             positions={lineaRecorrido}
             pathOptions={{
-              color: "#2563eb",
+              color: "#0057d9",
               weight: 4,
               opacity: 0.7,
               // Sin recorrido trazado por OSRM (degradado a línea recta): punteado, para no

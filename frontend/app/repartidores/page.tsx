@@ -80,7 +80,7 @@ function ListaRepartidores() {
     repartidores?.filter((r) => r.disponibilidad === d).length ?? 0;
 
   return (
-    <div className="p-8 flex flex-col gap-6">
+    <div className="p-4 md:p-8 flex flex-col gap-6">
       <CabeceraSesion titulo="Repartidores" />
 
       <div className="flex flex-wrap items-end gap-4">

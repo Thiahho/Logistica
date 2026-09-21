@@ -24,6 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
+import { OrdenMovil } from "@/components/OrdenMovil";
 import { ControlesPaginacion } from "@/components/ControlesPaginacion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FacturaDetalleContenido } from "@/components/FacturaDetalleContenido";
@@ -76,7 +77,7 @@ function ListaFacturas() {
 
   const {
     items: facturas, totalRegistros, error, pagina, setPagina, tamanioPagina, setTamanioPagina,
-    totalPaginas, alternarOrden, indicadorOrden, conReinicioDePagina, recargar,
+    orden, totalPaginas, alternarOrden, indicadorOrden, conReinicioDePagina, recargar,
   } = useListadoPaginado<FacturaResumen>({
     ruta: "/api/facturas",
     filtros: { q: q.trim(), clienteId: clienteId ?? "", estado, fechaDesde, fechaHasta },
@@ -94,7 +95,7 @@ function ListaFacturas() {
 
   return (
     <>
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo="Facturas" />
 
       <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
@@ -186,6 +187,7 @@ function ListaFacturas() {
         <p className="text-muted-foreground">No hay facturas que coincidan con estos filtros.</p>
       ) : (
         <>
+          <OrdenMovil columnas={COLUMNAS} orden={orden} alternarOrden={alternarOrden} />
           <Table>
             <TableHeader>
               <TableRow>

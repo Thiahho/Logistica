@@ -68,7 +68,7 @@ function FormularioAlta() {
   }
 
   return (
-    <div className="p-8 max-w-md">
+    <div className="p-4 md:p-8 max-w-md">
       <CabeceraSesion titulo="Nuevo usuario" />
       <form onSubmit={onSubmit} className="flex flex-col gap-6">
         <Card>

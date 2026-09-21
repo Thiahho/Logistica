@@ -49,7 +49,7 @@ function FormularioNuevaRuta() {
   }
 
   return (
-    <div className="p-8 max-w-sm">
+    <div className="p-4 md:p-8 max-w-sm">
       <CabeceraSesion titulo="Nueva ruta" />
       <form onSubmit={onSubmit} className="flex flex-col gap-6">
         <Card>

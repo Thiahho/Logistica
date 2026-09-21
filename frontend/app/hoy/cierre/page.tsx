@@ -2,11 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { ChevronLeft } from "lucide-react";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { CabeceraSesion } from "@/components/CabeceraSesion";
+import { CabeceraRepartidor } from "@/components/CabeceraRepartidor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,7 +70,7 @@ function CierreJornada() {
   if (errorCarga) {
     return (
       <div className="p-4">
-        <CabeceraSesion titulo="Cierre de jornada" />
+        <CabeceraRepartidor titulo="Cierre de jornada" />
         <p className="text-sm text-destructive">{errorCarga}</p>
       </div>
     );
@@ -81,7 +79,7 @@ function CierreJornada() {
   if (!jornada) {
     return (
       <div className="p-4">
-        <CabeceraSesion titulo="Cierre de jornada" />
+        <CabeceraRepartidor titulo="Cierre de jornada" />
         <p className="text-muted-foreground">Cargando…</p>
       </div>
     );
@@ -90,7 +88,7 @@ function CierreJornada() {
   if (jornada.rutaId === null) {
     return (
       <div className="p-4">
-        <CabeceraSesion titulo="Cierre de jornada" />
+        <CabeceraRepartidor titulo="Cierre de jornada" />
         <p className="text-muted-foreground">No tenés una ruta en curso.</p>
       </div>
     );
@@ -129,8 +127,8 @@ function CierreJornada() {
   if (yaCerrada) {
     return (
       <div className="p-4 flex flex-col gap-4">
-        <CabeceraSesion titulo="Cierre de jornada" />
-        <div className="rounded-lg border-2 border-green-600 bg-green-50/60 p-4 flex flex-col gap-2">
+        <CabeceraRepartidor titulo="Cierre de jornada" />
+        <div className="rounded-2xl border-2 border-green-600 bg-green-50/60 p-4 flex flex-col gap-2">
           <p className="font-semibold">Jornada cerrada</p>
           {resultado && (
             <p className="text-sm">
@@ -152,25 +150,19 @@ function CierreJornada() {
 
   return (
     <div className="p-4 flex flex-col gap-4 pb-8">
-      <div className="flex items-center justify-between">
-        <Button variant="outline" render={<Link href="/hoy" />} nativeButton={false} className="h-11 text-base">
-          <ChevronLeft className="size-4" />
-          Hoy
-        </Button>
-      </div>
-      <CabeceraSesion titulo="Cerrar la jornada" />
+      <CabeceraRepartidor titulo="Cerrar la jornada" volverA="/hoy" />
 
-      <div className="rounded-lg border p-4 grid grid-cols-3 text-center">
+      <div className="rounded-2xl border bg-card shadow-sm p-4 grid grid-cols-3 text-center">
         <div>
-          <p className="text-2xl font-semibold">{jornada.completadas}</p>
+          <p className="text-2xl font-bold text-bf-azul">{jornada.completadas}</p>
           <p className="text-xs text-muted-foreground">Entregadas</p>
         </div>
         <div>
-          <p className="text-2xl font-semibold">{jornada.fallidas}</p>
+          <p className="text-2xl font-bold text-bf-azul">{jornada.fallidas}</p>
           <p className="text-xs text-muted-foreground">Fallidas</p>
         </div>
         <div>
-          <p className="text-2xl font-semibold">{pendientes}</p>
+          <p className="text-2xl font-bold text-bf-azul">{pendientes}</p>
           <p className="text-xs text-muted-foreground">Pendientes</p>
         </div>
       </div>

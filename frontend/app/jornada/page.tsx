@@ -41,7 +41,7 @@ function Jornada() {
   );
 
   return (
-    <div className="p-8 flex flex-col gap-6">
+    <div className="p-4 md:p-8 flex flex-col gap-6">
       <CabeceraSesion titulo="Jornada" />
 
       <div className="flex flex-wrap items-end justify-between gap-4">

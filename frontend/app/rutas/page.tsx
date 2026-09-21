@@ -22,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { OrdenMovil } from "@/components/OrdenMovil";
 import { ControlesPaginacion } from "@/components/ControlesPaginacion";
 import { useListadoPaginado } from "@/lib/hooks/useListadoPaginado";
 import { ESTADOS_RUTA, etiquetaEstadoRuta, type RutaResumen } from "@/lib/dominio/tipos";
@@ -56,7 +57,7 @@ function ListaRutas() {
 
   const {
     items: rutas, totalRegistros, error, pagina, setPagina, tamanioPagina, setTamanioPagina,
-    totalPaginas, alternarOrden, indicadorOrden, conReinicioDePagina,
+    orden, totalPaginas, alternarOrden, indicadorOrden, conReinicioDePagina,
   } = useListadoPaginado<RutaResumen>({
     ruta: "/api/rutas",
     filtros: { q: q.trim(), fechaDesde, fechaHasta, estado },
@@ -66,7 +67,7 @@ function ListaRutas() {
   const hayFiltros = q || fechaDesde || fechaHasta || estado;
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo="Rutas" />
 
       <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
@@ -149,6 +150,7 @@ function ListaRutas() {
         <p className="text-muted-foreground">No hay rutas que coincidan con estos filtros.</p>
       ) : (
         <>
+          <OrdenMovil columnas={COLUMNAS} orden={orden} alternarOrden={alternarOrden} />
           <Table>
             <TableHeader>
               <TableRow>

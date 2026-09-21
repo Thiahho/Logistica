@@ -128,7 +128,7 @@ function DetalleCliente() {
 
   if (!cliente) {
     return (
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         <CabeceraSesion titulo="Cliente" />
         <p className={errorCarga ? "text-sm text-destructive" : "text-muted-foreground"}>
           {errorCarga ?? "Cargando…"}
@@ -138,7 +138,7 @@ function DetalleCliente() {
   }
 
   return (
-    <div className="p-8 max-w-2xl flex flex-col gap-6">
+    <div className="p-4 md:p-8 max-w-2xl flex flex-col gap-6">
       <CabeceraSesion titulo={cliente.razonSocial} />
       <Button variant="outline" render={<Link href="/clientes" />} nativeButton={false} className="self-start">
         ← Clientes

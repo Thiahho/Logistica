@@ -2,10 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
 import {
   CheckCircle2,
-  ChevronLeft,
+
   Clock,
   Navigation,
   Package,
@@ -15,7 +14,7 @@ import {
 } from "lucide-react";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { CabeceraSesion } from "@/components/CabeceraSesion";
+import { CabeceraRepartidor } from "@/components/CabeceraRepartidor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -201,7 +200,7 @@ function ParadaDetalle() {
   if (errorCarga) {
     return (
       <div className="p-4">
-        <CabeceraSesion titulo="Parada" />
+        <CabeceraRepartidor titulo="Parada" />
         <p className="text-sm text-destructive">{errorCarga}</p>
       </div>
     );
@@ -210,7 +209,7 @@ function ParadaDetalle() {
   if (!jornada || !parada) {
     return (
       <div className="p-4">
-        <CabeceraSesion titulo="Parada" />
+        <CabeceraRepartidor titulo="Parada" />
         <p className="text-muted-foreground">{jornada ? "Parada no encontrada." : "Cargando…"}</p>
       </div>
     );
@@ -222,31 +221,21 @@ function ParadaDetalle() {
 
   return (
     <div className="p-4 flex flex-col gap-4 pb-8">
-      <div className="flex items-center justify-between">
-        <Button
-          variant="outline"
-          render={<Link href="/hoy" />}
-          nativeButton={false}
-          className="h-11 text-base"
-        >
-          <ChevronLeft className="size-4" />
-          Hoy
-        </Button>
-        <EstadoParadaBadge estado={parada.estado} size="md" />
-      </div>
+      <CabeceraRepartidor titulo="Parada" volverA="/hoy" />
 
-      <div className="rounded-lg border p-4 flex flex-col gap-2">
+      <div className="rounded-2xl border bg-card p-4 flex flex-col gap-3 shadow-sm">
         <div className="flex items-start gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-sm font-bold text-white">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-bf-azul text-sm font-bold text-white">
             {parada.orden}
           </span>
-          <div className="min-w-0">
-            <h1 className="text-lg font-semibold">{parada.calleNumero}</h1>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg font-semibold">{parada.calleNumero}</h2>
             <p className="text-muted-foreground">
               {parada.localidad}
               {parada.referencia ? ` · ${parada.referencia}` : ""}
             </p>
           </div>
+          <EstadoParadaBadge estado={parada.estado} size="md" />
         </div>
         {tieneCoordenadas && (
           <Button
@@ -271,7 +260,7 @@ function ParadaDetalle() {
         {parada.pedidos.map((pedido) => (
           <div
             key={pedido.pedidoId}
-            className={`rounded-lg border p-3 flex flex-col gap-1 ${pedido.estado === "Cancelado" ? "border-red-300 bg-red-50/40" : ""}`}
+            className={`rounded-2xl border bg-card shadow-sm p-3 flex flex-col gap-1 ${pedido.estado === "Cancelado" ? "border-red-300 bg-red-50/40" : ""}`}
           >
             <p className={`font-medium ${pedido.estado === "Cancelado" ? "line-through" : ""}`}>
               {pedido.destinatarioNombre}
@@ -345,7 +334,7 @@ function ParadaDetalle() {
       )}
 
       {modo === "corregir" && (
-        <div className="flex flex-col gap-3 rounded-lg border p-4">
+        <div className="flex flex-col gap-3 rounded-2xl border bg-card shadow-sm p-4">
           {correccionEnviada ? (
             <>
               <p className="font-medium">Corrección enviada</p>
@@ -433,7 +422,7 @@ function ParadaDetalle() {
       )}
 
       {modo === "entregado" && (
-        <div className="flex flex-col gap-3 rounded-lg border p-4">
+        <div className="flex flex-col gap-3 rounded-2xl border bg-card shadow-sm p-4">
           <div className="flex flex-col gap-2">
             <Label htmlFor="receptor">Nombre del receptor</Label>
             <Input
@@ -477,7 +466,7 @@ function ParadaDetalle() {
       )}
 
       {modo === "fallido" && (
-        <div className="flex flex-col gap-2 rounded-lg border p-4">
+        <div className="flex flex-col gap-2 rounded-2xl border bg-card shadow-sm p-4">
           <p className="text-sm text-muted-foreground">Motivo:</p>
           {jornada.motivosFallo.map((motivo) => (
             <Button

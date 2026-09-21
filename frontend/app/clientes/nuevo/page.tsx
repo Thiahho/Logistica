@@ -58,7 +58,7 @@ function FormularioNuevoCliente() {
   }
 
   return (
-    <div className="p-8 max-w-lg">
+    <div className="p-4 md:p-8 max-w-lg">
       <CabeceraSesion titulo="Nuevo cliente" />
       <Button variant="outline" render={<Link href="/clientes" />} nativeButton={false} className="mb-6">
         ← Clientes

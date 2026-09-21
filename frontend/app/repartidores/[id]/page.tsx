@@ -76,7 +76,7 @@ function Detalle() {
   useEffect(cargar, [cargar]);
 
   return (
-    <div className="p-8 flex flex-col gap-6">
+    <div className="p-4 md:p-8 flex flex-col gap-6">
       <CabeceraSesion titulo={detalle?.nombre ?? "Repartidor"} />
 
       <div className="flex flex-wrap items-end gap-4">

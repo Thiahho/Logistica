@@ -153,7 +153,7 @@ function ListaTarifas() {
   }
 
   return (
-    <div className="p-8 max-w-4xl flex flex-col gap-6">
+    <div className="p-4 md:p-8 max-w-4xl flex flex-col gap-6">
       <CabeceraSesion titulo="Tarifas — lista general" />
 
       {pendientes !== null && pendientes.length > 0 && (

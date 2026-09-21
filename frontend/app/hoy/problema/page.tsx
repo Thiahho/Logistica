@@ -2,11 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { AlertTriangle, ChevronLeft, PackageX } from "lucide-react";
+import { AlertTriangle, PackageX } from "lucide-react";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { CabeceraSesion } from "@/components/CabeceraSesion";
+import { CabeceraRepartidor } from "@/components/CabeceraRepartidor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -62,7 +61,7 @@ function Problema() {
   if (errorCarga) {
     return (
       <div className="p-4">
-        <CabeceraSesion titulo="Reportar un problema" />
+        <CabeceraRepartidor titulo="Reportar un problema" />
         <p className="text-sm text-destructive">{errorCarga}</p>
       </div>
     );
@@ -70,7 +69,7 @@ function Problema() {
   if (!jornada) {
     return (
       <div className="p-4">
-        <CabeceraSesion titulo="Reportar un problema" />
+        <CabeceraRepartidor titulo="Reportar un problema" />
         <p className="text-muted-foreground">Cargando…</p>
       </div>
     );
@@ -78,7 +77,7 @@ function Problema() {
   if (jornada.rutaId === null) {
     return (
       <div className="p-4">
-        <CabeceraSesion titulo="Reportar un problema" />
+        <CabeceraRepartidor titulo="Reportar un problema" />
         <p className="text-muted-foreground">No tenés una ruta en curso.</p>
       </div>
     );
@@ -129,8 +128,8 @@ function Problema() {
   if (enviado) {
     return (
       <div className="p-4 flex flex-col gap-4">
-        <CabeceraSesion titulo="Reportar un problema" />
-        <div className="rounded-lg border-2 border-green-600 bg-green-50/60 p-4">
+        <CabeceraRepartidor titulo="Reportar un problema" />
+        <div className="rounded-2xl border-2 border-green-600 bg-green-50/60 p-4">
           <p className="font-semibold">Reporte enviado</p>
           <p className="text-sm text-muted-foreground">
             Operación lo ve ahora. Cuando lo responda te aparece un aviso en Hoy.
@@ -145,13 +144,7 @@ function Problema() {
 
   return (
     <div className="p-4 flex flex-col gap-4 pb-8">
-      <div className="flex items-center justify-between">
-        <Button variant="outline" render={<Link href="/hoy" />} nativeButton={false} className="h-11 text-base">
-          <ChevronLeft className="size-4" />
-          Hoy
-        </Button>
-      </div>
-      <CabeceraSesion titulo="Reportar un problema" />
+      <CabeceraRepartidor titulo="Reportar un problema" volverA="/hoy" />
 
       <div className="grid grid-cols-1 gap-2">
         <Button

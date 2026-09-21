@@ -56,7 +56,7 @@ function FormularioExportar() {
   }
 
   return (
-    <div className="p-8 max-w-md">
+    <div className="p-4 md:p-8 max-w-md">
       <CabeceraSesion titulo="Exportar" />
       <Card>
         <CardHeader>

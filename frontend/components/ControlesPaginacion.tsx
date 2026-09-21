@@ -26,13 +26,13 @@ export function ControlesPaginacion({
   setTamanioPagina,
 }: ControlesPaginacionProps) {
   return (
-    <div className="flex items-center justify-between gap-4 mt-4">
+    <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
       <p className="text-sm text-muted-foreground">
         {totalRegistros === 0
           ? "Sin resultados"
           : `Mostrando ${(pagina - 1) * tamanioPagina + 1}–${Math.min(pagina * tamanioPagina, totalRegistros)} de ${totalRegistros}`}
       </p>
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 md:gap-4">
         <div className="flex items-center gap-2">
           <Label htmlFor="tamanio-pagina" className="text-sm text-muted-foreground">
             Por página

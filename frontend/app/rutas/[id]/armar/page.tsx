@@ -403,7 +403,7 @@ function ArmarRuta() {
 
   if (!ruta) {
     return (
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         <CabeceraSesion titulo="Armar ruta" />
         <p className={errorCarga ? "text-sm text-destructive" : "text-muted-foreground"}>
           {errorCarga ?? "Cargando…"}
@@ -414,7 +414,7 @@ function ArmarRuta() {
 
   if (ruta.estado !== "planificada") {
     return (
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         <CabeceraSesion titulo={`Ruta #${ruta.id}`} />
         <p className="text-muted-foreground">
           Esta ruta ya cerró su planificación (estado: {etiquetaEstadoRuta(ruta.estado)}). No se puede seguir editando.
@@ -429,7 +429,7 @@ function ArmarRuta() {
   const excedeCapacidad = paradas.length > capacidadParadas;
 
   return (
-    <div className="p-8 max-w-4xl flex flex-col gap-6">
+    <div className="p-4 md:p-8 max-w-4xl flex flex-col gap-6">
       <CabeceraSesion titulo={`Armar ruta #${ruta.id} — ${ruta.fecha}`} />
       <Button variant="outline" render={<Link href="/rutas" />} nativeButton={false} className="self-start">
         ← Rutas
