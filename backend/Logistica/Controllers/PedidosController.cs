@@ -56,6 +56,17 @@ public class PedidosController(
     public record FijarPrecioManualRequest(
         [Range(0.01, double.MaxValue, ErrorMessage = "El precio debe ser mayor a cero.")] decimal Precio);
 
+    public record ConfirmarRecepcionRequest(
+        [Range(0, int.MaxValue, ErrorMessage = "Los bultos confirmados no pueden ser negativos.")] int BultosConfirmados,
+        string? Nota);
+
+    /// <summary>Fila de la cola de trabajo de B13 (`/recepcion`) — solo lo que esa pantalla
+    /// necesita, no el PedidoResumen genérico de Listar (ese lo usan /pedidos, /mis-envios y
+    /// /rutas, no tiene sentido cargarlo con campos que solo importan acá).</summary>
+    public record PedidoRecepcionPendiente(
+        long Id, string ClienteRazonSocial, string DestinatarioNombre,
+        int Bultos, int BultosDeclaradoCliente, DateTimeOffset CreadoEn);
+
     public record CrearPedidoRequest(
         int ClienteId,
         string? ReferenciaCliente,
@@ -552,7 +563,7 @@ public class PedidosController(
                 p.CreadoEn,
                 DireccionDudosa = !LogisticaDbContext.UbicacionApta(p.DestinoUbicacionId),
                 p.PrecioManual,
-                PrecioManualPorNombre = p.PrecioManualPorUsuario != null ? p.PrecioManualPorUsuario.Nombre : null,
+                p.PrecioManualPor,
                 p.PrecioManualEn,
                 ZonaTieneTarifa = p.ZonaId != null && db.Tarifas.Any(t => t.ZonaId == p.ZonaId && t.VigenteHasta == null),
             })
@@ -575,12 +586,34 @@ public class PedidosController(
             })
             .ToListAsync(ct);
 
+        // RF-33 (nunca visible para el cliente): un caller 'cliente' nunca ve el nombre real de un
+        // usuario interno (administración/operación) que tocó su pedido — queda como "Empresa". Es
+        // el mismo pedido igual, solo que ninguna pantalla de cliente había llamado a este endpoint
+        // hasta ahora para notarlo. El actor 'sistema' (alta de portal, B5) no se toca: ya es
+        // genérico.
         var historial = eventos.Select(e => new HistorialEvento(
             e.Id, e.EstadoAnterior?.ToString(), e.EstadoNuevo.ToString(), e.Motivo,
-            e.ActorTipo, e.ActorNombre ?? e.ActorTexto, e.OcurridoEn)).ToList();
+            e.ActorTipo,
+            clienteId is not null && e.ActorTipo == "usuario" ? "Empresa" : e.ActorNombre ?? e.ActorTexto,
+            e.OcurridoEn)).ToList();
+
+        // Sin FK/navegación (B5 §1): precio_manual_por puede ser un usuarios.id (admin, B9) o un
+        // clientes_usuarios.id (el propio cliente desde el portal) — se prueba primero la tabla
+        // interna y, si no resuelve, la del portal. Mismo scrub que el historial: el nombre de
+        // clientes_usuarios es el del propio cliente (nunca un problema); el de usuarios sí lo es.
+        string? precioManualPorNombre = null;
+        if (fila.PrecioManualPor is { } precioManualPorId)
+        {
+            var nombreInterno = await db.Usuarios.AsNoTracking()
+                .Where(u => u.Id == precioManualPorId).Select(u => u.Nombre).SingleOrDefaultAsync(ct);
+            precioManualPorNombre = nombreInterno is not null
+                ? (clienteId is not null ? "Empresa" : nombreInterno)
+                : await db.ClientesUsuarios.AsNoTracking()
+                    .Where(cu => cu.Id == precioManualPorId).Select(cu => cu.Nombre).SingleOrDefaultAsync(ct);
+        }
 
         var precioManualInfo = fila.PrecioManual is not null && fila.PrecioManualEn is not null
-            ? new PrecioManualInfo(fila.PrecioManual.Value, fila.PrecioManualPorNombre, fila.PrecioManualEn.Value)
+            ? new PrecioManualInfo(fila.PrecioManual.Value, precioManualPorNombre, fila.PrecioManualEn.Value)
             : null;
 
         // E1: derivado del log inmutable (pedido_eventos), no una columna — mismo criterio que
@@ -625,6 +658,74 @@ public class PedidosController(
         pedido.PrecioManualEn = DateTimeOffset.UtcNow;
 
         await db.GuardarComoAsync(User.UsuarioId(), "Precio manual fijado (zona sin tarifa).", ct);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// B13 (diseño_b13_recepcion_portal.md §5): cola de trabajo de hoy — pedidos de portal
+    /// todavía sin conciliar. No es Listar con más filtros a propósito: PedidoResumen es
+    /// compartido por /pedidos, /mis-envios y /rutas, y esta pantalla necesita columnas
+    /// (bultos declarados vs. actuales) que no tienen sentido en ninguno de esos otros lugares.
+    /// </summary>
+    [HttpGet("recepcion-pendiente")]
+    [Authorize(Policy = "BackOffice")]
+    public async Task<IActionResult> RecepcionPendiente(CancellationToken ct)
+    {
+        // "Del día" = cargado hoy (creado_en), no entregado hoy (fecha_entrega puede ser una
+        // fecha futura elegida por el cliente) — la recepción concilia lo que llegó hoy al
+        // depósito contra lo que se cargó hoy, sin importar cuándo sale a reparto.
+        var (desde, hasta) = Reloj.RangoLocalUtc(Reloj.HoyLocal());
+        var filas = await db.Pedidos.AsNoTracking()
+            .Where(p => p.OrigenCarga == "portal" && p.RecepcionConfirmadaEn == null
+                && p.CreadoEn >= desde && p.CreadoEn < hasta)
+            .OrderBy(p => p.CreadoEn)
+            .Select(p => new PedidoRecepcionPendiente(
+                p.Id, p.Cliente.RazonSocial, p.DestinatarioNombre,
+                p.Bultos, p.BultosDeclaradoCliente ?? p.Bultos, p.CreadoEn))
+            .ToListAsync(ct);
+
+        return Ok(filas);
+    }
+
+    /// <summary>
+    /// B13 (diseño_b13_recepcion_portal.md §4): concilia lo recibido en depósito contra lo que el
+    /// cliente declaró en el portal — edición directa sobre el pedido en Borrador, no el ajuste
+    /// B16 (ese es para discrepancias descubiertas después de que el pedido se congela).
+    /// </summary>
+    [HttpPost("{id:long}/recepcion")]
+    [Authorize(Policy = "BackOffice")]
+    public async Task<IActionResult> ConfirmarRecepcion(long id, ConfirmarRecepcionRequest req, CancellationToken ct)
+    {
+        var pedido = await db.Pedidos.SingleOrDefaultAsync(p => p.Id == id, ct);
+        if (pedido is null || pedido.OrigenCarga != "portal") return NotFound();
+        if (pedido.Estado != EstadoPedido.Borrador)
+            return Conflict(
+                "El pedido ya no está en borrador; usá el ajuste existente en su lugar " +
+                $"(POST /api/pedidos/{id}/ajustes).");
+        // Sigue en Borrador hasta cerrar-planificacion, así que sin esto la recepción se podría
+        // confirmar más de una vez (dos operadores, o un reintento de red) — mismo criterio de
+        // idempotencia explícita que MiJornadaController.Retiro.
+        if (pedido.RecepcionConfirmadaEn is not null)
+            return Conflict("La recepción de este pedido ya está confirmada.");
+
+        var difiere = req.BultosConfirmados != pedido.Bultos;
+        if (difiere && string.IsNullOrWhiteSpace(req.Nota))
+            return BadRequest(
+                $"Lo confirmado ({req.BultosConfirmados}) no coincide con los {pedido.Bultos} bultos " +
+                "cargados: hace falta una nota con el motivo.");
+
+        if (difiere)
+        {
+            pedido.Bultos = req.BultosConfirmados;
+            pedido.Observaciones = string.IsNullOrWhiteSpace(pedido.Observaciones)
+                ? $"Recepción: {req.Nota}"
+                : $"{pedido.Observaciones}\nRecepción: {req.Nota}";
+        }
+
+        pedido.RecepcionConfirmadaEn = DateTimeOffset.UtcNow;
+        pedido.RecepcionConfirmadaPor = User.UsuarioId();
+
+        await db.GuardarComoAsync(User.UsuarioId(), "Recepción confirmada contra lo declarado por el cliente.", ct);
         return NoContent();
     }
 

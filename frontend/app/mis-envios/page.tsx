@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
 import { ControlesPaginacion } from "@/components/ControlesPaginacion";
 import { TarjetaMetrica } from "@/components/TarjetaMetrica";
+import { EstadoPedidoBadge } from "@/components/EstadoBadge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { leerJson } from "@/lib/api/errores";
 import { useListadoPaginado } from "@/lib/hooks/useListadoPaginado";
@@ -84,6 +87,44 @@ function MiCuenta() {
   );
 }
 
+/** Envíos que se están ejecutando ahora mismo (en ruta, con un repartidor en la calle) — el punto
+ * que más urgencia tiene para el cliente, así que va destacado arriba de la lista general en vez
+ * de mezclado con el resto. Fetch propio (no useListadoPaginado): es un aviso, no un listado
+ * paginable, y el pedido que importa puede no estar en la primera página del listado general. */
+function EnviosEnCurso() {
+  const { fetchConSesion } = useAuth();
+  const [pedidos, setPedidos] = useState<PedidoResumen[] | null>(null);
+
+  useEffect(() => {
+    fetchConSesion("/api/pedidos?estado=EnRuta")
+      .then((r) => leerJson<{ items: PedidoResumen[] }>(r))
+      .then((r) => setPedidos(r.items))
+      .catch(() => setPedidos([])); // aviso opcional: si falla, no bloquea el resto de la pantalla
+  }, [fetchConSesion]);
+
+  if (!pedidos || pedidos.length === 0) return null;
+
+  return (
+    <Card className="mb-6 border-bf-celeste/40">
+      <CardHeader>
+        <CardTitle className="text-base">En camino ahora</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {pedidos.map((p) => (
+          <Link
+            key={p.id}
+            href={`/mis-envios/${p.id}`}
+            className="flex items-center justify-between rounded-lg border bg-bf-celeste/10 p-3 hover:bg-bf-celeste/20"
+          >
+            <span className="font-medium">{p.destinatarioNombre}</span>
+            <EstadoPedidoBadge estado={p.estado} />
+          </Link>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 // Antes pedía GET /api/pedidos sin ningún query param — el rol 'cliente' se bajaba su historial
 // completo en cada visita. useListadoPaginado (extraído de /pedidos y /rutas, ver ese hook) le
 // da paginación real sin escribir lógica nueva.
@@ -98,8 +139,19 @@ function ListaEnvios() {
 
   return (
     <div className="p-4 md:p-8">
-      <CabeceraSesion titulo="Mis envíos" />
+      <div className="flex items-center justify-between gap-2">
+        <CabeceraSesion titulo="Mis envíos" />
+        <div className="flex gap-2">
+          <Button variant="outline" render={<Link href="/mis-envios/contactos" />} nativeButton={false}>
+            Mis clientes
+          </Button>
+          <Button render={<Link href="/mis-envios/nuevo" />} nativeButton={false}>
+            Cargar envío
+          </Button>
+        </div>
+      </div>
       <MiCuenta />
+      <EnviosEnCurso />
       {error ? (
         <p className="text-sm text-destructive">{error}</p>
       ) : !pedidos ? (
@@ -110,12 +162,14 @@ function ListaEnvios() {
         <>
           <ul className="flex flex-col gap-3">
             {pedidos.map((p) => (
-              <li key={p.id} className="rounded-lg border p-4">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">{p.destinatarioNombre}</span>
-                  <span className="text-xs uppercase text-muted-foreground">{p.estado}</span>
-                </div>
-                <p className="text-sm text-muted-foreground">Entrega: {p.fechaEntrega}</p>
+              <li key={p.id}>
+                <Link href={`/mis-envios/${p.id}`} className="block rounded-lg border p-4 hover:bg-muted/30">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{p.destinatarioNombre}</span>
+                    <EstadoPedidoBadge estado={p.estado} />
+                  </div>
+                  <p className="text-sm text-muted-foreground">Entrega: {p.fechaEntrega}</p>
+                </Link>
               </li>
             ))}
           </ul>

@@ -1,4 +1,4 @@
-import type { Disponibilidad, EstadoRuta } from "@/lib/dominio/tipos";
+import type { Disponibilidad, EstadoPedido, EstadoRuta } from "@/lib/dominio/tipos";
 import { etiquetaEstadoRuta } from "@/lib/dominio/tipos";
 
 /** Estilo/etiqueta de estado de parada, antes duplicado literal en app/hoy/page.tsx y
@@ -72,6 +72,42 @@ const ETIQUETA_DISPONIBILIDAD: Record<Disponibilidad, string> = {
 
 export function etiquetaDisponibilidad(disponibilidad: string): string {
   return ETIQUETA_DISPONIBILIDAD[disponibilidad as Disponibilidad] ?? disponibilidad;
+}
+
+/** Estado de un pedido, visto desde el portal del cliente (/mis-envios) — hasta ahora se
+ * imprimía crudo (`{p.estado}`). Mismo patrón que ESTILO_RUTA/ESTILO_DISPONIBILIDAD arriba. */
+const ESTILO_PEDIDO: Record<EstadoPedido, string> = {
+  Borrador: "bg-neutral-100 text-neutral-700",
+  Confirmado: "bg-amber-100 text-amber-700",
+  EnRuta: "bg-bf-celeste/20 text-bf-profundo",
+  Entregado: "bg-green-100 text-green-700",
+  Fallido: "bg-red-100 text-red-700",
+  Reprogramado: "bg-amber-100 text-amber-700",
+  Devuelto: "bg-neutral-200 text-neutral-700",
+  Cancelado: "bg-neutral-200 text-neutral-500",
+};
+
+const ETIQUETA_PEDIDO: Record<EstadoPedido, string> = {
+  Borrador: "Cargado",
+  Confirmado: "Confirmado",
+  EnRuta: "En camino",
+  Entregado: "Entregado",
+  Fallido: "Entrega fallida",
+  Reprogramado: "Reprogramado",
+  Devuelto: "Devuelto",
+  Cancelado: "Cancelado",
+};
+
+export function etiquetaEstadoPedido(estado: string): string {
+  return ETIQUETA_PEDIDO[estado as EstadoPedido] ?? estado;
+}
+
+export function EstadoPedidoBadge({ estado, size }: { estado: EstadoPedido; size?: "sm" | "md" }) {
+  return (
+    <Badge className={ESTILO_PEDIDO[estado] ?? "bg-neutral-100 text-neutral-700"} size={size}>
+      {etiquetaEstadoPedido(estado)}
+    </Badge>
+  );
 }
 
 export function DisponibilidadBadge({

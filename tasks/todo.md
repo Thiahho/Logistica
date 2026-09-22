@@ -8,6 +8,11 @@ Estado al **18/09/2026**. `[x]` = escrito **y** verificado como se indica. Las p
 con `tsc`, `eslint` y compilación bajo `next dev`, **no en un navegador real** (no había herramienta
 de navegador): RNF-06 y el trazo del canvas de firma están sin probar en un teléfono.
 
+**Nota posterior (21/09/2026):** las pantallas de abajo se volvieron a tocar, sin cambio de contrato,
+en `construccion_v1.md` changelog 1.23 (identidad "BF Transportes" — `Shell.tsx` con barra inferior +
+drawer, `CabeceraRepartidor.tsx` nuevo en `/hoy/*`). Los `[ ]` de "sin verificar en un teléfono real"
+de F5/F6/F8 siguen abiertos y ahora cubren esa UI, no la de esta fecha.
+
 ## Fase 0 — Gobernanza de 4.7 (hecha el 17/09/2026)
 
 - [x] Acta 4.7, construcción 1.21, `estado_implementacion.md` (sin adelantar conteos)

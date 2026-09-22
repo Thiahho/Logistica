@@ -4,6 +4,7 @@ using Logistica.Datos;
 using Logistica.Entidades;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Logistica.Migrations
 {
     [DbContext(typeof(LogisticaDbContext))]
-    partial class LogisticaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260922204706_AgregarRecepcionPortal")]
+    partial class AgregarRecepcionPortal
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -258,50 +261,6 @@ namespace Logistica.Migrations
 
                             t.HasCheckConstraint("ck_clientes_corte_suspendido", "(corte_suspendido_hasta is null and corte_suspendido_por is null) or (corte_suspendido_hasta is not null and corte_suspendido_por is not null and corte_suspendido_motivo is not null)");
                         });
-                });
-
-            modelBuilder.Entity("Logistica.Entidades.ClienteDestinatario", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<int>("ClienteId")
-                        .HasColumnType("integer")
-                        .HasColumnName("cliente_id");
-
-                    b.Property<DateTimeOffset>("CreadoEn")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("creado_en")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<long>("DestinoUbicacionId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("destino_ubicacion_id");
-
-                    b.Property<string>("Nombre")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("nombre");
-
-                    b.Property<string>("Observaciones")
-                        .HasColumnType("text")
-                        .HasColumnName("observaciones");
-
-                    b.Property<string>("Telefono")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("telefono");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ClienteId");
-
-                    b.HasIndex("DestinoUbicacionId");
-
-                    b.ToTable("clientes_destinatarios", (string)null);
                 });
 
             modelBuilder.Entity("Logistica.Entidades.ClienteUsuario", b =>
@@ -1794,25 +1753,6 @@ namespace Logistica.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("CorteSuspendidoPorUsuario");
-                });
-
-            modelBuilder.Entity("Logistica.Entidades.ClienteDestinatario", b =>
-                {
-                    b.HasOne("Logistica.Entidades.Cliente", "Cliente")
-                        .WithMany()
-                        .HasForeignKey("ClienteId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Logistica.Entidades.Ubicacion", "DestinoUbicacion")
-                        .WithMany()
-                        .HasForeignKey("DestinoUbicacionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Cliente");
-
-                    b.Navigation("DestinoUbicacion");
                 });
 
             modelBuilder.Entity("Logistica.Entidades.ClienteUsuario", b =>

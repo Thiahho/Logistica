@@ -3,6 +3,12 @@
 **18/09/2026 · rama `demo-d`.** Reemplaza el plan anterior "Jornada del repartidor" (acta 4.7), que
 queda absorbido. Estado de cada tarea en [todo.md](todo.md).
 
+**Nota posterior (21/09/2026):** `components/Shell.tsx`, `/hoy/*` y el resto de la PWA que este plan
+construyó fueron restyleados sin cambio de contrato en `construccion_v1.md` changelog 1.23 (identidad
+"BF Transportes" — `docs/Paleta.png`, `Logo.png`, `MobileVistaOperador.png`). No es parte de este plan;
+se anota acá porque el pendiente de F5/F6/F8 ("sin verificar en un teléfono real") cae sobre esas mismas
+pantallas — verificar contra la UI actual, no contra la de esta fecha.
+
 ## Contexto
 
 `/hoy` cubría solo la mitad del día. Faltaban las dos puntas —retiro firmado al salir, cierre de

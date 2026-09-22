@@ -31,6 +31,11 @@ interface SelectorLocalidadProps {
   placeholder?: string;
   id?: string;
   disabled?: boolean;
+  /** B5 (diseño_b5_portal_carga.md §4): el rol 'cliente' no puede llegar a
+   * /api/localidades (BackOffice de clase) — /mis-envios/nuevo pasa "/api/mi-cuenta", el espejo
+   * de estas mismas dos acciones que expone MiCuentaController. Default sin cambios para el resto
+   * de los llamadores. */
+  basePath?: string;
 }
 
 const PREFIJO_EXISTENTE = "e:";
@@ -57,6 +62,7 @@ export function SelectorLocalidad({
   placeholder = "Buscar localidad…",
   id,
   disabled,
+  basePath = "/api",
 }: SelectorLocalidadProps) {
   const { fetchConSesion } = useAuth();
 
@@ -90,7 +96,7 @@ export function SelectorLocalidad({
       setBuscando(true);
       setError(null);
       try {
-        const resp = await fetchConSesion(`/api/localidades/buscar?q=${encodeURIComponent(q)}`, {
+        const resp = await fetchConSesion(`${basePath}/localidades/buscar?q=${encodeURIComponent(q)}`, {
           signal: abort.signal,
         });
         const r = await leerJson<ResultadoBusquedaLocalidad>(resp);
@@ -111,7 +117,7 @@ export function SelectorLocalidad({
       clearTimeout(timeout);
       abort.abort();
     };
-  }, [texto, fetchConSesion]);
+  }, [texto, fetchConSesion, basePath]);
 
   const resultado = texto.trim().length < 2 ? RESULTADO_VACIO : resultadoBusqueda;
 
@@ -151,7 +157,7 @@ export function SelectorLocalidad({
     setCreando(nombre);
     setError(null);
     try {
-      const resp = await fetchConSesion("/api/localidades", {
+      const resp = await fetchConSesion(`${basePath}/localidades`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nombre, partido: partido || null }),

@@ -1,6 +1,6 @@
 # Estado de implementación — relevamiento de código
 
-**Generado:** 13/09/2026, actualizado puntualmente el 15/09/2026 (monitor de jornada, changelog 4.4), el 16/09/2026 (deliverys/recargo por km, changelog 4.5) y el 17/09/2026 (disponibilidad de repartidores, changelog 4.6; y en una segunda pasada del mismo día, la fase de gobernanza de changelog 4.7 — ninguna de las cuatro es una repasada completa del resto) · **Rama:** `demo-d` · **Fuente:** lectura directa del código (backend ASP.NET Core 8 + PostgreSQL, frontend Next.js), cruzado contra `acta_sistema.md` v4.7 y `Anexo_I_Alcance_V2.docx`.
+**Generado:** 13/09/2026, actualizado puntualmente el 15/09/2026 (monitor de jornada, changelog 4.4), el 16/09/2026 (deliverys/recargo por km, changelog 4.5), el 17/09/2026 (disponibilidad de repartidores, changelog 4.6; y en una segunda pasada del mismo día, la fase de gobernanza de changelog 4.7), el 18/09/2026 (novedades de la calle, changelog 4.8 — §3.13), el 21/09/2026 (identidad visual "BF Transportes", `construccion_v1.md` changelog 1.23 — cambio puramente visual, no suma ninguna fila a los conteos de este documento; ver nota debajo de §1), el 22/09/2026 (portal de carga y recepción, changelog 4.9 — §3.14, nueva) y una segunda pasada del mismo día (detalle de envío, envío en curso y "mis clientes", changelog 4.10 — §3.15, nueva — ninguna de estas pasadas es una repasada completa del resto) · **Rama:** `demo-d` · **Fuente:** lectura directa del código (backend ASP.NET Core 8 + PostgreSQL, frontend Next.js), cruzado contra `acta_sistema.md` v4.10 y `Anexo_I_Alcance_V2.docx`.
 
 **Regla de este documento, explícita desde la pasada de changelog 4.7:** acá se cuenta lo que existe en el repositorio. Lo diseñado y acordado pero no escrito se nombra como tal y **no suma a ningún conteo** — para eso están `acta_sistema.md` (alcance) y `construccion_v1.md` (diseño). Es la diferencia que hace auditable este inventario.
 
@@ -12,13 +12,15 @@ Este documento no reemplaza a `acta_sistema.md` (reglas de negocio) ni a `constr
 
 | | |
 |---|---|
-| Controladores API | 21 (suma `MiJornadaController`, changelog 4.7, y `NovedadesController`, changelog 4.8) |
-| Endpoints | 107 acciones `[Http*]` en `Controllers/*.cs` — conteo mecánico y reproducible: `grep -cE '^\s*\[Http(Get\|Post\|Put\|Patch\|Delete)' backend/Logistica/Controllers/*.cs`. Diez más que las 97 de changelog 4.6: retiro, cierre de jornada, alta y acuse de novedades del repartidor (4), `NovedadesController` (4), contacto de pedido y `interrumpir` ruta |
-| Pantallas frontend (`page.tsx`) | 34 (suma `/hoy/retiro` y `/hoy/cierre` —changelog 4.7— y `/hoy/problema` —4.8—; recontado con `find frontend/app -name page.tsx`, no adelantado) |
-| Entidades / tablas núcleo | 21 entidades / 18 tablas núcleo (suma `Novedad`, changelog 4.8: cruza el techo de 17 con justificación en acta §4.1) |
-| Migraciones aplicadas | 14 (`Inicial` → `AgregarNovedades`; suman `AgregarRetiroDeRuta`, changelog 4.7, y `AgregarNovedades`, 4.8) |
+| Controladores API | 21 (sin cambio desde changelog 4.8 — B5/B13/4.10 extienden `MiCuentaController` y `PedidosController`, ninguno nuevo) |
+| Endpoints | 117 acciones `[Http*]` en `Controllers/*.cs` — conteo mecánico y reproducible: `grep -cE '^\s*\[Http(Get\|Post\|Put\|Patch\|Delete)' backend/Logistica/Controllers/*.cs`. Cuatro más que las 113 de changelog 4.9: `MiCuentaController` suma el ABM de "mis clientes" (`GET/POST /destinatarios`, `PUT/DELETE /destinatarios/{id}` — changelog 4.10) |
+| Pantallas frontend (`page.tsx`) | 38 (suma `/mis-envios/[id]` y `/mis-envios/contactos`, changelog 4.10; recontado con `find frontend/app -name page.tsx`, no adelantado) |
+| Entidades / tablas núcleo | 22 entidades / 19 tablas núcleo (suma `ClienteDestinatario`/`clientes_destinatarios`, changelog 4.10 — cruza el techo de 18, reversión explícita de la decisión de acta 3.5) |
+| Migraciones aplicadas | 16 (`Inicial` → `AgregarClienteDestinatarios`; suma `AgregarClienteDestinatarios`, changelog 4.10) |
 | Roles | administracion, operacion, repartidor (personal interno) + cliente (`clientes_usuarios`, tabla separada) |
-| Última etapa cerrada | **E1 — Cuenta corriente y facturación** (Anexo I §5, changelog acta 4.2). El monitor de jornada (4.4), los deliverys/recargo por km (4.5) y el panel de repartidores (4.6) son ampliaciones sobre etapas ya cerradas (§9.3, D14/§10.2-N y RF-15/§9.3 respectivamente), no etapas nuevas del Anexo I. |
+| Última etapa cerrada | **E1 — Cuenta corriente y facturación** (Anexo I §5, changelog acta 4.2). El monitor de jornada (4.4), los deliverys/recargo por km (4.5), el panel de repartidores (4.6) y el portal de carga/recepción/"mis clientes" (4.9/4.10) son ampliaciones sobre etapas ya cerradas o adelantadas puntualmente (§9.3, D14/§10.2-N, RF-15/§9.3 y Anexo I §5/E4 respectivamente), no un cierre completo de etapa nueva del Anexo I. |
+
+**Identidad visual "BF Transportes" (`construccion_v1.md` changelog 1.23, 21/09/2026):** rediseño de marca (paleta, tipografía, logo provisorio, navegación mobile) sobre tres referencias en `docs/` — `Paleta.png`, `Logo.png`, `MobileVistaOperador.png`. No suma ni resta un solo controlador, endpoint, pantalla, entidad o migración: por eso no mueve ninguna cifra de la tabla de arriba. Detalle técnico completo en `construccion_v1.md` §1 y changelog 1.23, no repetido acá — es la diferencia de alcance entre los dos documentos (regla del encabezado).
 
 ---
 
@@ -29,7 +31,7 @@ Definidos en `Program.cs` como políticas de autorización:
 | Política | Roles que la cumplen | Uso típico |
 |---|---|---|
 | `Administracion` | administracion | Tarifas, usuarios, vehículos (ABM), clientes, facturación, cuenta corriente, precio manual |
-| `BackOffice` | administracion + operacion | Alta de pedidos, armado de rutas, catálogos operativos, deliverys (`DeliverysController`, changelog 4.5), disponibilidad de repartidores (`RepartidoresController`, changelog 4.6) |
+| `BackOffice` | administracion + operacion | Alta de pedidos, armado de rutas, catálogos operativos, deliverys (`DeliverysController`, changelog 4.5), disponibilidad de repartidores (`RepartidoresController`, changelog 4.6), recepción de pedidos de portal (`PedidosController`, changelog 4.9) |
 | `Operacion` | operacion | (reservada, sin uso exclusivo hoy) |
 | `Repartidor` | repartidor | `/api/mis-paradas` — superficie de escritura de la PWA |
 | `Cliente` | cliente (tabla `clientes_usuarios`) | `/api/mi-cuenta`, `/mis-envios` |
@@ -125,9 +127,58 @@ Lo que agrega sobre lo que ya existía: `/jornada` parte de las rutas del día y
 
 Tabla nueva `novedades` (la 18ª): cinco tipos en una sola fila-forma — `incidencia_ruta`, `problema_carga`, `cambio_propuesto` (origen repartidor) y `cambio_operacion`, `cancelacion` (origen operación); check de coherencia origen/tipo; `trg_novedades_inmutable` impide editar lo informado (solo estado, resolución y `visto_en` se completan). Repartidor: `POST /api/mi-jornada/novedades` (multipart, idempotente por `device_uuid`) y `POST .../{id}/visto`. Back-office: `GET /api/novedades`, `GET /api/rutas/{id}/novedades`, `GET /api/novedades/{id}/foto`, `PUT /api/novedades/{id}/resolver`. Complementos: `PUT /api/pedidos/{id}/contacto` (corrección de teléfono, nombre y observaciones; destino y precio siguen congelados por P1), aviso y parada `cancelada` al cancelar un pedido en ruta (`PedidosController.CambiarEstado`), y `POST /api/rutas/{id}/interrumpir` (`RutasController`). `JornadaController.Resumen` suma `NovedadesAbiertas` por ruta y en total. **Verificado con `curl`/SQL contra la API real** (idempotencia, 404 por parada/pedido ajenos, whitelist de campos, aceptar aplica el cambio, doble resolución 409, cancelación con parada consolidada, interrumpir, cierre posterior de la ruta, trigger de inmutabilidad). Las pantallas **no** se probaron en un navegador real.
 
-## 4. Pantallas del frontend (34)
+### 3.14 Portal de carga del cliente y recepción en depósito (`MiCuentaController`, `PedidosController`) — B5/B13, RF-38/RF-39, changelog acta 4.9
 
-**El conteo pasó de 31 a 34 cuando el código existió, no antes:** `/hoy/retiro` y `/hoy/cierre` (changelog 4.7) y `/hoy/problema` (4.8). Recontado con `find frontend/app -name page.tsx`. Este documento cuenta lo que existe, no lo que está acordado — y que exista no es que se haya probado en un teléfono: ninguna se verificó en un navegador real.
+`MiCuentaController` deja de ser de solo lectura: `POST /api/mi-cuenta/pedidos` da de alta un pedido con el `ClienteId` resuelto del claim de sesión (nunca del body), cotiza con `PrecioService.CotizarAsync` usando el tipo de vehículo elegido por el propio cliente y, si la zona tiene tarifa, graba el total cotizado en `precio_manual`/`precio_manual_por`/`precio_manual_en` como precio **vinculante** — no un estimado (mecanismo de B9, changelog 4.1, reusado con un significado nuevo). Zona sin tarifa (B9): el pedido nace igual, sin precio, `requiereCotizacion:true`. Corte horario configurable (`Opciones/OpcionesPortal.cs`, `HoraCorte` = 16:00 provisional) que solo bloquea un pedido cuya `fechaEntrega` es hoy o antes — `409` con la fecha de mañana sugerida; cargar para un día futuro no espera al corte. `MiCuentaController` también suma `POST /ubicaciones`, `GET /localidades/buscar` y `POST /localidades`: espejo de `UbicacionesController`/`LocalidadesController` bajo la policy `Cliente`, necesario porque esos dos controllers son `BackOffice` de clase (regla §2 de este documento) y el rol `cliente` no podía llegar a ellos.
+
+**Hallazgo de esquema corregido en esta misma pasada, no en el diseño previo:** `precio_manual_por` tenía FK a `usuarios` (personal interno); escribir ahí el id de un `clientes_usuarios` (tabla separada desde changelog acta 3.3) violaba esa FK. Migración `AgregarRecepcionPortal` la elimina (`DropForeignKey`) — la columna sigue siendo `uuid`, ahora sin FK, resuelta a mano contra las dos tablas al mostrarla (`PedidosController.Detalle`). Por el mismo motivo, el alta desde el portal llama `GuardarComoAsync(usuarioId: null, ...)`: con el actor en null, `fn_log_estado_pedido` anota `actor_tipo='sistema'` en `pedido_eventos` en vez de intentar la misma FK sobre `actor_usuario_id`.
+
+`PedidosController` suma la recepción (B13): `GET /recepcion-pendiente` (cola de pedidos de portal cargados **hoy** — por `creado_en`, no por `fecha_entrega` — sin recepción confirmada) y `POST /{id}/recepcion` (404 si el pedido no es de portal; 409 si ya salió de `Borrador`, apuntando al ajuste existente, `POST /{id}/ajustes`; 409 si la recepción ya estaba confirmada — idempotencia explícita, mismo criterio que `MiJornadaController.Retiro`; 400 si el conteo difiere sin nota). No hay estado nuevo de pedido ni trigger de inmutabilidad nuevo: la recepción es una edición dentro de `Borrador`, y `bultos_declarados_cliente` (snapshot que graba `MiCuentaController.CrearPedido` una sola vez) nunca se vuelve a exponer en ningún endpoint de edición.
+
+Frontend: `/mis-envios/nuevo` (selector de tipo de vehículo — no existe en el alta interna, que cotiza los dos tipos a la vez — y aviso de corte con botón "Cargar para mañana") y `/recepcion` (cola con confirmación en lote para lo que coincide, corrección con nota fila por fila para lo que no). `SelectorDireccion`/`SelectorLocalidad` suman un prop `basePath` para apuntar al espejo de `MiCuentaController` en vez de a los endpoints de back-office.
+
+**Verificado con `curl`/`psql` contra la base real:** alta con precio vinculante grabado y actor `sistema` sin violar ninguna FK; B9 sin tarifa; corte horario (409 sobre hoy, 201 sobre una fecha futura en el mismo minuto — corregido durante esta misma verificación, la primera versión bloqueaba cualquier fecha, no solo la de hoy); cola de recepción; confirmación sin diferencia, con diferencia sin nota (400), con nota (200); reintento sobre una recepción ya confirmada (409); pedido de origen interno (404). `dotnet build`, `tsc --noEmit`, `eslint` y `next build` limpios. **Las dos pantallas no se probaron en un navegador real** (sin herramienta de navegador disponible en la sesión) — se verificó que compilan y sirven sin error de servidor bajo `next dev`.
+
+### 3.15 Portal del cliente: detalle de envío, envío en curso y "mis clientes" (`MiCuentaController`, `PedidosController`) — RF-40, changelog acta 4.10
+
+Tabla nueva `clientes_destinatarios` (la 19ª — cruza el techo de 18, reversión explícita de la
+decisión de acta 3.5, a pedido del cliente, con el dictamen legal pendiente de acta §11.2 cubriéndola
+también). `MiCuentaController` suma el ABM: `GET/POST /destinatarios`, `PUT/DELETE
+/destinatarios/{id:guid}` — mismo criterio de alcance que el resto del controller (`ClienteId`
+siempre del claim), 404 si el id no es de este cliente. Sin trigger de inmutabilidad ni FK desde
+`pedidos` — el alta de un envío copia los valores del contacto elegido, no guarda su id.
+
+**Detalle de envío y "en camino ahora" no tocan el backend más allá de una corrección de datos**
+(ver abajo): `GET /api/pedidos/{id}` y el filtro `?estado=EnRuta` de `Listar` ya estaban alcanzables
+por el rol `cliente` sobre sus propios pedidos desde antes de esta versión — solo faltaba la
+pantalla. **Brecha de datos preexistente, cerrada en esta misma pasada, no introducida por ella:**
+`PedidosController.Detalle` devolvía el nombre real de un usuario interno en `historial[].actorNombre`
+y en `precioManualInfo.fijadoPor` — alcanzable por un `cliente` sobre su propio pedido desde E1, pero
+nadie lo notaba porque ninguna pantalla de cliente llamaba a este endpoint hasta ahora. Fix: un
+caller `cliente` ve `"Empresa"` en vez del nombre real cuando el actor es de `usuarios`; sigue viendo
+el nombre real si el actor es su propia cuenta de `clientes_usuarios`. Administración, sobre el
+mismo pedido, sigue viendo el nombre real sin cambios.
+
+Frontend: `components/PedidoDetalleCliente.tsx` (nuevo, no reusa `PedidoDetalleContenido.tsx` — ese
+tiene acciones de escritura sin chequeo de rol; el precio a mostrar es `precioManual?.precio ??
+total`, no solo `total`, porque un pedido de portal en Borrador tiene el precio vinculante en
+`precioManual` — bug real encontrado al probar contra un pedido de portal real), `app/mis-envios/[id]/page.tsx`,
+`app/mis-envios/contactos/page.tsx` (mismo patrón que `/depositos`). `components/EstadoBadge.tsx`
+suma `EstadoPedidoBadge`. `app/mis-envios/page.tsx`: filas de la lista pasan a `Link` al detalle,
+sección "En camino ahora", botón "Mis clientes". `app/mis-envios/nuevo/page.tsx`: combobox "Usar un
+cliente guardado" que prellena destinatario y dirección sin geocodificar de nuevo.
+
+**Verificado con `curl`/`psql` contra la base real:** ABM completo de un contacto y 404 sobre un id
+ajeno; alta de pedido reusando la dirección de un contacto guardado; `GET /api/pedidos/{id}` sobre
+un pedido con historial de un actor `usuario` real, comparando la respuesta como cliente
+(`"Empresa"`) y como administración (nombre real) sobre el mismo pedido; filtro `?estado=EnRuta`.
+`dotnet build`, migración aplicada, `tsc --noEmit`, `eslint` y `next build` limpios. **Las tres
+pantallas nuevas no se probaron en un navegador real** (sin herramienta de navegador disponible en
+la sesión) — se verificó que sirven sin error de servidor bajo `next dev`.
+
+## 4. Pantallas del frontend (38)
+
+**El conteo pasó de 36 a 38 cuando el código existió, no antes:** `/mis-envios/[id]` y `/mis-envios/contactos` (changelog 4.10). Recontado con `find frontend/app -name page.tsx`. Este documento cuenta lo que existe, no lo que está acordado — y que exista no es que se haya probado en un teléfono ni en un navegador: ninguna de las pantallas nuevas de esta ronda ni de la anterior se abrió fuera de `next dev`.
 
 | Ruta | Pantalla |
 |---|---|
@@ -140,7 +191,9 @@ Tabla nueva `novedades` (la 18ª): cinco tipos en una sola fila-forma — `incid
 | `/rutas`, `/rutas/nueva`, `/rutas/[id]`, `/rutas/[id]/armar`, `/rutas/[id]/cierre` | Planificación, detalle (cualquier estado, changelog 4.4) y cierre de rutas |
 | `/hoy`, `/hoy/parada/[paradaId]` | PWA del repartidor — mapa, recorrido, avisos de operación con acuse (sondeo cada 20 s), cierre de parada con foto y salto a la siguiente, "Corregir un dato". Navegación propia del repartidor en `Shell` (barra inferior en pantalla chica, sidebar desde `md`). Sin cola offline (H2/E5 abierto) |
 | `/hoy/retiro`, `/hoy/cierre`, `/hoy/problema` | Retiro con conteo firmado (RF-35), cierre de jornada del repartidor (RF-26, declaración pendiente de revisión) y reporte de un problema (RF-36) |
-| `/mis-envios` | Portal de consulta del cliente |
+| `/mis-envios`, `/mis-envios/nuevo`, `/mis-envios/[id]` | Portal del cliente: consulta de cuenta, alta de pedido propio con precio vinculante (B5, changelog 4.9) y detalle de un envío (changelog 4.10) |
+| `/mis-envios/contactos` | "Mis clientes" — libreta de destinatarios que el cliente registra a mano, reutilizable al cargar un envío (RF-40, changelog 4.10) |
+| `/recepcion` | Cola de conciliación de bultos declarados por el cliente vs. cargados, para pedidos de portal (B13, changelog 4.9) |
 | `/clientes`, `/clientes/nuevo`, `/clientes/[id]` | ABM de clientes |
 | `/usuarios`, `/usuarios/nuevo` | ABM de usuarios internos |
 | `/vehiculos`, `/vehiculos/nuevo`, `/vehiculos/[id]` | ABM de flota |
@@ -154,20 +207,20 @@ Tabla nueva `novedades` (la 18ª): cinco tipos en una sola fila-forma — `incid
 
 ## 5. Modelo de datos
 
-21 entidades (`Entidades/*.cs`), agrupadas según §4 de `acta_sistema.md`:
+22 entidades (`Entidades/*.cs`), agrupadas según §4 de `acta_sistema.md`:
 
 | Bloque | Tablas |
 |---|---|
 | Geografía | `zonas`, `localidades`, `ubicaciones` |
-| Comercial | `clientes`, `tarifas` |
+| Comercial | `clientes`, `tarifas`, `clientes_destinatarios` |
 | Núcleo | `pedidos`, `pedido_eventos` |
 | Operación | `rutas`, `ruta_paradas`, `parada_pedidos`, `pruebas_entrega`, `vehiculos`, `novedades` |
 | Registro sin maquinaria | `tipos_evento_cliente`, `eventos_cliente` |
 | Cuenta corriente (E1) | `facturas`, `factura_items`, `pagos` |
 | Usuarios | `usuarios`, `clientes_usuarios`, `refresh_tokens` |
 
-DDL completo en `docs/schema_v3.sql`. Historial de migraciones (14, cronológico; las dos últimas son `AgregarRetiroDeRuta`, changelog 4.7, y `AgregarNovedades`, 4.8):
-`Inicial` → `ReglasDeBaseDeDatos` → `AgregarVehiculos` → `AgregarKmZonas` → `SepararUsuariosCliente` → `AgregarOrigenRuta` → `AgregarCatalogoDepositos` → `AgregarTipoVehiculo` → `AgregarPrecioManual` → `AgregarCuentaCorriente` → `AgregarTipoEventoAvisoCobranza` → `AgregarPrecioPorKm`.
+DDL completo en `docs/schema_v3.sql`. Historial de migraciones (16, cronológico; las cuatro últimas son `AgregarRetiroDeRuta` (4.7), `AgregarNovedades` (4.8), `AgregarRecepcionPortal` (4.9 — también elimina la FK de `pedidos.precio_manual_por`, no solo agrega columnas) y `AgregarClienteDestinatarios` (4.10)):
+`Inicial` → `ReglasDeBaseDeDatos` → `AgregarVehiculos` → `AgregarKmZonas` → `SepararUsuariosCliente` → `AgregarOrigenRuta` → `AgregarCatalogoDepositos` → `AgregarTipoVehiculo` → `AgregarPrecioManual` → `AgregarCuentaCorriente` → `AgregarTipoEventoAvisoCobranza` → `AgregarPrecioPorKm` → `AgregarRetiroDeRuta` → `AgregarNovedades` → `AgregarRecepcionPortal` → `AgregarClienteDestinatarios`.
 
 Nota: `AgregarTipoEventoAvisoCobranza` (changelog 4.3, una fila de catálogo) faltaba en esta lista desde su propia versión — el conteo de "10" en §1 antes de esta pasada ya estaba desactualizado; quedó corregido acá de paso, no es parte del alcance de changelog 4.5.
 
@@ -182,7 +235,6 @@ Coincide con lo que el Anexo I declara en §4/§7 como brecha o exclusión — s
 - **Tablero de indicadores (B2):** sigue sin construir. `/jornada` (changelog 4.4) agrega contadores y `/repartidores` (changelog 4.6) suma paradas por rango, pero ninguno calcula las 10 métricas que B2 prevé (entregas/día, km, tiempo, margen, NPS, ocupación de flota) ni compara períodos entre sí ni arma series: el acumulado de `/repartidores` es una sumatoria recalculada en cada request, sin persistir, para decidir a quién asignar — mismo encuadre que `/cobranza` (changelog 4.3). `ExportarController` sigue siendo la única vía de análisis histórico (CSV).
 - **Motor de rango de cliente (B3):** los tres indicadores (`ColorPago/Trato/Oper`) son manuales, no hay cálculo periódico ni efecto sobre tarifa/prioridad/crédito.
 - **Liquidación al repartidor (B4):** no hay controlador ni tabla de liquidación; el pago se sigue tipeando a mano en el cierre de ruta. `RepartidoresController` (changelog 4.6) **no** lo acerca: no lee ni escribe `rutas.pago_repartidor` y no expone un solo importe, ni en el listado ni en el detalle.
-- **Portal de carga del cliente (B5):** `MiCuentaController` es de solo lectura; no hay endpoint de alta de pedido para el rol cliente.
 - **Notificaciones (B6):** sigue sin construir *como sistema de notificaciones*, pero la línea previa ("sin integración de correo/WhatsApp en el código") quedó desactualizada en changelog 4.3 y no se había corregido acá. Lo que sí existe, y solo para el aviso de vencimiento del panel de cobranza: `Servicios/EmailService.cs` (HttpClient tipado contra la API REST de Resend, best-effort, nunca propaga excepción), `Servicios/AvisosCobranzaService.cs`, `Servicios/PlantillasAviso.cs` y `Dominio/EnlaceWhatsApp.cs` (link `wa.me` con el mensaje precargado — **sin API de WhatsApp**, Anexo I R7). Lo que no existe: notificación al cliente por cambio de estado del pedido, aviso al repartidor, y cualquier envío que no lo dispare una persona desde la pantalla — el sistema sigue sin scheduler.
 - **Costos fijos y rentabilidad objetivo (B7):** el margen se calcula por ruta, no hay tabla de costos fijos ni prorrateo.
 
@@ -190,9 +242,12 @@ Coincide con lo que el Anexo I declara en §4/§7 como brecha o exclusión — s
 
 ## 7. Fuentes
 
-- `docs/acta_sistema.md` v4.7 (reglas de negocio vigentes)
+- `docs/acta_sistema.md` v4.10 (reglas de negocio vigentes)
 - `docs/Anexo_I_Alcance_V2.docx` v1.0 (alcance comercial, brechas, decisiones D1-D15, definiciones §10.2)
 - `docs/construccion_v1.md` (especificación técnica, changelog detallado)
 - `docs/schema_v3.sql` (DDL)
 - Lectura directa de `backend/Logistica/{Controllers,Entidades,Dominio,Datos}` y `frontend/app` en la rama `demo-d`, 13/09/2026 (§3.11 y los conteos de §1/§4/§5 actualizados puntualmente el 16/09/2026 para changelog 4.5; §3.12, los conteos de §1/§4 y tres ítems de §6 —B2, B4, B6— actualizados el 17/09/2026 para changelog 4.6, con `RepartidoresController` releído línea por línea — no es una repasada completa del resto del documento). Segunda pasada del 17/09/2026 para la fase de gobernanza de changelog 4.7: §3.6, §3.7, la nota de §4, el ítem de modo sin conexión de §6 y la regla del encabezado, con `MisParadasController`, `JornadaService`, `AlmacenamientoFotos`, `app/hoy/*` y `app/rutas/[id]/cierre` releídos — **ningún conteo se movió, porque no se escribió código en esa pasada**
 - Pasada del 18/09/2026 (changelog 4.8, `next build` incluido — pasa): §1, §3.6, §3.7, §3.13 nuevo, §4, §5 y §6, con `MiJornadaController`, `NovedadesController`, `MisParadasController`, `RutasController`, `PedidosController`, `JornadaController` y `frontend/app/hoy/*` releídos. Conteos recontados mecánicamente. **Las pantallas nuevas pasan `tsc`, `eslint` y compilan bajo `next dev`, pero no se abrieron en un navegador**; los flujos de API sí se probaron con `curl` y `psql`.
+- Pasada del 21/09/2026 (`construccion_v1.md` changelog 1.23, identidad visual): nota bajo §1 de este documento, más `docs/schema_v3.sql`, `docs/acta_sistema.md` y los conteos §1/§4/§5 revisados por si el rediseño tocaba alguno — no tocó ninguno, es CSS/componentes de presentación sobre pantallas y endpoints que ya existían. Fuentes de diseño nuevas: `docs/Paleta.png`, `docs/Logo.png`, `docs/MobileVistaOperador.png` (agregadas al repositorio en el mismo commit). **No se abrió ninguna pantalla en un navegador real** — se revisó el diff de `frontend/app/globals.css`, `frontend/components/Shell.tsx` y los componentes nuevos (`LogoBF`, `CabeceraRepartidor`, `OrdenMovil`, `ui/drawer.tsx`) contra las tres referencias.
+- Pasada del 22/09/2026 (portal de carga y recepción, `construccion_v1.md` changelog 1.24, acta 4.9 — RF-38/RF-39): §1, §3.14 nueva, §4, §5 y la fila de B5 retirada de §6, con `MiCuentaController`, `PedidosController`, `PedidoConfiguration`, `Dominio/Reloj.cs` y `frontend/app/{mis-envios,recepcion}/*` releídos. Conteos recontados mecánicamente (los mismos comandos de §1). **Verificado con `curl` y `psql` contra la base real de desarrollo**, incluida la migración aplicada (`dotnet ef database update`) y el hallazgo de la FK de `precio_manual_por` corregido en la misma pasada, no detectado antes de escribir código. **Ninguna de las dos pantallas nuevas se abrió en un navegador real** — sin herramienta de navegador disponible en la sesión; se verificó que sirven sin error bajo `next dev` y que `next build` las compila.
+- Segunda pasada del 22/09/2026 (detalle de envío, envío en curso y "mis clientes", `construccion_v1.md` changelog 1.25, acta 4.10 — RF-40): §1, §3.15 nueva, §4, §5, con `MiCuentaController`, `PedidosController.Detalle`, `EstadoBadge.tsx` y `frontend/app/mis-envios/*` releídos. Conteos recontados mecánicamente. **Verificado con `curl`/`psql` contra la base real**, incluida la migración aplicada y la brecha de nombres de actor interno en `PedidosController.Detalle` (preexistente, cerrada en esta misma pasada — comparado explícitamente el mismo pedido como cliente y como administración). **Ninguna de las tres pantallas nuevas se abrió en un navegador real** — sin herramienta de navegador disponible en la sesión; se verificó que sirven sin error bajo `next dev` y que `next build` las compila.

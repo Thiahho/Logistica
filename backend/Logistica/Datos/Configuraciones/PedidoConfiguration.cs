@@ -63,6 +63,10 @@ public class PedidoConfiguration : IEntityTypeConfiguration<Pedido>
         b.Property(x => x.Observaciones).HasColumnName("observaciones");
         b.Property(x => x.CreadoEn).HasColumnName("creado_en").HasDefaultValueSql("now()");
 
+        b.Property(x => x.BultosDeclaradoCliente).HasColumnName("bultos_declarados_cliente");
+        b.Property(x => x.RecepcionConfirmadaEn).HasColumnName("recepcion_confirmada_en");
+        b.Property(x => x.RecepcionConfirmadaPor).HasColumnName("recepcion_confirmada_por");
+
         b.HasOne(x => x.Cliente).WithMany()
             .HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.PedidoOrigen).WithMany()
@@ -73,13 +77,16 @@ public class PedidoConfiguration : IEntityTypeConfiguration<Pedido>
             .HasForeignKey(x => x.DestinoUbicacionId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.Zona).WithMany()
             .HasForeignKey(x => x.ZonaId).OnDelete(DeleteBehavior.Restrict);
-        b.HasOne(x => x.PrecioManualPorUsuario).WithMany()
-            .HasForeignKey(x => x.PrecioManualPor).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.KmManualPorUsuario).WithMany()
             .HasForeignKey(x => x.KmManualPor).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne(x => x.RecepcionConfirmadaPorUsuario).WithMany()
+            .HasForeignKey(x => x.RecepcionConfirmadaPor).OnDelete(DeleteBehavior.Restrict);
 
         b.HasIndex(x => new { x.FechaEntrega, x.Estado });
         b.HasIndex(x => new { x.ClienteId, x.FechaEntrega });
         b.HasIndex(x => x.PedidoOrigenId);
+        // Sin relación EF (puede ser un usuarios.id o un clientes_usuarios.id, B5 §1) — sin la
+        // FK que antes generaba este índice por convención, hay que declararlo a mano.
+        b.HasIndex(x => x.PrecioManualPor);
     }
 }

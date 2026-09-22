@@ -1054,3 +1054,74 @@ export interface RepartidorDetalle {
   fallidasRango: number;
   rutas: RutaDelRango[];
 }
+
+// ---- Portal del cliente: alta (B5) y recepción (B13) ----
+
+/** Espejo de MiCuentaController.CrearPedidoPortalRequest. */
+export interface CrearPedidoPortalRequest {
+  destinatarioNombre: string;
+  destinatarioTelefono: string;
+  destinoUbicacionId: number;
+  bultos: number;
+  pesoKg: number | null;
+  fechaEntrega: string;
+  urgente: boolean;
+  tipoVehiculo: TipoVehiculo;
+  observaciones: string | null;
+}
+
+/** Espejo de MiCuentaController.PedidoPortalCreado. precio null + requiereCotizacion true = B9
+ * (zona sin tarifa): el pedido se creó igual, pero todavía no tiene precio vinculante. */
+export interface PedidoPortalCreado {
+  id: number;
+  fechaEntrega: string;
+  precio: number | null;
+  requiereCotizacion: boolean;
+}
+
+/** Cuerpo del 409 de corte horario (MiCuentaController.CrearPedido §6). */
+export interface CorteHorarioPortal {
+  mensaje: string;
+  fechaEntregaSugerida: string;
+}
+
+/** Espejo de PedidosController.PedidoRecepcionPendiente (GET /api/pedidos/recepcion-pendiente). */
+export interface PedidoRecepcionPendiente {
+  id: number;
+  clienteRazonSocial: string;
+  destinatarioNombre: string;
+  bultos: number;
+  bultosDeclaradoCliente: number;
+  creadoEn: string;
+}
+
+/** Espejo de PedidosController.ConfirmarRecepcionRequest. */
+export interface ConfirmarRecepcionRequest {
+  bultosConfirmados: number;
+  nota?: string | null;
+}
+
+/** "Mis clientes" (registro explícito, reversión de la decisión de acta 3.5, changelog 4.10) —
+ * espejo de MiCuentaController.ClienteDestinatarioResumen. Misma forma que DestinatarioFrecuente
+ * menos veces/ultimaFechaEntrega, más id/observaciones. */
+export interface ClienteDestinatarioResumen {
+  id: string;
+  nombre: string;
+  telefono: string;
+  destinoUbicacionId: number;
+  destinoCalleNumero: string;
+  localidadId: number;
+  localidadNombre: string | null;
+  lat: number | null;
+  lng: number | null;
+  geoConfianza: string | null;
+  observaciones: string | null;
+}
+
+/** Espejo de MiCuentaController.GuardarClienteDestinatarioRequest. */
+export interface GuardarClienteDestinatarioRequest {
+  nombre: string;
+  telefono: string;
+  destinoUbicacionId: number;
+  observaciones?: string | null;
+}

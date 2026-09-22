@@ -40,6 +40,7 @@ builder.Services.Configure<OpcionesPrecio>(builder.Configuration.GetSection("Pre
 builder.Services.Configure<OpcionesDeposito>(builder.Configuration.GetSection("Deposito"));
 builder.Services.Configure<OpcionesPruebaEntrega>(builder.Configuration.GetSection("PruebaEntrega"));
 builder.Services.Configure<OpcionesDistancia>(builder.Configuration.GetSection("Distancia"));
+builder.Services.Configure<OpcionesPortal>(builder.Configuration.GetSection("Portal"));
 builder.Services.AddScoped<PrecioService>();
 builder.Services.AddScoped<DistanciaService>();
 builder.Services.AddScoped<UbicacionService>();

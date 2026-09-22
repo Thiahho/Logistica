@@ -1,6 +1,8 @@
 # Acta del Sistema de Gestión Logística
-**Versión 4.7 — Documento consolidado · 17/09/2026**
-*(antes `acta_sistema_v3.md` — mismo documento, nombre sin número de versión desde esta edición)*
+**Versión 4.10 — Documento consolidado · 22/09/2026**
+*(antes `acta_sistema_v3.md` — mismo documento, nombre sin número de versión desde esta edición. Este
+encabezado había quedado clavado en 4.7 mientras §14 ya tenía la fila 4.8 — mismo patrón de atraso que
+`construccion_v1.md` señala sobre sí mismo; la versión vigente es siempre la última fila de §14.)*
 
 Reemplaza y deja sin efecto: Acta de alcance v1.0, v1.1 y v2.0, y el Acta funcional v1.0.
 Documento único de referencia. Toda discusión de alcance se resuelve contra este texto.
@@ -30,7 +32,7 @@ Sistema de gestión operativa para una empresa de logística tercerizada multi-c
 | Tracking público para el destinatario | El destinatario no paga y no reclama. | Sin fecha |
 | Aplicación nativa | La PWA cubre el caso de uso. | Sin fecha |
 | Clasificación automática de clientes | No hay historial. Cualquier fórmula hoy sería inventada. | Ciclo trimestral (§9.3), primera corrida solo con historial suficiente para no inventar la fórmula |
-| Portal de carga para el cliente | Ver sección 9. | Cuando el cliente lo pida explícitamente |
+| Portal de carga para el cliente | Construido — changelog 4.9 (22/09/2026), a pedido explícito del cliente. Ver ahí. | Hecho |
 
 ---
 
@@ -61,7 +63,7 @@ Cambiarlos después implica migración de datos, no refactor.
 | Bloque | Tablas |
 |---|---|
 | Geografía | `zonas`, `localidades`, `ubicaciones` |
-| Comercial | `clientes`, `tarifas` |
+| Comercial | `clientes`, `tarifas`, `clientes_destinatarios` |
 | Núcleo | `pedidos`, `pedido_eventos` |
 | Operación | `rutas`, `ruta_paradas`, `parada_pedidos`, `pruebas_entrega`, `vehiculos`, `novedades` |
 | Registro sin maquinaria | `tipos_evento_cliente`, `eventos_cliente` |
@@ -92,6 +94,7 @@ Dos entidades concentran las relaciones: `pedidos` (qué se prometió y a qué p
 | `cierre_repartidor_en`, `cierre_repartidor_km_final`, `cierre_repartidor_combustible`, `cierre_repartidor_peajes`, `cierre_repartidor_notas`, `cierre_repartidor_device_uuid` | `rutas` | RF-26 en dos actores (changelog 4.7): lo que el repartidor **declara** desde la calle. No son las columnas económicas del cierre (`km_inicial`, `km_final`, `combustible_monto`, `peajes_monto`), que sigue escribiendo solo administración: son un segundo juego, deliberado, para que el número de la calle y el número del cierre convivan en la fila y el desvío entre ambos sea evidencia en vez de un dato perdido. |
 | `cerrada_por` | `rutas` | Quién cerró económicamente la ruta, que es el mismo acto que aprobar la declaración del repartidor (changelog 4.7). `rutas` no tiene log de eventos propio y crearlo cruzaría el techo de tablas: esta columna es la única huella del actor de la aprobación. |
 | `documento_numero`, `foto_documento_path`, `foto_documento_borrada_en` | `pruebas_entrega` | RF-23 reescrito (changelog 4.7). `foto_documento_borrada_en` no es metadata de mantenimiento: es la constancia de que la imagen existió y se purgó al vencer la retención. El número sobrevive a la purga; la imagen no. |
+| `bultos_declarados_cliente`, `recepcion_confirmada_en`, `recepcion_confirmada_por` | `pedidos` | RF-39 / B13 (changelog 4.9). Snapshot de lo que el cliente cargó desde el portal (RF-38), completado una sola vez al alta y nunca vuelto a exponer en ningún endpoint de edición — inmutable de hecho, sin necesitar un trigger como `retiro_bultos_contados`, porque eso lo firma un dispositivo fuera del control del backend y esto no. Las otras dos sellan quién y cuándo concilió la recepción contra ese snapshot. |
 
 **Sigue en 17 tablas.** Ninguna de estas columnas abre una tabla nueva. El único agregado
 estructural es un trigger, `trg_congelar_declaracion_repartidor`, que impide editar el retiro
@@ -114,6 +117,14 @@ Columnas aditivas de la misma versión: `ruta_paradas.estado` admite `cancelada`
 los canceló operación con la ruta en curso) y `v_paradas_repartidor` suma `pedido_estado` —un
 estado, no un importe: RNF-08 y la regla 3.4 siguen intactas.
 
+**Desde el changelog 4.10 son 19 tablas: cruza el techo de 18 con `clientes_destinatarios`**
+(RF-40, "mis clientes"). A diferencia de las cruces anteriores, esta no es una función básica de un
+ciclo de operación (P6, §3) — es la reversión explícita de la decisión 3.5 (§11.1), a pedido del
+cliente, con el riesgo del dictamen legal pendiente (§11.2) asumido a sabiendas. Sin trigger de
+inmutabilidad: a diferencia de `pedidos`/`rutas`, esta tabla es ABM libre del propio cliente sobre
+su propia libreta — nada la referencia por FK desde `pedidos` (el alta de un envío copia los
+valores del contacto elegido, no guarda su id).
+
 ---
 
 ## 5. Requisitos funcionales
@@ -129,6 +140,27 @@ estado, no un importe: RNF-08 y la regla 3.4 siguen intactas.
 - **RF-07** Teléfono del destinatario como campo obligatorio.
 - **RF-08** Cierre automático de la carga a la hora de corte, congelando el conjunto del día siguiente.
 - **RF-09** Precio por cliente y zona, con la lista general como default.
+- **RF-38** Alta de pedido por el propio cliente desde un portal web propio, con corte horario diario y el precio cotizado en el momento de la carga (según el tipo de vehículo que el cliente elige) como precio final, vinculante, no estimado.
+- **RF-39** Conciliación en depósito de lo recibido contra lo que el cliente declaró al cargar desde el portal (RF-38): corrección directa mientras el pedido sigue sin confirmar, con nota obligatoria si el conteo difiere.
+- **RF-40** Registro propio del cliente de sus destinatarios habituales ("mis clientes") desde el portal, reutilizable al cargar un envío nuevo sin volver a tipear ni geocodificar.
+
+**Sobre RF-38 y RF-39 (changelog 4.9):** los números rompen la secuencia por el mismo motivo que
+RF-34 a RF-37 — los RF no se renumeran nunca. Van en §5.1 porque son actos de carga y
+tarificación, no de calle. **RF-38 no es solo "otro canal de alta":** el precio que resuelve es
+vinculante desde el momento de la carga, a diferencia de todo pedido interno, que sigue estimando
+camioneta y moto hasta que la ruta que lo lleva cierra su planificación (changelog 3.11) — ver
+Anexo I, definición D. **RF-39 no reabre P1:** mientras el pedido conciliado sigue en Borrador no
+hay ningún precio ni destino congelado que proteger; una vez que el pedido sale de Borrador, la vía
+para una discrepancia de bultos vuelve a ser el ajuste ya existente (B16), no esto.
+
+**Sobre RF-40 (changelog 4.10) — revierte la decisión 3.5 (§11.1) a propósito, no en silencio.**
+3.5 evitó una entidad `Destinatario` propia precisamente para no adelantarse al dictamen legal
+pendiente sobre tratamiento de datos del destinatario (§11.2). RF-40 es distinto en un punto que
+importa: es el propio cliente quien registra a mano a SUS destinatarios en SU portal, no la Empresa
+derivando datos de un tercero sin pedírselo — pero sigue siendo una tabla nueva y persistente con
+nombre/teléfono/dirección de una persona que no es el cliente, así que **el dictamen pendiente de
+§11.2 pasa a cubrir también esta tabla**, no solo la foto de documento de RF-23. Decisión tomada a
+sabiendas por el cliente (22/09/2026), riesgo explícito, no una lectura de quien construyó.
 
 ### 5.2 Planificación
 
@@ -217,6 +249,8 @@ lo tipeaba, con lo cual no había ninguna declaración contra la que comparar.
 - **RF-33** Indicador de uso interno, nunca visible para el cliente.
 
 **Sobre RF-32:** un indicador único obliga a promediar dimensiones que llevan a decisiones opuestas. El cliente que más factura y peor paga es simultáneamente el más valioso y el más riesgoso, y el promedio destruye esa información. Default para cliente nuevo: pago en rojo, trato y operación en amarillo. Un cliente sin historial no es neutro, es desconocido, y el costo del error es asimétrico.
+
+**Sobre RF-33 (brecha cerrada en changelog 4.10, no abierta por él):** el mismo criterio de "nunca visible para el cliente" tenía un hueco sin código desde antes de esta versión — `GET /api/pedidos/{id}` (alcanzable por el rol cliente sobre su propio pedido desde changelog 4.1/4.2) devolvía el nombre real del usuario interno que tocó ese pedido en su historial, y quién fijó un precio manual. Nadie lo había notado porque ninguna pantalla de cliente llamaba a ese endpoint hasta que el portal ganó una vista de detalle (RF-38 ya lo permitía, faltaba la pantalla). Corregido ahí mismo, no es una regla nueva.
 
 ---
 
@@ -358,7 +392,7 @@ Hoy cada pedido va del depósito del cliente al destino en un tramo. Un operador
 | Modelo de usuarios | Personal interno (administración, operación, repartidor) y consulta de cliente son dos tablas separadas, no cuatro roles en una — el login de un cliente no debe convivir con la gestión del personal interno ni compartir su ABM. El actor del log deja de ser texto libre. |
 | Formato de importación | Seis columnas obligatorias: referencia externa, destinatario, teléfono, dirección, localidad, bultos. El resto mapeable. |
 | Geocodificación y matriz de distancias | Desdobladas. No se usa matriz de distancias: con 8 a 12 paradas, nearest-neighbor con mejora local sobre distancia en línea recta queda a pocos puntos del óptimo. Solo se requiere geocodificador, una vez por dirección nueva, cacheado permanentemente. |
-| Entidad `Destinatario` propia | No se crea (changelog 3.5). El destinatario sigue siendo texto en `pedidos` — la reutilización se resuelve agregando el historial existente, no persistiendo una agenda paralela. Cruzaría el techo de tablas por segunda vez sin dolor medible que lo justifique (P6), y el tratamiento de datos del destinatario todavía no tiene dictamen legal (§11.2) — persistirlos en una tabla propia y reutilizable es exactamente lo que ese dictamen tiene que resolver primero. |
+| Entidad `Destinatario` propia | No se crea (changelog 3.5), **revertido parcialmente en changelog 4.10 (22/09/2026)** — ver esa fila. El alta interna sigue igual: la reutilización se resuelve agregando el historial existente, no persistiendo una agenda paralela. |
 
 ### 11.2 Abiertas — antes de la primera ruta
 
@@ -378,6 +412,12 @@ consintió nada (RNF-09). El plazo de retención con el que el sistema arranca (
 valor provisional puesto para poder construir el purgado, no una decisión tomada: el plazo real,
 y si la captura es admisible, salen de esa consulta. **Ninguna ruta real debería capturar imágenes
 de documento antes de tenerla hecha.**
+
+**Desde el changelog 4.10, la misma consulta pasa a cubrir también `clientes_destinatarios`
+(RF-40, "mis clientes"):** es una tabla nueva y persistente de nombre/teléfono/dirección de un
+destinatario, cargada esta vez a pedido explícito del cliente (no derivada por la Empresa), pero el
+dato en sí es el mismo tipo de dato que 3.5 (§11.1) evitó persistir hasta tener este dictamen.
+Riesgo asumido a sabiendas por el cliente, no una decisión tomada por quien construyó.
 
 ---
 
@@ -431,3 +471,5 @@ Se definen con la operación en marcha o con asesoramiento específico. Ponerlos
 | **4.6** | **17/09/2026** | **Panel de disponibilidad y carga de repartidores (RF-34), pantalla `/repartidores`.** Cierra un hueco operativo, no comercial: la asignación de repartidor existe desde RF-15 y la reasignación sobre ruta en curso desde changelog 4.4, pero **quién está libre no aparecía en ninguna pantalla** — `/jornada` parte de las rutas del día y filtra las que tienen repartidor, así que el repartidor sin ruta es exactamente el que el monitor no muestra, que es el que se necesita ver para asignar. Este panel invierte el punto de partida: arranca de `usuarios` con rol repartidor y le cuelga la ruta de hoy si la tiene. **Cero tablas nuevas: sigue en 17.** La disponibilidad no se declara, se deriva en lectura, con cuatro estados y una precedencia fija: `inactivo` (`usuarios.activo=false`, gana sobre cualquier ruta asignada), `en_ruta` (ruta de hoy `en_curso`), `asignado` (ruta de hoy `planificada`), `libre` (activo, sin ruta hoy). **No hay ausencias declaradas** — franco, vacaciones y licencia no se registran en ningún lado y siguen sin registrarse: guardarlas es lo único que justificaría la tabla `repartidores`, que §4 mantiene fuera del modelo inicial (nota agregada ahí en esta misma versión). El costo de esa decisión es explícito: un repartidor de vacaciones figura "libre" y quien planifica tiene que saberlo por fuera del sistema, igual que hoy. **No es el tablero de indicadores** (B2/E3, Anexo I §5, sigue fuera de alcance): el acumulado por rango de fechas es una sumatoria de paradas de `ruta_paradas` recalculada en cada request, sin persistir, sin comparar períodos entre sí, sin serie temporal y sin ninguna de las 10 métricas que ese ítem prevé (entregas/día, km, tiempo, margen, NPS, ocupación de flota). Existe para responder "¿a quién le cargo la ruta de mañana?", no para medir rendimiento. Mismo encuadre declarado que `/jornada` (changelog 4.4) y `/cobranza` (changelog 4.3). **Tampoco es liquidación al repartidor** (B4/E2, Anexo I; disparador "segundo repartidor" según §9.2, y bloqueada por la definición abierta §10.2-C): no toca `rutas.pago_repartidor`, no calcula ni muestra un solo importe. Detalle técnico en `construccion_v1.md` §4.5/§12, changelog 1.20. |
 | **4.7** | **17/09/2026** | **Jornada del repartidor: retiro firmado (RF-35), verificación de identidad con imagen (RF-23 reescrito) y cierre de ruta en dos actores (RF-26).** Tres cosas que el acta exigía desde la v3.0 y que el sistema no tenía dónde registrar, más una que **invierte** una decisión anterior. **RF-35** codifica la regla de §7 (*"ninguna ruta sale sin conteo firmado"*): el retiro de las 07:30 con conteo de bultos contra la lista congelada por el sistema y firma del repartidor, sin el cual no se puede registrar llegada ni cerrar parada. Un conteo distinto al esperado no bloquea la salida pero exige observación escrita — lo que la regla protege es que la discrepancia quede firmada antes de salir, no que los números coincidan. **RF-23 se invierte**: hasta esta versión decía "sin almacenar imagen del documento" y el sistema lo cumplía con un booleano; ahora guarda número de documento e imagen, con plazo de retención, purgado que deja constancia de la fecha de borrado, y acceso a la imagen restringido a administración (más estricto que la foto de la entrega, que es back-office). Decisión explícita del usuario tomada después de que se le señalara la contradicción con este RF y con RNF-09; anotada como inversión en §5.3, con su riesgo en §12 y la consulta legal de §11.2 pasando de agendada a **bloqueante** — el plazo de 30 días con el que arranca es provisional, puesto para poder construir el purgado, no una decisión tomada. **RF-26 pasa a dos actores y dos actos:** el repartidor declara km, combustible y peajes desde la calle sobre un juego de columnas propio, esa declaración queda inmutable, y administración la compara y la **aprueba o la corrige con motivo escrito** al cerrar la economía. Decisión explícita del usuario, que revierte el diseño original de un solo juego de columnas: el costo son seis columnas más, lo que compra es que el número de la calle y el del cierre convivan en la fila y que nadie pueda tapar el primero. Regla nueva en §7 (*"el número de la calle no se reescribe"*), impuesta por trigger y no por la aplicación, mismo mecanismo que el congelamiento del precio. **Cero tablas nuevas: sigue en 17**, con columnas en `rutas` y `pruebas_entrega` (§4.1) y un trigger nuevo. **Lo que este changelog NO cierra: H2/E5.** La PWA del repartidor sigue sin cola offline — sin Dexie, sin service worker, sin manifest — así que la prueba de modo avión (criterio de aceptación 3, `construccion_v1.md` §7) no se puede correr y el hito sigue abierto. Las escrituras que esta versión agrega nacen **fuera** de la cola, contra la regla 3.5 de `construccion_v1.md`: son tres más para migrar cuando la cola se construya, decisión tomada a sabiendas y no un olvido. **Esta fila se escribió en la fase de gobernanza, antes del código**, mismo procedimiento que 4.6: el alcance se acuerda acá primero y el detalle de implementación de `construccion_v1.md` 1.21 se relee y corrige contra el código al cerrar la tanda. Detalle técnico en `construccion_v1.md` §4.2/§7/§12, changelog 1.21. |
 | **4.8** | **18/09/2026** | **Novedades de la calle (RF-36, RF-37) y ciclo diario completo del repartidor.** Cierra el ciclo de la jornada: retiro firmado (RF-35), paradas con siguiente parada automática, cierre de jornada en dos actores (RF-26) —todo del changelog 4.7, ahora construido y verificado contra la API— más lo que 4.7 no tenía: qué hace el repartidor cuando algo sale distinto de lo planeado. **Sube a 18 tablas** (cruza el techo de 17 con `novedades`, §4.1, decisión explícita del usuario): incidencia de ruta o vehículo, problema con la carga y corrección propuesta de un dato de contacto (origen repartidor), más aviso de cambio y de cancelación (origen operación), en una sola tabla con historial y respuesta. **Límites que son parte de la decisión:** el repartidor propone y operación aplica (P1 no se toca: destino y precio siguen congelados desde Borrador); una dirección incorrecta sigue siendo entrega fallida, no edición; un problema de bultos no modifica `pedidos.bultos` sino que deja evidencia para el ajuste B16. Operación cancelar un pedido de una ruta en curso ya no deja al repartidor con una parada muerta: le llega el aviso y, si la parada se queda sin pedidos activos, pasa a `cancelada`. Nueva herramienta de back-office, `POST /api/rutas/{id}/interrumpir` (una ruta que no sigue y no se reasigna: lo pendiente se declara fallido con motivo y entra al circuito de reprogramación D13). **No cierra H2/E5:** la cola offline sigue siendo el plan siguiente y ahora envuelve siete caminos de escritura, no cinco. **Diferido, no olvidado:** la imagen del documento con retención (RF-23 reescrito en 4.7) sigue sin construirse, bloqueada por la consulta legal de §11.2. Categorías de novedad (`PruebaEntrega:CategoriasIncidencia/CategoriasCarga`) provisionales, mismo estatus que `MotivosFallo`. Detalle técnico en `construccion_v1.md` 1.22. |
+| **4.9** | **22/09/2026** | **Portal de carga del cliente (B5, RF-38) y recepción/conciliación (B13, RF-39) — Anexo I §5, E4 adelantada a pedido del cliente respecto del orden original (E2/E3 quedan para después).** El cliente carga su propio pedido desde `/mis-envios/nuevo`, autenticado con el mismo login de `clientes_usuarios` (changelog 3.3) que ya usaba el portal de solo lectura — el `ClienteId` se resuelve siempre del claim de sesión, nunca del body ni de la URL, mismo criterio que el resto de `MiCuentaController`. **Precio vinculante (Anexo I, definición D, resuelta 22/09/2026):** el precio que el portal cotiza en el momento de la carga, con el tipo de vehículo que el cliente elige, es el precio que se cobra — no un estimado. Decisión explícita del cliente: con facturación por ciclo (cuenta corriente, no contra entrega), un precio estimado que cambia después lo descubre semanas más tarde, en la factura, sin nadie en el medio para absorber esa fricción a diferencia de la carga interna. Mecanismo: reusa `precio_manual`/`precio_manual_por`/`precio_manual_en` (B9, changelog 4.1) — cero columnas nuevas para esto. **Corrección de un supuesto de esquema, no de la decisión:** `precio_manual_por` tenía FK a `usuarios` (personal interno); el cliente lo fija con su propio id de `clientes_usuarios`, tabla separada a propósito desde 3.3 y ausente de `usuarios`, así que la FK se relaja (la columna sigue siendo un `uuid`, ahora sin FK, resuelta a mano contra las dos tablas al mostrar en pantalla quién fijó el precio). Por el mismo motivo, el alta desde el portal no puede quedar registrada con el id del cliente como actor en `pedido_eventos` (misma FK, ahora sobre el log automático de `fn_log_estado_pedido`) — queda como actor `sistema`; el "quién" real de la carga sigue completo en `precio_manual_por`, que es el campo pensado para eso. Riesgo asumido, explícito, no del que construyó: si el planificador termina asignando un vehículo más caro que el elegido en el portal, la diferencia la absorbe la Empresa. **Corte horario (B13 §1):** 16:00, dos horas antes del corte general de las 18:00 (§7), configurable (`Portal:HoraCorte`, valor provisional, mismo estatus que `Precio:FactorUrgencia`) — se valida la hora del servidor al confirmar, no solo al mostrar el formulario, y gatilla solo sobre un pedido cuya fecha de entrega es hoy o antes: cargar para un día futuro no espera al corte. **Recepción (B13) no agrega un estado nuevo al pedido**, a diferencia de lo que preveía el Anexo I: con el corte del portal a las 16:00, la recepción siempre cae dentro de la ventana en que el pedido sigue en Borrador, así que es una edición dentro de Borrador, no una transición de estado — no hace falta tocar la máquina de estados. `bultos_declarados_cliente` (§4.1) es el snapshot contra el que se concilia; B16 (ajuste de bultos) no se toca, sigue exactamente para discrepancias descubiertas después de que el pedido se congela. Pantalla `/recepcion`: cola de trabajo con confirmación en lote para lo que coincide y corrección con nota obligatoria fila por fila para lo que no. **Cero tablas nuevas: sigue en 18.** Detalle técnico en `construccion_v1.md`, changelog 1.24. |
+| **4.10** | **22/09/2026** | **Portal del cliente: detalle de envío, envío en curso y "mis clientes" (RF-40).** Tres pedidos del cliente sobre `/mis-envios`. **Detalle y estado en curso no cambian ninguna decisión** — el backend (`GET /api/pedidos/{id}`, filtro `?estado=EnRuta`) ya estaba alcanzable por el rol cliente sobre sus propios pedidos desde que el portal se resolvió por claim de sesión (E1); solo faltaba la pantalla. **Brecha real encontrada al construir la pantalla de detalle, no introducida por ella:** ese mismo endpoint devolvía el nombre real de un usuario interno que tocó el pedido (historial) o fijó un precio manual — nadie lo notaba porque ninguna pantalla de cliente lo llamaba todavía. Cerrado ahí mismo con el mismo criterio de RF-33 ("nunca visible para el cliente"): un caller cliente ve "Empresa" en vez del nombre real de un actor interno; ve su propio nombre sin problema si el actor fue su propia cuenta de portal. **"Mis clientes" (RF-40) es la pieza que sí revierte una decisión — 3.5 (§11.1)** — a pedido explícito del cliente, con el riesgo del dictamen legal pendiente de §11.2 asumido a sabiendas y anotado ahí y en RF-40, no en silencio. Tabla nueva `clientes_destinatarios` (**sube a 19**): el cliente registra a mano nombre/teléfono/dirección de sus destinatarios habituales desde `/mis-envios/contactos`, reutilizable al cargar un envío nuevo sin volver a tipear ni geocodificar. Sin trigger de inmutabilidad (ABM libre del propio cliente sobre su propia libreta) y sin FK desde `pedidos` (el alta copia los valores del contacto elegido, no guarda su id). Detalle técnico en `construccion_v1.md`, changelog 1.25. |

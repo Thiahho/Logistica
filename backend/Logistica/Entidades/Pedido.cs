@@ -46,9 +46,12 @@ public class Pedido
     // administración en vez de tarifa_vigente — sustituye solo el origen de precio_base, la
     // fórmula de §6 (recargo, descuento, peajes) sigue igual encima. Solo editable en Borrador;
     // fn_congelar_pedido protege esta columna igual que el resto del precio (P1).
+    // Desde B5 (diseño_b5_portal_carga.md §1) también puede ser el id de un clientes_usuarios (el
+    // cliente cotizó su propio precio vinculante desde el portal) — por eso sin FK ni navegación:
+    // no hay una sola tabla a la que apuntar. Se resuelve a mano probando usuarios primero y
+    // clientes_usuarios después (PedidosController.Detalle).
     public decimal? PrecioManual { get; set; }
     public Guid? PrecioManualPor { get; set; }
-    public Usuario? PrecioManualPorUsuario { get; set; }
     public DateTimeOffset? PrecioManualEn { get; set; }
 
     // Anexo I §10.2-N (lectura ii, "precio proporcional al kilometraje recorrido") — recargo
@@ -73,4 +76,13 @@ public class Pedido
     public string OrigenCarga { get; set; } = "interno";
     public string? Observaciones { get; set; }
     public DateTimeOffset CreadoEn { get; set; }
+
+    // B13 (diseño_b13_recepcion_portal.md §3): snapshot de lo que el cliente cargó en el portal.
+    // Se completa una sola vez al alta, solo si OrigenCarga = "portal"; nunca se vuelve a escribir
+    // desde ningún endpoint, así que no necesita un trigger de inmutabilidad como
+    // retiro_bultos_contados (ese lo firma un dispositivo fuera del control del backend, esto no).
+    public int? BultosDeclaradoCliente { get; set; }
+    public DateTimeOffset? RecepcionConfirmadaEn { get; set; }
+    public Guid? RecepcionConfirmadaPor { get; set; }
+    public Usuario? RecepcionConfirmadaPorUsuario { get; set; }
 }

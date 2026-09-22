@@ -47,6 +47,7 @@ public class LogisticaDbContext(DbContextOptions<LogisticaDbContext> options) : 
     public DbSet<FacturaItem> FacturaItems => Set<FacturaItem>();
     public DbSet<Pago> Pagos => Set<Pago>();
     public DbSet<Novedad> Novedades => Set<Novedad>();
+    public DbSet<ClienteDestinatario> ClientesDestinatarios => Set<ClienteDestinatario>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

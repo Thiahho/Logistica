@@ -34,6 +34,9 @@ interface SelectorDireccionProps {
   onCambio: (direccion: DireccionResuelta | null) => void;
   idPrefijo?: string;
   disabled?: boolean;
+  /** B5: /mis-envios/nuevo pasa "/api/mi-cuenta" (ver SelectorLocalidad.basePath) — el rol
+   * 'cliente' no puede llegar a /api/ubicaciones ni /api/localidades (BackOffice de clase). */
+  basePath?: string;
 }
 
 /**
@@ -43,7 +46,9 @@ interface SelectorDireccionProps {
  * partida de una ruta (acta changelog 3.6). pedidos/nuevo NO se migró a este componente todavía
  * — aplicarSugerencia escribe ese estado desde afuera y necesitaría una variante controlada.
  */
-export function SelectorDireccion({ inicial, onCambio, idPrefijo = "direccion", disabled }: SelectorDireccionProps) {
+export function SelectorDireccion({
+  inicial, onCambio, idPrefijo = "direccion", disabled, basePath = "/api",
+}: SelectorDireccionProps) {
   const { fetchConSesion } = useAuth();
 
   const [calleNumero, setCalleNumero] = useState(inicial?.calleNumero ?? "");
@@ -92,7 +97,7 @@ export function SelectorDireccion({ inicial, onCambio, idPrefijo = "direccion", 
       setGeocodificando(true);
       setErrorUbicacion(null);
       try {
-        const resp = await fetchConSesion("/api/ubicaciones", {
+        const resp = await fetchConSesion(`${basePath}/ubicaciones`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ calleNumero: calleTrim, localidadId, referencia: null }),
@@ -123,7 +128,7 @@ export function SelectorDireccion({ inicial, onCambio, idPrefijo = "direccion", 
       abort.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onCambio no es reactivo (callback estable del padre)
-  }, [calleTrim, localidadId, ubicacionResuelta, fetchConSesion, localidadConocida]);
+  }, [calleTrim, localidadId, ubicacionResuelta, fetchConSesion, localidadConocida, basePath]);
 
   const direccionDudosa =
     direccionVigente !== null && direccionVigente.geoConfianza !== "alta" && direccionVigente.geoConfianza !== "media";
@@ -139,6 +144,7 @@ export function SelectorDireccion({ inicial, onCambio, idPrefijo = "direccion", 
           conocida={localidadConocida}
           placeholder="Buscar localidad…"
           disabled={disabled}
+          basePath={basePath}
         />
       </div>
       <div className="flex flex-col gap-2">
