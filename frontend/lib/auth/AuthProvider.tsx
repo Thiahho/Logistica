@@ -11,7 +11,9 @@ import {
 import { leerError } from "@/lib/api/errores";
 import type { Usuario } from "./types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL!;
+// Vacío = mismo origen: en producción el frontend reenvía /api/* al backend (rewrites de next.config.ts),
+// así la cookie de sesión es del mismo sitio que la página y no hay CORS.
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 interface EstadoAuth {
   usuario: Usuario | null;
