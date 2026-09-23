@@ -66,13 +66,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      const token = await refrescar();
-      if (token) {
-        try {
-          setUsuario(await obtenerUsuario(token));
-        } catch {
-          accessTokenRef.current = null;
-        }
+      try {
+        const token = await refrescar();
+        if (token) setUsuario(await obtenerUsuario(token));
+      } catch {
+        // Sin red, CORS o backend caído: se trata como "sin sesión" para no dejar la pantalla en blanco.
+        accessTokenRef.current = null;
       }
       setCargando(false);
     })();
