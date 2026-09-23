@@ -1,0 +1,47 @@
+# .NET
+backend/**/bin/
+backend/**/obj/
+backend/**/.vs/
+*.user
+
+# Fotos de prueba de entrega (H2) — datos personales del destinatario, RNF-09, no van al repo
+backend/Logistica/almacenamiento/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env*.local
+
+# Env / secrets
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Configuración local de desarrollo (cadena de conexión con la contraseña de Postgres).
+# Copiar appsettings.Development.example.json a appsettings.Development.json y completar.
+backend/**/appsettings.Development.json
+
+# Herramientas y archivos de trabajo locales, no forman parte del producto
+graphify-out/
+tasks/
+frontend/AGENTS.md
+frontend/CLAUDE.md
+.claude/
+
+# Informes internos de seguridad y pruebas, y material comercial/de diseño
+docs/auditoria_seguridad.md
+docs/resultados_test_sistema.md
+docs/Anexo_I_Alcance_V2.docx
+docs/*.png
+
+# Artefactos de compilación (ya cubiertos arriba; explícito por si vuelven a versionarse por error)
+backend/**/bin/
+backend/**/obj/
+backend/**/.vs/
+.vs/
+*.suo
+*.user
