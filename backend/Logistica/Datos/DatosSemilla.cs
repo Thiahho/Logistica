@@ -17,6 +17,12 @@ public static class DatosSemilla
 {
     public static async Task SembrarAsync(LogisticaDbContext db, OpcionesDeposito deposito, CancellationToken ct = default)
     {
+        // Base recién creada = todavía no hay usuarios. La ruta de demostración de más abajo solo tiene
+        // sentido ahí: en una base que ya se usó, "no hay rutas" significa que alguien las borró (limpieza
+        // de datos de prueba), no que falte sembrarlas — recrearlas devolvía la demo a una base limpia
+        // (y fallaba en cuanto había más de un repartidor).
+        var esBaseNueva = !await db.Usuarios.AnyAsync(ct);
+
         if (!await db.Zonas.AnyAsync(ct))
         {
             db.Zonas.AddRange(
@@ -179,7 +185,7 @@ public static class DatosSemilla
         // Ruta de ayer, en curso y sin cerrar: sin esto el cierre económico (RF-26/27) no se
         // puede probar de punta a punta en desarrollo sin haber armado una ruta a mano primero
         // (el armado en sí es una fase posterior).
-        if (!await db.Rutas.AnyAsync(ct))
+        if (esBaseNueva && !await db.Rutas.AnyAsync(ct))
         {
             var repartidor = await db.Usuarios.SingleAsync(u => u.Rol == Roles.Repartidor, ct);
             var vehiculo = await db.Vehiculos.SingleAsync(v => v.Patente == "AB123CD", ct);

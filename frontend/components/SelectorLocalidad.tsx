@@ -46,9 +46,10 @@ const RESULTADO_VACIO: ResultadoBusquedaLocalidad = { existentes: [], sugeridas:
  * Combobox de localidad que busca contra el catálogo propio y, si este se queda corto, también
  * contra OSM (`GET /api/localidades/buscar`) — el catálogo hoy solo tiene lo que alguien cargó a
  * mano (5 filas), y una dirección real en cualquier otro lado no tenía forma de entrar. Elegir una
- * sugerencia la da de alta sola y sin zona (`POST /api/localidades`, acta changelog 3.9): queda
- * disponible al instante para direcciones y depósitos, pero un pedido ahí sigue bloqueado para
- * cotizar hasta que administración le asigne zona — la decisión de precio nunca se infiere sola.
+ * sugerencia la da de alta sola (`POST /api/localidades`, acta changelog 3.9) y el servidor le
+ * asigna la zona midiendo su distancia al depósito contra los rangos de km de /tarifas (changelog
+ * 4.11). Si no se pudo medir o ningún rango la cubre, queda sin zona y no cotiza hasta que
+ * administración se la asigne a mano.
  *
  * Server-driven (mismo `ComboboxBusqueda` que usa el resto del sistema, con `textoBusqueda`, el
  * modo que su propio docblock ya preveía): a diferencia del filtrado en memoria, acá el input queda

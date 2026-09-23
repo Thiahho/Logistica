@@ -196,6 +196,7 @@ function ListaPedidos() {
                 ))}
                 <TableHead>Cliente</TableHead>
                 <TableHead>Destinatario</TableHead>
+                <TableHead>Bultos</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -235,6 +236,7 @@ function ListaPedidos() {
                       </span>
                     )}
                   </TableCell>
+                  <TableCell>{p.bultos}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

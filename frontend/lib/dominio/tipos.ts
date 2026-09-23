@@ -34,6 +34,8 @@ export interface PedidoResumen {
   clienteId: number;
   clienteRazonSocial: string;
   direccionDudosa: boolean;
+  /** Bultos del pedido (declarados por el cliente o confirmados en recepción). */
+  bultos: number;
   /** B9 (Anexo I §4, "+40 km → Cotización"): true si la zona de destino no tiene ninguna tarifa
    * cargada y todavía no se le fijó un precio manual. Solo puede ser true en Borrador. */
   requiereCotizacion: boolean;
@@ -56,6 +58,22 @@ export interface HistorialEvento {
   ocurridoEn: string;
 }
 
+/** GET /api/mi-cuenta/plan-del-dia: envío de hoy del cliente con sus cambios de estado. */
+export interface EventoEstado {
+  estado: EstadoPedido;
+  motivo: string | null;
+  ocurridoEn: string;
+}
+
+export interface PedidoDelDia {
+  id: number;
+  destinatarioNombre: string;
+  estado: EstadoPedido;
+  destinoCalleNumero: string;
+  destinoLocalidad: string | null;
+  eventos: EventoEstado[];
+}
+
 export interface PedidoDetalle {
   id: number;
   clienteId: number;
@@ -65,6 +83,9 @@ export interface PedidoDetalle {
   pedidoOrigenId: number | null;
   destinoCalleNumero: string;
   destinoLocalidad: string | null;
+  /** Coordenadas del destino (null si la dirección no se pudo geocodificar). */
+  destinoLat: number | null;
+  destinoLng: number | null;
   destinatarioNombre: string;
   destinatarioTelefono: string;
   bultos: number;
@@ -153,17 +174,43 @@ export interface Zona {
   activa: boolean;
 }
 
-/** Localidad sin zona asignada, bloqueada para cotizar (GET /api/localidades/pendientes, acta
- * changelog 3.10). La zona sugerida es orientativa (por distancia al depósito contra los rangos
- * de km ya cargados en /tarifas) — nunca se aplica sola, hace falta confirmar con `PUT .../zona`. */
+/** Localidad que quedó sin zona y bloqueada para cotizar (GET /api/localidades/pendientes). La zona
+ * se asigna sola midiendo contra el depósito (acta changelog 4.11); acá solo llegan las que no se
+ * pudieron medir o que ningún rango de km cubre — se resuelven con `PUT .../zona`. */
 export interface LocalidadPendiente {
   id: number;
   nombre: string;
   partido: string | null;
   distanciaKmDeposito: number | null;
-  zonaSugeridaId: number | null;
-  zonaSugeridaCodigo: string | null;
-  zonaSugeridaNombre: string | null;
+  motivo: "sin_coordenadas" | "fuera_de_rango";
+}
+
+/** GET /api/localidades/con-zona: todas, con su zona y si fue automática o manual. */
+export interface LocalidadDeZona {
+  id: number;
+  nombre: string;
+  partido: string | null;
+  zonaId: number | null;
+  zonaCodigo: string | null;
+  distanciaKmDeposito: number | null;
+  zonaManual: boolean;
+}
+
+/** POST /api/localidades/recalcular. */
+export interface ResultadoRecalculo {
+  asignadas: number;
+  sinZona: number;
+  sinCoordenadas: number;
+}
+
+/** Precio orientativo al elegir la localidad: solo tarifa de la zona, por tipo de vehículo. */
+export interface PrecioSugeridoLocalidad {
+  zonaCodigo: string | null;
+  zonaNombre: string | null;
+  distanciaKm: number | null;
+  camioneta: number | null;
+  moto: number | null;
+  requiereCotizacion: boolean;
 }
 
 /** Precio por cliente, ahora por zona x tipo de vehículo (acta changelog 3.11): camioneta y moto
@@ -313,6 +360,8 @@ export interface RutaResumen {
   repartidorNombre: string | null;
   estado: EstadoRuta;
   cantidadParadas: number;
+  /** Suma de bultos de los pedidos de todas las paradas. */
+  cantidadBultos: number;
 }
 
 export interface RutaDetalle {
@@ -465,6 +514,25 @@ export interface PedidoDeParada {
   /** Estado del pedido (EnRuta, Cancelado...). Un pedido Cancelado lo canceló operación con la ruta
    * en curso: no se entrega, y el cierre de la parada lo saltea. */
   estado: EstadoPedido;
+}
+
+/** Espejo de PedidosController.PruebaEntregaResumen (GET /api/pedidos/{id}/prueba-entrega, solo administración). */
+export interface PruebaEntregaResumen {
+  id: number;
+  resultado: "entregado" | "fallido";
+  motivoFallo: string | null;
+  receptorNombre: string | null;
+  identidadVerificada: boolean;
+  /** DNI del receptor, solo dígitos. null si no lo dio (ver sinDocumentoMotivo). */
+  documentoNumero: string | null;
+  sinDocumentoMotivo: string | null;
+  tieneFoto: boolean;
+  lat: number | null;
+  lng: number | null;
+  desvioMetros: number | null;
+  desvioAlto: boolean;
+  capturadaEn: string;
+  sincronizadaEn: string;
 }
 
 /** Espejo de MisParadasController.ParadaDelDia (GET /api/mis-paradas/dia). */

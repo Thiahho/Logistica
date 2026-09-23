@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
@@ -46,12 +46,17 @@ interface ParadaConsolidada {
   lat: number | null;
   lng: number | null;
   pedidoIds: number[];
+  bultos: number;
 }
+
+const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
 
 export default function ArmarRutaPage() {
   return (
     <RequireRole roles={["administracion", "operacion"]}>
-      <ArmarRuta />
+      <Suspense fallback={null}>
+        <ArmarRuta />
+      </Suspense>
     </RequireRole>
   );
 }
@@ -60,6 +65,13 @@ function ArmarRuta() {
   const { id } = useParams<{ id: string }>();
   const { fetchConSesion } = useAuth();
   const router = useRouter();
+  // ?todos=1 (desde "Preparar ruta" en /rutas): al abrir una ruta todavía sin paradas se preselecciona
+  // todo lo apto de la fecha, listo para ajustar. Necesita candidatos y paradas guardadas, que llegan
+  // por separado: cada callback anota lo suyo y prueba aplicar (una sola vez).
+  const quiereTodos = useSearchParams().get("todos") === "1";
+  const candidatosCargados = useRef<CandidatoRuta[] | null>(null);
+  const paradasGuardadas = useRef<number | null>(null);
+  const preseleccionHecha = useRef(false);
 
   const [ruta, setRuta] = useState<RutaDetalle | null>(null);
   const [candidatos, setCandidatos] = useState<CandidatoRuta[] | null>(null);
@@ -132,13 +144,25 @@ function ArmarRuta() {
 
   useEffect(cargarRuta, [cargarRuta]);
 
+  const intentarPreseleccion = useCallback(() => {
+    const cands = candidatosCargados.current;
+    const nParadas = paradasGuardadas.current;
+    if (!quiereTodos || preseleccionHecha.current || cands === null || nParadas === null) return;
+    preseleccionHecha.current = true;
+    if (nParadas === 0) setSeleccionados(new Set(cands.filter((c) => c.direccionApta).map((c) => c.pedidoId)));
+  }, [quiereTodos]);
+
   useEffect(() => {
     if (!ruta) return;
     fetchConSesion(`/api/pedidos/candidatos-ruta?fecha=${ruta.fecha}&rutaId=${id}`)
       .then((r) => leerJson<CandidatoRuta[]>(r))
-      .then(setCandidatos)
+      .then((c) => {
+        setCandidatos(c);
+        candidatosCargados.current = c;
+        intentarPreseleccion();
+      })
       .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudieron cargar los candidatos."));
-  }, [fetchConSesion, ruta, id]);
+  }, [fetchConSesion, ruta, id, intentarPreseleccion]);
 
   useEffect(() => {
     fetchConSesion(`/api/rutas/${id}/paradas`)
@@ -147,9 +171,11 @@ function ArmarRuta() {
         setOrdenUbicaciones(paradas.map((p) => p.ubicacionId));
         setAnclajes(new Set(paradas.filter((p) => p.anclada).map((p) => p.ubicacionId)));
         setSeleccionados(new Set(paradas.flatMap((p) => p.pedidoIds)));
+        paradasGuardadas.current = paradas.length;
+        intentarPreseleccion();
       })
       .catch((err) => setErrorCarga(err instanceof Error ? err.message : "No se pudieron cargar las paradas."));
-  }, [fetchConSesion, id]);
+  }, [fetchConSesion, id, intentarPreseleccion]);
 
   useEffect(() => {
     fetchConSesion("/api/usuarios/seleccion?rol=repartidor")
@@ -181,14 +207,17 @@ function ArmarRuta() {
     for (const c of candidatos ?? []) {
       if (!seleccionados.has(c.pedidoId)) continue;
       const existente = mapa.get(c.destinoUbicacionId);
-      if (existente) existente.pedidoIds.push(c.pedidoId);
-      else
+      if (existente) {
+        existente.pedidoIds.push(c.pedidoId);
+        existente.bultos += c.bultos;
+      } else
         mapa.set(c.destinoUbicacionId, {
           calleNumero: c.destinoCalleNumero,
           localidad: c.destinoLocalidad,
           lat: c.lat,
           lng: c.lng,
           pedidoIds: [c.pedidoId],
+          bultos: c.bultos,
         });
     }
     return mapa;
@@ -298,6 +327,28 @@ function ArmarRuta() {
     }
     return [...mapa.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [candidatos]);
+
+  // Totales de lo elegido, para saber de un vistazo cuánta carga lleva la ruta.
+  const totalBultosSeleccionados = (candidatos ?? [])
+    .filter((c) => seleccionados.has(c.pedidoId))
+    .reduce((suma, c) => suma + c.bultos, 0);
+
+  const aptos = (candidatos ?? []).filter((c) => c.direccionApta);
+  const todosSeleccionados = aptos.length > 0 && aptos.every((c) => seleccionados.has(c.pedidoId));
+
+  /** Marca o desmarca de una vez un grupo de pedidos (una zona o todos). Solo los aptos: una
+   * dirección dudosa no se puede rutear, sigue con su aviso y hay que corregirla antes. */
+  function fijarSeleccion(grupo: CandidatoRuta[], marcar: boolean) {
+    setSeleccionados((actual) => {
+      const nuevo = new Set(actual);
+      for (const c of grupo) {
+        if (!c.direccionApta) continue;
+        if (marcar) nuevo.add(c.pedidoId);
+        else nuevo.delete(c.pedidoId);
+      }
+      return nuevo;
+    });
+  }
 
   function alternarSeleccion(pedidoId: number) {
     setSeleccionados((actual) => {
@@ -532,14 +583,52 @@ function ArmarRuta() {
           <CardTitle className="text-base">Pedidos disponibles del {ruta.fecha}, por zona</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          {candidatos && candidatos.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/50 p-3 text-sm">
+              <p className="font-medium">
+                Seleccionados: {plural(seleccionados.size, "pedido", "pedidos")} · {plural(totalBultosSeleccionados, "bulto", "bultos")}
+                <span className="font-normal text-muted-foreground">
+                  {" "}
+                  de {plural(candidatos.length, "disponible", "disponibles")} ({plural(candidatos.reduce((n, c) => n + c.bultos, 0), "bulto", "bultos")})
+                </span>
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-10 md:h-8"
+                disabled={aptos.length === 0}
+                onClick={() => fijarSeleccion(candidatos, !todosSeleccionados)}
+              >
+                {todosSeleccionados ? "Quitar todos" : "Seleccionar todos"}
+              </Button>
+            </div>
+          )}
           {!candidatos ? (
             <p className="text-muted-foreground">Cargando…</p>
           ) : candidatosPorZona.length === 0 ? (
             <p className="text-muted-foreground">No hay pedidos confirmados sin ruta para esta fecha.</p>
           ) : (
-            candidatosPorZona.map(([zona, items]) => (
+            candidatosPorZona.map(([zona, items]) => {
+              const aptosZona = items.filter((c) => c.direccionApta);
+              const zonaCompleta = aptosZona.length > 0 && aptosZona.every((c) => seleccionados.has(c.pedidoId));
+              return (
               <div key={zona} className="flex flex-col gap-2">
-                <p className="text-sm font-medium text-muted-foreground">Zona {zona}</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Zona {zona} · {plural(items.length, "pedido", "pedidos")} · {plural(items.reduce((n, c) => n + c.bultos, 0), "bulto", "bultos")}
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-10 md:h-8"
+                    disabled={aptosZona.length === 0}
+                    onClick={() => fijarSeleccion(items, !zonaCompleta)}
+                  >
+                    {zonaCompleta ? "Quitar la zona" : "Seleccionar toda la zona"}
+                  </Button>
+                </div>
                 <ul className="flex flex-col gap-1">
                   {items.map((c) => (
                     <li key={c.pedidoId} className="flex items-center gap-2 text-sm">
@@ -568,7 +657,8 @@ function ArmarRuta() {
                   ))}
                 </ul>
               </div>
-            ))
+              );
+            })
           )}
         </CardContent>
       </Card>
@@ -602,6 +692,9 @@ function ArmarRuta() {
           <CardTitle className="text-base flex items-center justify-between">
             <span>
               Paradas ({paradas.length} / {capacidadParadas})
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                {plural(totalBultosSeleccionados, "bulto", "bultos")}
+              </span>
             </span>
             <Button size="sm" variant="outline" disabled={!puntoPartida || paradas.length < 2} onClick={sugerir}>
               Sugerir orden
@@ -639,7 +732,7 @@ function ArmarRuta() {
                       {p.localidad ? `, ${p.localidad}` : ""}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {p.pedidoIds.length} pedido(s): {p.pedidoIds.map((pid) => `#${pid}`).join(", ")}
+                      {p.pedidoIds.length} pedido(s) · {plural(p.bultos, "bulto", "bultos")}: {p.pedidoIds.map((pid) => `#${pid}`).join(", ")}
                       {(p.lat === null || p.lng === null) && " · sin coordenadas"}
                     </p>
                   </div>

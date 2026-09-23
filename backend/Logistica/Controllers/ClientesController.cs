@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Logistica.Web;
 using Logistica.Auth;
 using Logistica.Datos;
 using Logistica.Dominio;
@@ -154,9 +155,10 @@ public class ClientesController(
         };
 
         var total = clientes.Count;
+        tamanioPagina = Paginacion.TamanioEfectivo(tamanioPagina);
         if (tamanioPagina is > 0)
         {
-            var paginaActual = pagina is > 0 ? pagina.Value : 1;
+            var paginaActual = pagina is > 0 ? Math.Min(pagina.Value, 1_000_000) : 1;
             clientes = clientes.Skip((paginaActual - 1) * tamanioPagina.Value).Take(tamanioPagina.Value).ToList();
         }
 

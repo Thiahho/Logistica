@@ -14,6 +14,7 @@ import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
 import { SelectorLocalidad, type LocalidadConocida } from "@/components/SelectorLocalidad";
 import { SugerenciaDestinatario } from "@/components/SugerenciaDestinatario";
 import { leerError, leerJson } from "@/lib/api/errores";
+import { CampoLinkMapa } from "@/components/CampoLinkMapa";
 import { etiquetaTipoVehiculo, type ClienteSeleccion, type CotizacionEstimada, type DestinatarioFrecuente } from "@/lib/dominio/tipos";
 
 interface UbicacionResuelta {
@@ -21,6 +22,8 @@ interface UbicacionResuelta {
   lat: number | null;
   lng: number | null;
   geoConfianza: string | null;
+  urlMapaAplicada?: boolean;
+  urlMapaError?: string | null;
 }
 
 const hoyISO = () => new Date().toISOString().slice(0, 10);
@@ -46,6 +49,8 @@ function FormularioAlta() {
   const [calleNumero, setCalleNumero] = useState("");
   const [localidadId, setLocalidadId] = useState<number | null>(null);
   const [localidadConocida, setLocalidadConocida] = useState<LocalidadConocida | null>(null);
+  // Link de Google Maps opcional (suele llegar por WhatsApp): el servidor toma el punto exacto de ahí.
+  const [urlMapa, setUrlMapa] = useState("");
   const [bultos, setBultos] = useState(1);
   const [pesoKg, setPesoKg] = useState("");
   const [valorDeclarado, setValorDeclarado] = useState("");
@@ -63,6 +68,7 @@ function FormularioAlta() {
   const [ubicacionResuelta, setUbicacionResuelta] = useState<{
     calleNumero: string;
     localidadId: number;
+    urlMapa: string;
     ubicacion: UbicacionResuelta;
   } | null>(null);
   const [geocodificando, setGeocodificando] = useState(false);
@@ -86,8 +92,12 @@ function FormularioAlta() {
   }, [fetchConSesion]);
 
   const calleTrim = calleNumero.trim();
+  const urlTrim = urlMapa.trim();
   const ubicacionVigente =
-    ubicacionResuelta && ubicacionResuelta.calleNumero === calleTrim && ubicacionResuelta.localidadId === localidadId
+    ubicacionResuelta &&
+    ubicacionResuelta.calleNumero === calleTrim &&
+    ubicacionResuelta.localidadId === localidadId &&
+    ubicacionResuelta.urlMapa === urlTrim
       ? ubicacionResuelta.ubicacion
       : null;
 
@@ -95,7 +105,7 @@ function FormularioAlta() {
     const resp = await fetchConSesion("/api/ubicaciones", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ calleNumero: calle, localidadId: localidad, referencia: null }),
+      body: JSON.stringify({ calleNumero: calle, localidadId: localidad, referencia: null, urlMapa: urlTrim || null }),
       signal,
     });
     if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
@@ -109,7 +119,12 @@ function FormularioAlta() {
   useEffect(() => {
     if (!calleTrim || localidadId === null) return;
     // Ya resuelto (por geocodificación previa o por una sugerencia elegida): nada que hacer.
-    if (ubicacionResuelta?.calleNumero === calleTrim && ubicacionResuelta.localidadId === localidadId) return;
+    if (
+      ubicacionResuelta?.calleNumero === calleTrim &&
+      ubicacionResuelta.localidadId === localidadId &&
+      ubicacionResuelta.urlMapa === urlTrim
+    )
+      return;
 
     const abort = new AbortController();
     const timeout = setTimeout(async () => {
@@ -117,7 +132,7 @@ function FormularioAlta() {
       setErrorUbicacion(null);
       try {
         const destino = await resolverUbicacion(calleTrim, localidadId, abort.signal);
-        setUbicacionResuelta({ calleNumero: calleTrim, localidadId, ubicacion: destino });
+        setUbicacionResuelta({ calleNumero: calleTrim, localidadId, urlMapa: urlTrim, ubicacion: destino });
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         setErrorUbicacion(err instanceof Error ? err.message : "No se pudo geocodificar la dirección.");
@@ -130,7 +145,7 @@ function FormularioAlta() {
       abort.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- resolverUbicacion no es reactivo (solo usa fetchConSesion, ya en deps)
-  }, [calleTrim, localidadId, ubicacionResuelta, fetchConSesion]);
+  }, [calleTrim, localidadId, urlTrim, ubicacionResuelta, fetchConSesion]);
 
   // Al elegir un destinatario ya usado se prellena todo el bloque de entrega y se reusa la
   // ubicación que ese pedido anterior ya tenía resuelta: cero llamadas al geocoder. Si el
@@ -149,6 +164,7 @@ function FormularioAlta() {
     setUbicacionResuelta({
       calleNumero: s.destinoCalleNumero,
       localidadId: s.localidadId,
+      urlMapa: urlTrim,
       ubicacion: { id: s.destinoUbicacionId, lat: s.lat, lng: s.lng, geoConfianza: s.geoConfianza },
     });
   }
@@ -333,7 +349,7 @@ function FormularioAlta() {
               {errorUbicacion && !geocodificando && (
                 <p className="text-sm text-destructive">{errorUbicacion}</p>
               )}
-              {ubicacionVigente && !geocodificando && !errorUbicacion && (
+              {ubicacionVigente && !geocodificando && !errorUbicacion && !ubicacionVigente.urlMapaAplicada && (
                 <p className={`text-sm ${direccionDudosa ? "text-destructive" : "text-muted-foreground"}`}>
                   {direccionDudosa
                     ? "Dirección sin confirmar: se guarda igual, pero queda marcada como dudosa."
@@ -341,6 +357,13 @@ function FormularioAlta() {
                 </p>
               )}
             </div>
+            <CampoLinkMapa
+              id="direccion-mapa"
+              value={urlMapa}
+              onChange={setUrlMapa}
+              aplicado={ubicacionVigente?.urlMapaAplicada}
+              error={ubicacionVigente?.urlMapaError}
+            />
           </CardContent>
         </Card>
 

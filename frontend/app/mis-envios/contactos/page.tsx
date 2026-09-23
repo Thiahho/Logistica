@@ -231,6 +231,7 @@ function LibretaDestinatarios() {
             onCambio={setDireccionNueva}
             idPrefijo="contacto-nuevo"
             basePath="/api/mi-cuenta"
+            permitirLinkMapa
           />
           <div className="flex flex-col gap-2">
             <Label htmlFor="contacto-observaciones">Observaciones (opcional)</Label>

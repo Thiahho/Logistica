@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -9,6 +9,7 @@ import {
   MapPin,
   Navigation,
   Package,
+  Play,
   X,
 } from "lucide-react";
 import { RequireRole } from "@/lib/auth/RequireRole";
@@ -21,6 +22,8 @@ import { MapaDinamico } from "@/components/mapa/MapaDinamico";
 import type { MarcadorMapa, VarianteMarcador } from "@/components/mapa/Mapa";
 import { EstadoParadaBadge } from "@/components/EstadoBadge";
 import { ProgresoParadas } from "@/components/ProgresoParadas";
+import { RutaEnGoogleMaps } from "@/components/RutaEnGoogleMaps";
+import { AvisoParadaHecha } from "@/components/AvisoParadaHecha";
 import {
   ETIQUETA_TIPO_NOVEDAD,
   etiquetaCategoria,
@@ -108,6 +111,7 @@ function GuiaDeRuta() {
 
   const resueltas = jornada.completadas + jornada.fallidas + jornada.canceladas;
   const proxima = jornada.paradas.find((p) => p.estado === "pendiente");
+  const pendientes = jornada.paradas.filter((p) => p.estado === "pendiente").length;
   // RF-35 / acta §7: sin retiro firmado el servidor rechaza llegada y cierre (409), así que la UI
   // ni ofrece abrir una parada. El mapa se sigue viendo: saber a dónde vas antes de cargar sirve.
   const retiroPendiente = jornada.retiroConfirmadoEn === null;
@@ -118,6 +122,10 @@ function GuiaDeRuta() {
   return (
     <div className="p-4 flex flex-col gap-4 pb-8">
       <CabeceraRepartidor titulo="Hoy" />
+
+      <Suspense fallback={null}>
+        <AvisoParadaHecha pendientes={pendientes} />
+      </Suspense>
 
       {avisos.length > 0 && (
         <div className="flex flex-col gap-2">
@@ -148,19 +156,43 @@ function GuiaDeRuta() {
             {jornada.origen.localidad ? `, ${jornada.origen.localidad}` : ""}
           </p>
         )}
+        {!retiroPendiente && jornada.retiroConfirmadoEn && (
+          <p className="text-sm font-medium text-green-700">
+            Ruta en marcha · salió a las{" "}
+            {new Date(jornada.retiroConfirmadoEn).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+          </p>
+        )}
         {error && <p className="text-xs text-amber-700">Sin conexión: mostrando lo último que se pudo cargar.</p>}
       </div>
 
       {retiroPendiente && (
         <div className="rounded-2xl border-2 border-amber-500 bg-amber-50/60 p-4 flex flex-col gap-3">
           <div>
-            <span className="text-xs font-semibold uppercase tracking-wide text-amber-700">Retiro pendiente</span>
-            <p className="font-medium">Antes de salir: contá los {jornada.bultosEsperados} bulto(s) y firmá.</p>
+            <span className="text-xs font-semibold uppercase tracking-wide text-amber-700">Todavía no saliste</span>
+            <p className="font-medium">Empezá la ruta para poder registrar las entregas.</p>
           </div>
-          <Button className="h-12 w-full text-base" render={<Link href="/hoy/retiro" />} nativeButton={false}>
-            Hacer el retiro
+          <ol className="list-decimal space-y-0.5 pl-5 text-sm text-muted-foreground">
+            <li>Contá los {jornada.bultosEsperados} bulto(s) que cargás.</li>
+            <li>Anotá el km del tablero.</li>
+            <li>Firmá y salí.</li>
+          </ol>
+          <Button className="h-12 w-full gap-2 text-base" render={<Link href="/hoy/retiro" />} nativeButton={false}>
+            <Play className="size-4" />
+            Empezar ruta
           </Button>
         </div>
+      )}
+
+      {/* Toda la ruta en Google Maps (salida + paradas en orden). Se ve desde antes de empezar: saber a
+      dónde vas sirve antes de cargar. Con la ruta en marcha, solo lo que falta y desde donde estás. */}
+      {jornada.paradas.length > 0 && !jornada.cierreRepartidorEn && (
+        <RutaEnGoogleMaps
+          origen={jornada.origen}
+          paradas={jornada.paradas}
+          estado="en_curso"
+          mostrarCopiar={false}
+          grande
+        />
       )}
 
       {/* Próxima parada — la "ventana" funcional que importa primero: qué sigue, y cómo llegar. */}
@@ -207,23 +239,37 @@ function GuiaDeRuta() {
         </div>
       )}
 
-      {/* Sin pendientes: la calle terminó. Si todavía no declaró el cierre, es lo único que sigue. */}
-      {!retiroPendiente && !proxima && jornada.total > 0 && (
-        <div className="rounded-2xl border-2 border-green-600 bg-green-50/60 p-4 flex flex-col gap-3">
+      {/* Terminar la ruta: siempre a la vista para saber cuánto falta; se habilita cuando no quedan pendientes. */}
+      {!retiroPendiente && jornada.total > 0 && (
+        <div
+          className={`rounded-2xl border-2 p-4 flex flex-col gap-3 ${
+            proxima || jornada.cierreRepartidorEn ? "border-border bg-card" : "border-green-600 bg-green-50/60"
+          }`}
+        >
           {jornada.cierreRepartidorEn ? (
             <>
-              <span className="text-xs font-semibold uppercase tracking-wide text-green-700">Jornada cerrada</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-green-700">Ruta terminada</span>
               <p className="font-medium">
                 Cargaste el cierre a las {new Date(jornada.cierreRepartidorEn).toLocaleTimeString()}. Queda pendiente
                 de revisión de administración.
               </p>
             </>
+          ) : proxima ? (
+            <>
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Terminar la ruta</span>
+              <p className="text-sm text-muted-foreground">
+                Te {pendientes === 1 ? "falta 1 parada" : `faltan ${pendientes} paradas`} para poder terminar.
+              </p>
+              <Button className="h-12 w-full text-base" disabled>
+                Terminé la ruta
+              </Button>
+            </>
           ) : (
             <>
               <span className="text-xs font-semibold uppercase tracking-wide text-green-700">Todas resueltas</span>
-              <p className="font-medium">No te quedan paradas pendientes. Cerrá la jornada para terminar.</p>
+              <p className="font-medium">No te quedan paradas pendientes. Terminá la ruta para cerrar el día.</p>
               <Button className="h-12 w-full text-base" render={<Link href="/hoy/cierre" />} nativeButton={false}>
-                Cerrar la jornada
+                Terminé la ruta
               </Button>
             </>
           )}

@@ -17,7 +17,15 @@ import {
 } from "@/components/ui/table";
 import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
 import { leerError, leerJson } from "@/lib/api/errores";
-import { etiquetaTipoVehiculo, type HuecoKm, type LocalidadPendiente, type TarifaGeneral, type TarifasResponse } from "@/lib/dominio/tipos";
+import {
+  etiquetaTipoVehiculo,
+  type HuecoKm,
+  type LocalidadDeZona,
+  type LocalidadPendiente,
+  type ResultadoRecalculo,
+  type TarifaGeneral,
+  type TarifasResponse,
+} from "@/lib/dominio/tipos";
 
 export default function TarifasPage() {
   return (
@@ -42,6 +50,9 @@ function ListaTarifas() {
   const [zonaElegida, setZonaElegida] = useState<Record<number, string>>({});
   const [asignandoLocalidad, setAsignandoLocalidad] = useState<number | null>(null);
   const [errorPendientes, setErrorPendientes] = useState<string | null>(null);
+  const [localidades, setLocalidades] = useState<LocalidadDeZona[] | null>(null);
+  const [recalculando, setRecalculando] = useState(false);
+  const [resultadoRecalculo, setResultadoRecalculo] = useState<ResultadoRecalculo | null>(null);
 
   const cargar = () => {
     fetchConSesion("/api/tarifas")
@@ -56,16 +67,12 @@ function ListaTarifas() {
   const cargarPendientes = () => {
     fetchConSesion("/api/localidades/pendientes")
       .then((r) => leerJson<LocalidadPendiente[]>(r))
-      .then((datos) => {
-        setPendientes(datos);
-        // La sugerencia precarga el combobox, pero no se asigna sola: hace falta el click de "Asignar".
-        setZonaElegida((z) => {
-          const copia = { ...z };
-          for (const p of datos) if (!(p.id in copia) && p.zonaSugeridaId !== null) copia[p.id] = String(p.zonaSugeridaId);
-          return copia;
-        });
-      })
+      .then(setPendientes)
       .catch((err) => setErrorPendientes(err instanceof Error ? err.message : "No se pudieron cargar las localidades pendientes."));
+    fetchConSesion("/api/localidades/con-zona")
+      .then((r) => leerJson<LocalidadDeZona[]>(r))
+      .then(setLocalidades)
+      .catch(() => setLocalidades([]));
   };
 
   useEffect(cargar, [fetchConSesion]);
@@ -88,6 +95,36 @@ function ListaTarifas() {
       setErrorPendientes(err instanceof Error ? err.message : "No se pudo asignar la zona.");
     } finally {
       setAsignandoLocalidad(null);
+    }
+  }
+
+  async function volverAAutomatica(localidadId: number) {
+    setAsignandoLocalidad(localidadId);
+    setErrorPendientes(null);
+    try {
+      const resp = await fetchConSesion(`/api/localidades/${localidadId}/zona/automatica`, { method: "PUT" });
+      if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
+      cargarPendientes();
+    } catch (err) {
+      setErrorPendientes(err instanceof Error ? err.message : "No se pudo volver a la zona automática.");
+    } finally {
+      setAsignandoLocalidad(null);
+    }
+  }
+
+  async function recalcular() {
+    setRecalculando(true);
+    setErrorPendientes(null);
+    setResultadoRecalculo(null);
+    try {
+      const resp = await fetchConSesion("/api/localidades/recalcular", { method: "POST" });
+      if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
+      setResultadoRecalculo(await leerJson<ResultadoRecalculo>(resp));
+      cargarPendientes();
+    } catch (err) {
+      setErrorPendientes(err instanceof Error ? err.message : "No se pudieron recalcular las zonas.");
+    } finally {
+      setRecalculando(false);
     }
   }
 
@@ -145,6 +182,7 @@ function ListaTarifas() {
       if (!respMoto.ok) throw new Error((await leerError(respMoto)).mensaje);
       if (!respKm.ok) throw new Error((await leerError(respKm)).mensaje);
       cargar();
+      cargarPendientes(); // cambiar un rango reasigna las zonas automáticas en el servidor
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo guardar la tarifa.");
     } finally {
@@ -156,59 +194,109 @@ function ListaTarifas() {
     <div className="p-4 md:p-8 max-w-4xl flex flex-col gap-6">
       <CabeceraSesion titulo="Tarifas — lista general" />
 
-      {pendientes !== null && pendientes.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Localidades sin zona</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <p className="text-sm text-muted-foreground">
-              Aparecieron al tipear una dirección nueva. Un pedido ahí no cotiza hasta que le
-              asignes zona — la sugerida es orientativa (por distancia real al depósito contra el
-              rango de km de cada zona), nunca se aplica sola.
-            </p>
-            {errorPendientes && <p className="text-sm text-destructive">{errorPendientes}</p>}
-            {pendientes.map((p) => (
-              <div key={p.id} className="flex items-center gap-2 rounded-lg border p-3">
-                <div className="flex-1">
-                  <p className="font-medium">
-                    {p.nombre}
-                    {p.partido && p.partido !== p.nombre ? ` — ${p.partido}` : ""}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {p.distanciaKmDeposito !== null
-                      ? `${p.distanciaKmDeposito} km del depósito`
-                      : "Sin dirección geocodificada todavía"}
-                    {p.zonaSugeridaNombre &&
-                      ` · sugerida: ${p.zonaSugeridaCodigo} — ${p.zonaSugeridaNombre}`}
-                  </p>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Zona automática de las localidades</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <p className="text-sm text-muted-foreground">
+            Cada localidad recibe sola la zona cuyo rango de km la cubre, midiendo desde el depósito
+            (0 km). Una zona que fijes a mano no se pisa. Si cambiaste de depósito o quedaron
+            localidades sin medir, recalculá.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="outline" size="sm" onClick={recalcular} disabled={recalculando}>
+              {recalculando ? "Recalculando… (puede tardar)" : "Recalcular distancias y zonas"}
+            </Button>
+            {resultadoRecalculo && (
+              <span className="text-sm text-muted-foreground">
+                {resultadoRecalculo.asignadas} con zona · {resultadoRecalculo.sinZona} sin zona
+                {resultadoRecalculo.sinCoordenadas > 0 && ` (${resultadoRecalculo.sinCoordenadas} sin medir)`}
+              </span>
+            )}
+          </div>
+          {errorPendientes && <p className="text-sm text-destructive">{errorPendientes}</p>}
+
+          {pendientes !== null && pendientes.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium">Sin zona ({pendientes.length})</p>
+              {pendientes.map((p) => (
+                <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-lg border p-3">
+                  <div className="flex-1 min-w-48">
+                    <p className="font-medium">
+                      {p.nombre}
+                      {p.partido && p.partido !== p.nombre ? ` — ${p.partido}` : ""}
+                    </p>
+                    <p className="text-xs text-amber-600">
+                      {p.motivo === "sin_coordenadas"
+                        ? "No se pudo medir la distancia al depósito"
+                        : `A ${p.distanciaKmDeposito} km del depósito, fuera de todo rango de zona`}
+                    </p>
+                  </div>
+                  <ComboboxBusqueda
+                    items={(tarifas ?? []).map((t) => ({
+                      value: String(t.zonaId),
+                      label: `${t.zonaCodigo} — ${t.zonaNombre}`,
+                    }))}
+                    value={zonaElegida[p.id] ?? null}
+                    onValueChange={(v) => setZonaElegida((z) => ({ ...z, [p.id]: v ?? "" }))}
+                    placeholder="Elegir zona"
+                    className="w-56"
+                  />
+                  <Button
+                    size="sm"
+                    disabled={!zonaElegida[p.id] || asignandoLocalidad === p.id}
+                    onClick={() => asignarZona(p.id)}
+                  >
+                    {asignandoLocalidad === p.id ? "Asignando…" : "Asignar"}
+                  </Button>
                 </div>
-                <ComboboxBusqueda
-                  items={(tarifas ?? []).map((t) => ({
-                    value: String(t.zonaId),
-                    label: `${t.zonaCodigo} — ${t.zonaNombre}`,
-                  }))}
-                  value={zonaElegida[p.id] ?? null}
-                  onValueChange={(v) => setZonaElegida((z) => ({ ...z, [p.id]: v ?? "" }))}
-                  placeholder="Elegir zona"
-                  className="w-56"
-                />
-                <Button
-                  size="sm"
-                  disabled={!zonaElegida[p.id] || asignandoLocalidad === p.id}
-                  onClick={() => asignarZona(p.id)}
-                >
-                  {asignandoLocalidad === p.id ? "Asignando…" : "Asignar"}
-                </Button>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+              ))}
+            </div>
+          )}
+
+          {localidades !== null && localidades.length > 0 && (
+            <details className="rounded-lg border p-3">
+              <summary className="cursor-pointer text-sm font-medium">
+                Todas las localidades ({localidades.length})
+              </summary>
+              <ul className="mt-3 flex flex-col gap-2">
+                {localidades.map((l) => (
+                  <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span>
+                      {l.nombre}
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {l.zonaCodigo ? `Zona ${l.zonaCodigo}` : "sin zona"}
+                        {l.distanciaKmDeposito !== null && ` · ${l.distanciaKmDeposito} km`}
+                        {" · "}
+                        {l.zonaManual ? "manual" : "automática"}
+                      </span>
+                    </span>
+                    {l.zonaManual && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={asignandoLocalidad === l.id}
+                        onClick={() => volverAAutomatica(l.id)}
+                      >
+                        Volver a automática
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Precio por zona</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            0 km = el depósito. La primera zona tiene que empezar en 0 para que las localidades
+            cercanas (y el propio depósito) reciban zona.
+          </p>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           {error && <p className="text-sm text-destructive mb-4">{error}</p>}
@@ -221,7 +309,7 @@ function ListaTarifas() {
                   {h.hastaKm !== null ? `${h.desdeKm}–${h.hastaKm} km` : `${h.desdeKm}+ km`}
                 </span>
               ))}
-              . Una localidad ahí no recibe zona sugerida.
+              . Una localidad ahí queda sin zona automática.
             </p>
           )}
           {!tarifas ? (

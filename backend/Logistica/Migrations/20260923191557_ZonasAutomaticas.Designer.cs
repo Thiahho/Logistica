@@ -4,6 +4,7 @@ using Logistica.Datos;
 using Logistica.Entidades;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Logistica.Migrations
 {
     [DbContext(typeof(LogisticaDbContext))]
-    partial class LogisticaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260923191557_ZonasAutomaticas")]
+    partial class ZonasAutomaticas
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1119,10 +1122,6 @@ namespace Logistica.Migrations
                         .HasColumnType("text")
                         .HasColumnName("device_uuid");
 
-                    b.Property<string>("DocumentoNumero")
-                        .HasColumnType("text")
-                        .HasColumnName("documento_numero");
-
                     b.Property<string>("FotoPath")
                         .HasColumnType("text")
                         .HasColumnName("foto_path");
@@ -1161,10 +1160,6 @@ namespace Logistica.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("resultado");
-
-                    b.Property<string>("SinDocumentoMotivo")
-                        .HasColumnType("text")
-                        .HasColumnName("sin_documento_motivo");
 
                     b.Property<DateTimeOffset>("SincronizadaEn")
                         .ValueGeneratedOnAdd()

@@ -15,6 +15,11 @@ public class LocalidadConfiguration : IEntityTypeConfiguration<Localidad>
         b.Property(x => x.Partido).HasColumnName("partido");
         b.Property(x => x.Cp).HasColumnName("cp");
         b.Property(x => x.ZonaId).HasColumnName("zona_id");
+        b.Property(x => x.Lat).HasColumnName("lat").HasColumnType("numeric(10,7)");
+        b.Property(x => x.Lng).HasColumnName("lng").HasColumnType("numeric(10,7)");
+        b.Property(x => x.DistanciaKmDeposito).HasColumnName("distancia_km_deposito").HasColumnType("numeric(7,1)");
+        b.Property(x => x.DistanciaFuente).HasColumnName("distancia_fuente");
+        b.Property(x => x.ZonaManual).HasColumnName("zona_manual").HasDefaultValue(false);
 
         b.HasOne(x => x.Zona).WithMany()
             .HasForeignKey(x => x.ZonaId).OnDelete(DeleteBehavior.Restrict);

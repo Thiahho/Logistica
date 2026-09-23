@@ -1,7 +1,9 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { MessageCircle, UserRound } from "lucide-react";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
@@ -28,6 +30,7 @@ import { OrdenMovil } from "@/components/OrdenMovil";
 import { ControlesPaginacion } from "@/components/ControlesPaginacion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FacturaDetalleContenido } from "@/components/FacturaDetalleContenido";
+import { AvisoCobranzaDialog } from "@/components/AvisoCobranzaDialog";
 import { leerError, leerJson } from "@/lib/api/errores";
 import { useListadoPaginado } from "@/lib/hooks/useListadoPaginado";
 import {
@@ -74,6 +77,7 @@ function ListaFacturas() {
   const [fechaHasta, setFechaHasta] = useState("");
   const [facturaAbierta, setFacturaAbierta] = useState<number | null>(null);
   const [cierreAbierto, setCierreAbierto] = useState(false);
+  const [idsParaAviso, setIdsParaAviso] = useState<number[] | null>(null);
 
   const {
     items: facturas, totalRegistros, error, pagina, setPagina, tamanioPagina, setTamanioPagina,
@@ -206,6 +210,7 @@ function ListaFacturas() {
                 <TableHead>Pagado</TableHead>
                 <TableHead>Saldo</TableHead>
                 <TableHead>Estado</TableHead>
+                <TableHead>Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -224,7 +229,16 @@ function ListaFacturas() {
                   className={`cursor-pointer hover:bg-muted/50 ${f.estado === "vencida" ? "bg-destructive/10" : ""}`}
                 >
                   <TableCell>{f.id}</TableCell>
-                  <TableCell>{f.clienteRazonSocial}</TableCell>
+                  <TableCell>
+                    <Link
+                      href={`/clientes/${f.clienteId}`}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      className="hover:underline"
+                    >
+                      {f.clienteRazonSocial}
+                    </Link>
+                  </TableCell>
                   <TableCell>{f.fechaVencimiento}</TableCell>
                   <TableCell>${f.total.toLocaleString("es-AR")}</TableCell>
                   <TableCell>${f.pagado.toLocaleString("es-AR")}</TableCell>
@@ -233,6 +247,36 @@ function ListaFacturas() {
                     <span className={f.estado === "vencida" ? "text-destructive font-medium" : undefined}>
                       {etiquetaEstadoFactura(f.estado)}
                     </span>
+                  </TableCell>
+                  <TableCell>
+                    {f.estado === "vencida" && (
+                      // stopPropagation: la fila entera abre el detalle de la factura.
+                      <div
+                        className="flex flex-wrap gap-1"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      >
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-10 gap-1 md:h-8"
+                          onClick={() => setIdsParaAviso([f.clienteId])}
+                        >
+                          <MessageCircle className="size-4" />
+                          Contactar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-10 gap-1 md:h-8"
+                          nativeButton={false}
+                          render={<Link href={`/clientes/${f.clienteId}`} />}
+                        >
+                          <UserRound className="size-4" />
+                          Ver cliente
+                        </Button>
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -259,6 +303,12 @@ function ListaFacturas() {
         {facturaAbierta !== null && <FacturaDetalleContenido facturaId={facturaAbierta} />}
       </DialogContent>
     </Dialog>
+
+    <AvisoCobranzaDialog
+      clienteIds={idsParaAviso}
+      onOpenChange={(open) => !open && setIdsParaAviso(null)}
+      onEnviado={recargar}
+    />
 
     <CierreCicloDialog
       open={cierreAbierto}

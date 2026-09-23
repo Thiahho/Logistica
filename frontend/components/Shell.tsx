@@ -16,6 +16,7 @@ import {
   Menu,
   Package,
   PackageCheck,
+  PackagePlus,
   Receipt,
   Route,
   Tag,
@@ -36,33 +37,44 @@ import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from "@/components/ui
 import { useSondeo } from "@/lib/hooks/useSondeo";
 import type { ListaPaginada, NovedadResumen } from "@/lib/dominio/tipos";
 
+type GrupoNav = "operacion" | "personas" | "finanzas" | "admin";
+
+/** Secciones del menú, en el orden en que se muestran. Un grupo sin ítems para el rol no se dibuja. */
+const GRUPOS: { id: GrupoNav; titulo: string }[] = [
+  { id: "operacion", titulo: "Operación diaria" },
+  { id: "personas", titulo: "Personas y flota" },
+  { id: "finanzas", titulo: "Comercial y finanzas" },
+  { id: "admin", titulo: "Administración" },
+];
+
 interface ItemNav {
   href: string;
   label: string;
   icono: LucideIcon;
   roles: Rol[];
+  grupo: GrupoNav;
 }
 
 const NAV: ItemNav[] = [
-  { href: "/pedidos", label: "Pedidos", icono: Package, roles: ["administracion", "operacion"] },
-  { href: "/recepcion", label: "Recepción", icono: PackageCheck, roles: ["administracion", "operacion"] },
-  { href: "/deliverys", label: "Deliverys", icono: Bike, roles: ["administracion", "operacion"] },
-  { href: "/jornada", label: "Jornada", icono: CalendarClock, roles: ["administracion", "operacion"] },
-  { href: "/rutas", label: "Rutas", icono: Route, roles: ["administracion", "operacion"] },
-  { href: "/repartidores", label: "Repartidores", icono: Users, roles: ["administracion", "operacion"] },
-  { href: "/clientes", label: "Clientes", icono: Building2, roles: ["administracion"] },
-  { href: "/vehiculos", label: "Vehículos", icono: Truck, roles: ["administracion"] },
-  { href: "/tarifas", label: "Tarifas", icono: Tag, roles: ["administracion"] },
-  { href: "/facturas", label: "Facturas", icono: Receipt, roles: ["administracion"] },
-  { href: "/cobranza", label: "Cobranza", icono: Wallet, roles: ["administracion"] },
-  { href: "/usuarios", label: "Usuarios", icono: UserCog, roles: ["administracion"] },
-  { href: "/depositos", label: "Depósitos", icono: Warehouse, roles: ["administracion"] },
-  { href: "/exportar", label: "Exportar", icono: Download, roles: ["administracion"] },
+  { href: "/pedidos", label: "Pedidos", icono: Package, roles: ["administracion", "operacion"], grupo: "operacion" },
+  { href: "/recepcion", label: "Recepción", icono: PackageCheck, roles: ["administracion", "operacion"], grupo: "operacion" },
+  { href: "/deliverys", label: "Deliverys", icono: Bike, roles: ["administracion", "operacion"], grupo: "operacion" },
+  { href: "/jornada", label: "Jornada", icono: CalendarClock, roles: ["administracion", "operacion"], grupo: "operacion" },
+  { href: "/rutas", label: "Rutas", icono: Route, roles: ["administracion", "operacion"], grupo: "operacion" },
+  { href: "/repartidores", label: "Repartidores", icono: Users, roles: ["administracion", "operacion"], grupo: "personas" },
+  { href: "/clientes", label: "Clientes", icono: Building2, roles: ["administracion"], grupo: "finanzas" },
+  { href: "/vehiculos", label: "Vehículos", icono: Truck, roles: ["administracion"], grupo: "personas" },
+  { href: "/tarifas", label: "Tarifas", icono: Tag, roles: ["administracion"], grupo: "finanzas" },
+  { href: "/facturas", label: "Facturas", icono: Receipt, roles: ["administracion"], grupo: "finanzas" },
+  { href: "/cobranza", label: "Cobranza", icono: Wallet, roles: ["administracion"], grupo: "finanzas" },
+  { href: "/usuarios", label: "Usuarios", icono: UserCog, roles: ["administracion"], grupo: "admin" },
+  { href: "/depositos", label: "Depósitos", icono: Warehouse, roles: ["administracion"], grupo: "admin" },
+  { href: "/exportar", label: "Exportar", icono: Download, roles: ["administracion"], grupo: "admin" },
 ];
 
 /** Accesos de la barra inferior en pantalla chica: lo que se usa todo el día. El resto de NAV vive
  * en el menú (drawer) que abre el quinto botón. */
-const NAV_PRINCIPAL_MOVIL = ["/pedidos", "/rutas", "/jornada", "/repartidores"];
+const NAV_PRINCIPAL_MOVIL = ["/pedidos", "/recepcion", "/rutas", "/jornada"];
 
 /** Las cuatro pantallas del día del repartidor, en el orden en que las usa: mira su ruta, retira,
  * avisa si algo sale mal, cierra. La parada (/hoy/parada/[id]) no tiene entrada propia: se llega
@@ -73,6 +85,19 @@ const NAV_REPARTIDOR: { href: string; label: string; icono: LucideIcon }[] = [
   { href: "/hoy/problema", label: "Problema", icono: AlertTriangle },
   { href: "/hoy/cierre", label: "Cierre", icono: ClipboardCheck },
 ];
+
+/** Las tres pantallas del cliente: su plan del día, cargar un envío y su libreta de clientes. */
+const NAV_CLIENTE: { href: string; label: string; icono: LucideIcon }[] = [
+  { href: "/mis-envios", label: "Mi plan", icono: ClipboardCheck },
+  { href: "/mis-envios/nuevo", label: "Cargar envío", icono: PackagePlus },
+  { href: "/mis-envios/contactos", label: "Mis clientes", icono: Users },
+];
+
+function activoCliente(pathname: string, href: string): boolean {
+  // "/mis-envios" es prefijo de las otras dos: "Mi plan" es esa pantalla y el detalle (/mis-envios/[id]).
+  if (href === "/mis-envios") return !pathname.startsWith("/mis-envios/nuevo") && !pathname.startsWith("/mis-envios/contactos");
+  return pathname.startsWith(href);
+}
 
 function activoRepartidor(pathname: string, href: string): boolean {
   // "/hoy" es prefijo de todas las demás: comparar exacto (más la parada, que es "parte de Hoy").
@@ -128,7 +153,7 @@ function ShellBackOffice({ children }: { children: React.ReactNode }) {
   if (!usuario) return null;
 
   const items = NAV.filter((item) => item.roles.includes(usuario.rol));
-  const principales = items.filter((item) => NAV_PRINCIPAL_MOVIL.includes(item.href));
+  const principales = NAV_PRINCIPAL_MOVIL.flatMap((href) => items.filter((item) => item.href === href));
 
   async function onLogout() {
     setMenuAbierto(false);
@@ -142,9 +167,10 @@ function ShellBackOffice({ children }: { children: React.ReactNode }) {
         key={href}
         href={href}
         onClick={alTocar}
+        aria-current={activoBackOffice(pathname, href) ? "page" : undefined}
         className={cn(
-          "flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-muted-foreground hover:bg-accent",
-          activoBackOffice(pathname, href) && "bg-accent font-semibold text-bf-azul",
+          "flex items-center gap-2 rounded-xl border-l-[3px] border-transparent px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent md:py-2",
+          activoBackOffice(pathname, href) && "border-bf-azul bg-accent font-semibold text-bf-azul",
         )}
       >
         <Icono className="size-4" />
@@ -154,11 +180,30 @@ function ShellBackOffice({ children }: { children: React.ReactNode }) {
     );
   }
 
+  function menuAgrupado(alTocar?: () => void) {
+    return GRUPOS.map(({ id, titulo }) => {
+      const delGrupo = items.filter((item) => item.grupo === id);
+      if (delGrupo.length === 0) return null;
+      return (
+        <section key={id} className="flex flex-col gap-0.5 pt-2" aria-label={titulo}>
+          <h3 className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
+            {titulo}
+          </h3>
+          {delGrupo.map((item) => enlace(item, alTocar))}
+        </section>
+      );
+    });
+  }
+
+  const usuarioActual = (
+    <p className="truncate px-1 text-sm text-muted-foreground">
+      {usuario.nombre} · {usuario.rol}
+    </p>
+  );
+
   const sesion = (
     <div className="mt-auto flex flex-col gap-2 border-t pt-3">
-      <p className="truncate px-1 text-sm text-muted-foreground">
-        {usuario.nombre} · {usuario.rol}
-      </p>
+      {usuarioActual}
       <Button variant="outline" className="w-full justify-start gap-2" onClick={onLogout}>
         <LogOut className="size-4" />
         Salir
@@ -170,7 +215,7 @@ function ShellBackOffice({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-svh flex-1 flex-col bg-background text-foreground md:flex-row">
       <aside className="hidden w-56 shrink-0 flex-col gap-1 border-r bg-card p-4 md:sticky md:top-0 md:flex md:h-svh md:overflow-y-auto">
         <LogoBF className="mb-4 px-2" />
-        {items.map((item) => enlace(item))}
+        {menuAgrupado()}
         {sesion}
       </aside>
 
@@ -188,10 +233,10 @@ function ShellBackOffice({ children }: { children: React.ReactNode }) {
       </header>
 
       {/* pb-20: el contenido no queda tapado por la barra fija de abajo (solo en pantalla chica). */}
-      <div className="min-w-0 flex-1 pb-20 md:pb-0">{children}</div>
+      <div className="min-w-0 flex-1 pb-24 md:pb-0">{children}</div>
 
       <nav
-        className="fixed inset-x-0 bottom-0 z-40 flex rounded-t-2xl border-t bg-card pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(0,59,149,0.08)] md:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 flex rounded-t-2xl border-t bg-card pb-[max(env(safe-area-inset-bottom),0.5rem)] shadow-[0_-4px_16px_rgba(0,59,149,0.08)] md:hidden"
         aria-label="Navegación principal"
       >
         {principales.map(({ href, label, icono: Icono }) => {
@@ -202,11 +247,11 @@ function ShellBackOffice({ children }: { children: React.ReactNode }) {
               href={href}
               aria-current={activo ? "page" : undefined}
               className={cn(
-                "flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs",
+                "flex min-h-14 flex-1 flex-col items-center justify-center gap-1 px-1 pt-1.5 text-[11px] font-medium leading-none",
                 activo ? "font-semibold text-bf-azul" : "text-muted-foreground",
               )}
             >
-              <span className={cn("flex h-7 w-12 items-center justify-center rounded-full", activo && "bg-accent")}>
+              <span className={cn("flex h-8 w-14 items-center justify-center rounded-full", activo && "bg-accent")}>
                 <Icono className="size-5" />
               </span>
               {label}
@@ -216,9 +261,9 @@ function ShellBackOffice({ children }: { children: React.ReactNode }) {
         <button
           type="button"
           onClick={() => setMenuAbierto(true)}
-          className="flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs text-muted-foreground"
+          className="flex min-h-14 flex-1 flex-col items-center justify-center gap-1 px-1 pt-1.5 text-[11px] font-medium leading-none text-muted-foreground"
         >
-          <span className="flex h-7 w-12 items-center justify-center rounded-full">
+          <span className="flex h-8 w-14 items-center justify-center rounded-full">
             <LayoutGrid className="size-5" />
           </span>
           Menú
@@ -227,8 +272,11 @@ function ShellBackOffice({ children }: { children: React.ReactNode }) {
 
       <Drawer open={menuAbierto} onOpenChange={setMenuAbierto}>
         <DrawerContent>
-          <div className="mb-3 flex items-center justify-between">
-            <DrawerTitle>Menú</DrawerTitle>
+          <div className="mb-1 flex items-center justify-between">
+            <div className="min-w-0">
+              <DrawerTitle>Menú</DrawerTitle>
+              {usuarioActual}
+            </div>
             <DrawerClose
               className="flex size-10 items-center justify-center rounded-full border hover:bg-accent"
               aria-label="Cerrar el menú"
@@ -236,10 +284,85 @@ function ShellBackOffice({ children }: { children: React.ReactNode }) {
               <X className="size-4" />
             </DrawerClose>
           </div>
-          {items.map((item) => enlace(item, () => setMenuAbierto(false)))}
-          {sesion}
+          {menuAgrupado(() => setMenuAbierto(false))}
+          <div className="mt-auto pt-3">
+            <Button variant="outline" className="w-full justify-start gap-2" onClick={onLogout}>
+              <LogOut className="size-4" />
+              Salir
+            </Button>
+          </div>
         </DrawerContent>
       </Drawer>
+    </div>
+  );
+}
+
+/**
+ * Marco de los roles que solo tienen unas pocas pantallas (repartidor, cliente): sidebar desde `md`
+ * y, en pantalla chica, barra inferior fija con botones de 56 px con ícono y etiqueta (RNF-06) —
+ * al alcance del pulgar, sin comerse el ancho. z-40 queda por debajo del mapa expandido de /hoy
+ * (z-50), que tiene que tapar todo. El padding inferior respeta el área segura de los teléfonos con
+ * barra de gestos (viewportFit: cover).
+ */
+function ShellConBarra({
+  items,
+  activo,
+  etiqueta,
+  pathname,
+  children,
+}: {
+  items: { href: string; label: string; icono: LucideIcon }[];
+  activo: (pathname: string, href: string) => boolean;
+  etiqueta: string;
+  pathname: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex min-h-svh flex-1 flex-col bg-background text-foreground md:flex-row">
+      <aside className="hidden w-56 shrink-0 flex-col gap-1 border-r bg-card p-4 md:flex">
+        <LogoBF className="mb-4 px-2" />
+        {items.map(({ href, label, icono: Icono }) => (
+          <Link
+            key={href}
+            href={href}
+            className={cn(
+              "flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-muted-foreground hover:bg-accent",
+              activo(pathname, href) && "bg-accent font-semibold text-bf-azul",
+            )}
+          >
+            <Icono className="size-4" />
+            {label}
+          </Link>
+        ))}
+      </aside>
+
+      {/* pb-24: el contenido no queda tapado por la barra fija de abajo (solo en pantalla chica). */}
+      <div className="min-w-0 flex-1 pb-24 md:pb-0">{children}</div>
+
+      <nav
+        className="fixed inset-x-0 bottom-0 z-40 flex rounded-t-2xl border-t bg-card pb-[max(env(safe-area-inset-bottom),0.5rem)] shadow-[0_-4px_16px_rgba(0,59,149,0.08)] md:hidden"
+        aria-label={etiqueta}
+      >
+        {items.map(({ href, label, icono: Icono }) => {
+          const esActivo = activo(pathname, href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              aria-current={esActivo ? "page" : undefined}
+              className={cn(
+                "flex min-h-14 flex-1 flex-col items-center justify-center gap-1 px-1 pt-1.5 text-[11px] font-medium leading-none",
+                esActivo ? "font-semibold text-bf-azul" : "text-muted-foreground",
+              )}
+            >
+              <span className={cn("flex h-8 w-14 items-center justify-center rounded-full", esActivo && "bg-accent")}>
+                <Icono className="size-5" />
+              </span>
+              {label}
+            </Link>
+          );
+        })}
+      </nav>
     </div>
   );
 }
@@ -254,55 +377,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   if (usuario.rol === "repartidor") {
     return (
-      <div className="flex min-h-svh flex-1 flex-col bg-background text-foreground md:flex-row">
-        <aside className="hidden w-56 shrink-0 flex-col gap-1 border-r bg-card p-4 md:flex">
-          <LogoBF className="mb-4 px-2" />
-          {NAV_REPARTIDOR.map(({ href, label, icono: Icono }) => (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                "flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-muted-foreground hover:bg-accent",
-                activoRepartidor(pathname, href) && "bg-accent font-semibold text-bf-azul",
-              )}
-            >
-              <Icono className="size-4" />
-              {label}
-            </Link>
-          ))}
-        </aside>
+      <ShellConBarra items={NAV_REPARTIDOR} activo={activoRepartidor} etiqueta="Mi jornada" pathname={pathname}>
+        {children}
+      </ShellConBarra>
+    );
+  }
 
-        {/* pb-20: el contenido no queda tapado por la barra fija de abajo (solo en pantalla chica). */}
-        <div className="flex-1 pb-20 md:pb-0">{children}</div>
-
-        {/* Barra inferior: botones de 56 px de alto, con ícono y etiqueta (RNF-06). z-40 queda por
-        debajo del mapa expandido de /hoy (z-50), que tiene que tapar todo. El padding inferior
-        respeta el área segura de los teléfonos con barra de gestos (viewportFit: cover). */}
-        <nav
-          className="fixed inset-x-0 bottom-0 z-40 flex rounded-t-2xl border-t bg-card pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(0,59,149,0.08)] md:hidden"
-          aria-label="Mi jornada"
-        >
-          {NAV_REPARTIDOR.map(({ href, label, icono: Icono }) => {
-            const activo = activoRepartidor(pathname, href);
-            return (
-              <Link
-                key={href}
-                href={href}
-                aria-current={activo ? "page" : undefined}
-                className={cn(
-                  "flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs",
-                  activo ? "font-semibold text-bf-azul" : "text-muted-foreground",
-                )}
-              >
-                <span className={cn("flex h-7 w-12 items-center justify-center rounded-full", activo && "bg-accent")}>
-                  <Icono className="size-5" />
-                </span>
-                {label}
-              </Link>
-            );
-          })}
-        </nav>
-      </div>
+  if (usuario.rol === "cliente") {
+    return (
+      <ShellConBarra items={NAV_CLIENTE} activo={activoCliente} etiqueta="Mi cuenta" pathname={pathname}>
+        {children}
+      </ShellConBarra>
     );
   }
 

@@ -19,6 +19,8 @@ public class PruebaEntregaConfiguration : IEntityTypeConfiguration<PruebaEntrega
         b.Property(x => x.MotivoFallo).HasColumnName("motivo_fallo");
         b.Property(x => x.ReceptorNombre).HasColumnName("receptor_nombre");
         b.Property(x => x.IdentidadVerificada).HasColumnName("identidad_verificada").HasDefaultValue(false);
+        b.Property(x => x.DocumentoNumero).HasColumnName("documento_numero");
+        b.Property(x => x.SinDocumentoMotivo).HasColumnName("sin_documento_motivo");
         b.Property(x => x.FotoPath).HasColumnName("foto_path");
         b.Property(x => x.Lat).HasColumnName("lat").HasColumnType("numeric(10,7)");
         b.Property(x => x.Lng).HasColumnName("lng").HasColumnType("numeric(10,7)");

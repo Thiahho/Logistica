@@ -69,6 +69,82 @@ public class GeocodificacionService(HttpClient http)
             "nominatim");
     }
 
+    private record ResultadoInversoNominatim(
+        [property: JsonPropertyName("address")] DireccionInversaNominatim? Address);
+
+    private record DireccionInversaNominatim(
+        [property: JsonPropertyName("house_number")] string? HouseNumber,
+        [property: JsonPropertyName("road")] string? Road,
+        [property: JsonPropertyName("neighbourhood")] string? Neighbourhood,
+        [property: JsonPropertyName("suburb")] string? Suburb,
+        [property: JsonPropertyName("city_district")] string? CityDistrict,
+        [property: JsonPropertyName("city")] string? City,
+        [property: JsonPropertyName("town")] string? Town,
+        [property: JsonPropertyName("village")] string? Village,
+        [property: JsonPropertyName("municipality")] string? Municipality,
+        [property: JsonPropertyName("county")] string? County,
+        [property: JsonPropertyName("state_district")] string? StateDistrict,
+        [property: JsonPropertyName("state")] string? State);
+
+    /// <summary>Dirección leída de unas coordenadas. `Localidades` son los nombres candidatos, del más
+    /// específico al más general (barrio → ciudad → partido): el que llama prueba cuál está en el
+    /// catálogo. `Partido` es el partido/departamento, si lo hay.</summary>
+    public record DireccionInversa(string? Calle, string? Numero, IReadOnlyList<string> Localidades, string? Partido);
+
+    /// <summary>Geocodificación inversa (coordenadas → dirección). null si Nominatim no responde o no
+    /// encuentra nada: quien llama sigue con las coordenadas y le pide la dirección al usuario.</summary>
+    public async Task<DireccionInversa?> InvertirAsync(decimal lat, decimal lng, CancellationToken ct = default)
+    {
+        var url = "reverse?format=jsonv2&addressdetails=1&zoom=18" +
+                  $"&lat={lat.ToString(System.Globalization.CultureInfo.InvariantCulture)}" +
+                  $"&lon={lng.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+        ResultadoInversoNominatim? r;
+        try
+        {
+            r = await http.GetFromJsonAsync<ResultadoInversoNominatim>(url, ct);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or TaskCanceledException)
+        {
+            return null;
+        }
+
+        var a = r?.Address;
+        if (a is null) return null;
+
+        var candidatas = new[] { a.City, a.Town, a.Village, a.Municipality, a.CityDistrict, a.Suburb, a.Neighbourhood, a.County }
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(n => n!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return new DireccionInversa(a.Road, a.HouseNumber, candidatas, a.County ?? a.StateDistrict ?? a.State);
+    }
+
+    /// <summary>Centro de una localidad, por nombre y partido — base de la zona automática (se mide
+    /// contra el depósito). null si Nominatim no la encuentra o no responde: la localidad queda
+    /// "sin coordenadas" y se resuelve a mano, nunca bloquea el alta.</summary>
+    public async Task<(decimal Lat, decimal Lng)?> GeocodificarLocalidadAsync(
+        string nombre, string? partido, CancellationToken ct = default)
+    {
+        var consulta = partido is null ? $"{nombre}, Argentina" : $"{nombre}, {partido}, Argentina";
+        var url = $"search?format=jsonv2&limit=1&countrycodes=ar&q={Uri.EscapeDataString(consulta)}";
+
+        List<ResultadoNominatim>? resultados;
+        try
+        {
+            resultados = await http.GetFromJsonAsync<List<ResultadoNominatim>>(url, ct);
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+
+        var primero = resultados?.FirstOrDefault();
+        if (primero is null) return null;
+        return (
+            decimal.Parse(primero.Lat, System.Globalization.CultureInfo.InvariantCulture),
+            decimal.Parse(primero.Lon, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
     /// <summary>Busca localidades reales por texto parcial (para sugerir mientras se tipea, más
     /// allá de lo que ya haya en el catálogo propio). `featureType=settlement` restringe los
     /// resultados a ciudades/pueblos/parajes en vez de calles o comercios — sin esto, buscar

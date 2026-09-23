@@ -1,4 +1,5 @@
 using Logistica.Servicios;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -15,6 +16,7 @@ public class RecorridoController(RuteoService ruteo) : ControllerBase
     /// guía del repartidor, acta changelog 3.4). Cacheado en RuteoService; nunca tira — un OSRM
     /// caído devuelve 204 y el mapa cae a línea recta entre los puntos.</summary>
     [HttpPost]
+    [EnableRateLimiting("geo")]
     public async Task<IActionResult> Trazar(TrazarRequest req, CancellationToken ct)
     {
         var recorrido = await ruteo.TrazarAsync(req.Puntos, ct);

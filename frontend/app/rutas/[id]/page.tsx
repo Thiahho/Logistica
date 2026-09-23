@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { Navigation, Phone } from "lucide-react";
 import { useParams } from "next/navigation";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -19,6 +20,8 @@ import { leerError, leerJson } from "@/lib/api/errores";
 import { useSondeo } from "@/lib/hooks/useSondeo";
 import { Input } from "@/components/ui/input";
 import { TarjetaNovedades } from "@/components/PanelNovedades";
+import { RutaEnGoogleMaps } from "@/components/RutaEnGoogleMaps";
+import { enlaceParadaGoogleMaps } from "@/lib/dominio/googleMaps";
 import type {
   JornadaRuta,
   NovedadResumen,
@@ -103,6 +106,8 @@ function RutaDetalleContenido() {
   const [dialogoRepartidor, setDialogoRepartidor] = useState(false);
   const [dialogoOrden, setDialogoOrden] = useState(false);
   const [dialogoInterrumpir, setDialogoInterrumpir] = useState(false);
+  // Con una lista larga en el teléfono el mapa se puede plegar para no obligar a scrollear hasta el final.
+  const [mapaVisible, setMapaVisible] = useState(true);
 
   if (!ruta) {
     return (
@@ -143,67 +148,83 @@ function RutaDetalleContenido() {
       })),
   ];
 
+  const pendientes = paradas.filter((p) => p.estado === "pendiente").length;
+  const totalPedidos = paradas.reduce((n, p) => n + p.pedidos.length, 0);
+  const totalBultos = paradas.reduce((n, p) => n + p.pedidos.reduce((m, ped) => m + ped.bultos, 0), 0);
+
   return (
-    <div className="p-4 md:p-8 max-w-4xl flex flex-col gap-6">
+    <div className="flex max-w-5xl flex-col gap-4 p-4 md:gap-6 md:p-8">
       <CabeceraSesion titulo={`Ruta #${ruta.id} — ${ruta.fecha}`} />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button variant="outline" render={<Link href="/rutas" />} nativeButton={false}>
+      <div className="flex items-center justify-between gap-3">
+        <Button variant="outline" className="h-11 md:h-8" render={<Link href="/rutas" />} nativeButton={false}>
           ← Rutas
         </Button>
-        <div className="flex gap-2">
-          {ruta.estado === "planificada" && (
-            <Button render={<Link href={`/rutas/${ruta.id}/armar`} />} nativeButton={false}>
-              Armar
-            </Button>
-          )}
-          {ruta.estado !== "planificada" && usuario?.rol === "administracion" && (
-            <Button variant="outline" render={<Link href={`/rutas/${ruta.id}/cierre`} />} nativeButton={false}>
-              {ruta.estado === "cerrada" ? "Ver cierre" : "Cerrar ruta"}
-            </Button>
-          )}
-        </div>
+        <EstadoRutaBadge estado={ruta.estado} size="md" />
       </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Datos de la ruta</CardTitle>
-            <EstadoRutaBadge estado={ruta.estado} />
-          </div>
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
-          <Fila etiqueta="Repartidor" valor={ruta.repartidorNombre ?? "Sin asignar"} />
-          <Fila etiqueta="Vehículo" valor={ruta.vehiculoPatente ?? "Sin asignar"} />
-          <Fila etiqueta="Capacidad" valor={`${ruta.cantidadParadas} / ${ruta.capacidadParadas} paradas`} />
-          <Fila
-            etiqueta="Origen"
-            valor={
-              ruta.origen
-                ? (ruta.origen.esDeposito ? (ruta.origen.nombreDeposito ?? "Depósito") : ruta.origen.calleNumero)
-                : "Sin elegir"
-            }
-          />
-        </CardContent>
+      <RutaEnGoogleMaps origen={bundle?.origen ?? ruta.origen} paradas={paradas} estado={ruta.estado} />
+
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+        {ruta.estado === "planificada" && (
+          <Button className="col-span-2 h-11 sm:col-span-1 md:h-8" render={<Link href={`/rutas/${ruta.id}/armar`} />} nativeButton={false}>
+            Armar ruta
+          </Button>
+        )}
+        {ruta.estado !== "planificada" && usuario?.rol === "administracion" && (
+          <Button
+            variant="outline"
+            className="col-span-2 h-11 sm:col-span-1 md:h-8"
+            render={<Link href={`/rutas/${ruta.id}/cierre`} />}
+            nativeButton={false}
+          >
+            {ruta.estado === "cerrada" ? "Ver cierre" : "Cerrar ruta"}
+          </Button>
+        )}
         {puedeActuar && (
-          <CardContent className="flex gap-2 border-t pt-4">
-            <Button size="sm" variant="outline" onClick={() => setDialogoRepartidor(true)}>
+          <>
+            <Button variant="outline" className="h-11 md:h-8" onClick={() => setDialogoRepartidor(true)}>
               Reasignar repartidor
             </Button>
             <Button
-              size="sm"
               variant="outline"
-              disabled={paradas.filter((p) => p.estado === "pendiente").length < 2}
+              className="h-11 md:h-8"
+              disabled={pendientes < 2}
               onClick={() => setDialogoOrden(true)}
             >
               Reordenar pendientes
             </Button>
             {ruta.estado === "en_curso" && (
-              <Button size="sm" variant="destructive" onClick={() => setDialogoInterrumpir(true)}>
+              <Button variant="destructive" className="col-span-2 h-11 sm:col-span-1 md:h-8" onClick={() => setDialogoInterrumpir(true)}>
                 Interrumpir ruta
               </Button>
             )}
-          </CardContent>
+          </>
         )}
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Datos de la ruta</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
+          <Fila etiqueta="Repartidor" valor={ruta.repartidorNombre ?? "Sin asignar"} />
+          <Fila etiqueta="Vehículo" valor={ruta.vehiculoPatente ?? "Sin asignar"} />
+          <div className="col-span-2 sm:col-span-1">
+            <Fila
+              etiqueta="Punto de salida"
+              valor={
+                ruta.origen
+                  ? (ruta.origen.esDeposito ? (ruta.origen.nombreDeposito ?? "Depósito") : ruta.origen.calleNumero)
+                  : "Sin elegir"
+              }
+            />
+          </div>
+        </CardContent>
+        <CardContent className="grid grid-cols-3 gap-2 border-t pt-4">
+          <TarjetaMetrica valor={`${ruta.cantidadParadas} / ${ruta.capacidadParadas}`} etiqueta="Paradas" />
+          <TarjetaMetrica valor={totalPedidos} etiqueta="Pedidos" />
+          <TarjetaMetrica valor={totalBultos} etiqueta="Bultos" />
+        </CardContent>
       </Card>
 
       {novedades && novedades.length > 0 && (
@@ -221,7 +242,7 @@ function RutaDetalleContenido() {
           <CardHeader>
             <CardTitle className="text-base">Resultado económico</CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-3 gap-4">
+          <CardContent className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-4">
             <TarjetaMetrica valor={`$${resultado.ingresos.toLocaleString("es-AR")}`} etiqueta="Ingresos" />
             <TarjetaMetrica valor={`$${resultado.costos.toLocaleString("es-AR")}`} etiqueta="Costos" />
             <TarjetaMetrica
@@ -251,19 +272,31 @@ function RutaDetalleContenido() {
             </div>
           )}
 
-          <MapaDinamico marcadores={marcadores} recorrido={bundle.recorrido?.linea ?? null} alto="h-72" />
+          {/* En el teléfono va primero la lista (lo que se necesita); lado a lado desde md, con el mapa fijo. */}
+          <div className="flex flex-col gap-4 md:grid md:grid-cols-2 md:items-start md:gap-6">
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium text-muted-foreground">Paradas</p>
+              {paradas.length === 0 ? (
+                <p className="text-muted-foreground">Esta ruta todavía no tiene paradas armadas.</p>
+              ) : (
+                <ul className="flex flex-col gap-3">
+                  {paradas.map((p) => (
+                    <ParadaFila key={p.paradaId} parada={p} anclada={ancladas.has(p.paradaId)} />
+                  ))}
+                </ul>
+              )}
+            </div>
 
-          <div className="flex flex-col gap-2">
-            <p className="text-sm font-medium text-muted-foreground">Paradas</p>
-            {paradas.length === 0 ? (
-              <p className="text-muted-foreground">Esta ruta todavía no tiene paradas armadas.</p>
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {paradas.map((p) => (
-                  <ParadaFila key={p.paradaId} parada={p} anclada={ancladas.has(p.paradaId)} />
-                ))}
-              </ul>
-            )}
+            <div className="flex flex-col gap-2 md:sticky md:top-4">
+              {paradas.length > 6 && (
+                <Button variant="outline" className="h-11 md:hidden" onClick={() => setMapaVisible((v) => !v)}>
+                  {mapaVisible ? "Ocultar mapa" : "Ver mapa"}
+                </Button>
+              )}
+              <div className={mapaVisible ? "" : "max-md:hidden"}>
+                <MapaDinamico marcadores={marcadores} recorrido={bundle.recorrido?.linea ?? null} alto="h-56 md:h-72" />
+              </div>
+            </div>
           </div>
         </>
       )}
@@ -321,27 +354,58 @@ function Fila({ etiqueta, valor }: { etiqueta: string; valor: React.ReactNode })
 
 function ParadaFila({ parada: p, anclada }: { parada: ParadaDelDia; anclada: boolean }) {
   const resuelta = p.estado !== "pendiente";
+  const bultos = p.pedidos.reduce((n, ped) => n + ped.bultos, 0);
+  // Un solo destinatario = un solo teléfono al que llamar; con varios no hay cuál elegir por el usuario.
+  const telefono = p.pedidos.length === 1 ? p.pedidos[0].destinatarioTelefono : null;
+  const hora = (iso: string) => new Date(iso).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+
   return (
-    <li className={`flex items-start gap-3 rounded-lg border p-3 ${resuelta ? "opacity-70" : ""}`}>
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-xs font-bold text-neutral-700">
-        {p.orden}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="font-medium">
-          {p.pedidos.map((ped) => ped.destinatarioNombre).join(" · ")}
-          {anclada && <span className="ml-2 text-xs font-normal text-muted-foreground">(anclada)</span>}
-        </p>
-        <p className="text-sm text-muted-foreground">
-          {p.calleNumero}
-          {p.localidad ? `, ${p.localidad}` : ""}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {p.pedidos.length} pedido(s) · {p.pedidos.reduce((n, ped) => n + ped.bultos, 0)} bultos
-          {p.llegadaEn && ` · llegada ${new Date(p.llegadaEn).toLocaleTimeString("es-AR")}`}
-          {p.salidaEn && ` · salida ${new Date(p.salidaEn).toLocaleTimeString("es-AR")}`}
-        </p>
+    <li className={`flex flex-col gap-2 rounded-xl border bg-card p-3 ${resuelta ? "opacity-70" : ""}`}>
+      <div className="flex items-start gap-3">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-sm font-bold text-neutral-700">
+          {p.orden}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="break-words font-medium leading-snug">
+            {p.pedidos.map((ped) => ped.destinatarioNombre).join(" · ")}
+            {anclada && <span className="ml-2 text-xs font-normal text-muted-foreground">(anclada)</span>}
+          </p>
+          <p className="break-words text-sm text-muted-foreground">
+            {p.calleNumero}
+            {p.localidad ? `, ${p.localidad}` : ""}
+          </p>
+        </div>
+        <EstadoParadaBadge estado={p.estado} />
       </div>
-      <EstadoParadaBadge estado={p.estado} />
+      <p className="pl-11 text-xs text-muted-foreground">
+        {p.pedidos.length} {p.pedidos.length === 1 ? "pedido" : "pedidos"} · {bultos} {bultos === 1 ? "bulto" : "bultos"}
+        {p.llegadaEn && ` · llegada ${hora(p.llegadaEn)}`}
+        {p.salidaEn && ` · salida ${hora(p.salidaEn)}`}
+      </p>
+      <div className="flex flex-wrap gap-2 pl-11">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-10 gap-1 md:h-8"
+          nativeButton={false}
+          render={<a href={enlaceParadaGoogleMaps(p)} target="_blank" rel="noopener noreferrer" />}
+        >
+          <Navigation className="size-4" />
+          Cómo llegar
+        </Button>
+        {telefono && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-10 gap-1 md:h-8"
+            nativeButton={false}
+            render={<a href={`tel:${telefono}`} />}
+          >
+            <Phone className="size-4" />
+            Llamar
+          </Button>
+        )}
+      </div>
     </li>
   );
 }
@@ -400,11 +464,11 @@ function DialogoReasignarRepartidor({
         <div className="flex flex-col gap-3 pt-2">
           <ComboboxBusqueda items={items} value={elegido} onValueChange={setElegido} placeholder="Elegir repartidor" />
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onCerrar} disabled={enviando}>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" className="h-11 sm:h-8" onClick={onCerrar} disabled={enviando}>
               Cancelar
             </Button>
-            <Button onClick={confirmar} disabled={!elegido || enviando}>
+            <Button className="h-11 sm:h-8" onClick={confirmar} disabled={!elegido || enviando}>
               {enviando ? "Guardando…" : "Guardar"}
             </Button>
           </div>
@@ -465,11 +529,11 @@ function DialogoInterrumpir({
           </p>
           <Input placeholder="Motivo (obligatorio)" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onCerrar} disabled={enviando}>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" className="h-11 sm:h-8" onClick={onCerrar} disabled={enviando}>
               Cancelar
             </Button>
-            <Button variant="destructive" onClick={confirmar} disabled={enviando || !motivo.trim()}>
+            <Button variant="destructive" className="h-11 sm:h-8" onClick={confirmar} disabled={enviando || !motivo.trim()}>
               {enviando ? "Interrumpiendo…" : "Interrumpir ruta"}
             </Button>
           </div>
@@ -533,25 +597,42 @@ function DialogoReordenar({
           <ul className="flex flex-col gap-2">
             {orden.map((p, i) => (
               <li key={p.paradaId} className="flex items-center gap-2 rounded-lg border p-2">
-                <span className="flex-1 truncate text-sm">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-xs font-bold text-neutral-700">
+                  {p.orden}
+                </span>
+                <span className="min-w-0 flex-1 text-sm">
                   {p.calleNumero}
                   {p.localidad ? `, ${p.localidad}` : ""}
                 </span>
-                <Button size="sm" variant="outline" disabled={i === 0} onClick={() => mover(i, -1)}>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="size-11 sm:size-8"
+                  aria-label={`Subir la parada ${p.orden}`}
+                  disabled={i === 0}
+                  onClick={() => mover(i, -1)}
+                >
                   ↑
                 </Button>
-                <Button size="sm" variant="outline" disabled={i === orden.length - 1} onClick={() => mover(i, 1)}>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="size-11 sm:size-8"
+                  aria-label={`Bajar la parada ${p.orden}`}
+                  disabled={i === orden.length - 1}
+                  onClick={() => mover(i, 1)}
+                >
                   ↓
                 </Button>
               </li>
             ))}
           </ul>
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onCerrar} disabled={enviando}>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" className="h-11 sm:h-8" onClick={onCerrar} disabled={enviando}>
               Cancelar
             </Button>
-            <Button onClick={confirmar} disabled={enviando}>
+            <Button className="h-11 sm:h-8" onClick={confirmar} disabled={enviando}>
               {enviando ? "Guardando…" : "Guardar orden"}
             </Button>
           </div>

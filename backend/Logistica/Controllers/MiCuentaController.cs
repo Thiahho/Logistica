@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.RateLimiting;
+using Logistica.Web;
 using Logistica.Auth;
 using Logistica.Datos;
 using Logistica.Dominio;
@@ -30,7 +32,8 @@ namespace Logistica.Controllers;
 public class MiCuentaController(
     LogisticaDbContext db, CuentaCorrienteService cuentaCorriente, PrecioService precios,
     DistanciaService distancias, OrigenRutaService origenes, IOptions<OpcionesPortal> opcionesPortal,
-    UbicacionService ubicaciones, GeocodificacionService geocodificador)
+    UbicacionService ubicaciones, GeocodificacionService geocodificador, ZonaLocalidadService zonasLocalidad,
+    DireccionDesdeMapaService desdeMapa)
     : ControllerBase
 {
     public record FacturaPropia(
@@ -42,11 +45,11 @@ public class MiCuentaController(
         DateOnly? ProximoVencimiento, List<FacturaPropia> Facturas);
 
     public record CrearPedidoPortalRequest(
-        string DestinatarioNombre,
-        string DestinatarioTelefono,
+        [Required(AllowEmptyStrings = false, ErrorMessage = "El nombre del destinatario es obligatorio.")] string DestinatarioNombre,
+        [Required(AllowEmptyStrings = false, ErrorMessage = "El teléfono del destinatario es obligatorio.")] string DestinatarioTelefono,
         long DestinoUbicacionId,
-        [Range(1, int.MaxValue, ErrorMessage = "Los bultos deben ser al menos 1.")] int Bultos,
-        [Range(0, double.MaxValue, ErrorMessage = "El peso no puede ser negativo.")] decimal? PesoKg,
+        [Range(1, 999, ErrorMessage = "Los bultos deben estar entre 1 y 999.")] int Bultos,
+        [Range(0, 100000, ErrorMessage = "El peso debe estar entre 0 y 100000 kg.")] decimal? PesoKg,
         DateOnly FechaEntrega,
         bool Urgente,
         string TipoVehiculo,
@@ -68,8 +71,11 @@ public class MiCuentaController(
     public record ResultadoBusquedaLocalidad(
         IReadOnlyList<LocalidadResumen> Existentes, IReadOnlyList<SugerenciaLocalidad> Sugeridas);
     public record CrearLocalidadRequest(string Nombre, string? Partido);
-    public record ResolverUbicacionRequest(string CalleNumero, int LocalidadId, string? Referencia);
-    public record UbicacionResuelta(long Id, decimal? Lat, decimal? Lng, string? GeoConfianza);
+    public record DesdeMapaRequest(string UrlMapa);
+    public record ResolverUbicacionRequest(string CalleNumero, int LocalidadId, string? Referencia, string? UrlMapa = null);
+    public record UbicacionResuelta(
+        long Id, decimal? Lat, decimal? Lng, string? GeoConfianza,
+        bool UrlMapaAplicada = false, string? UrlMapaError = null);
 
     /// <summary>"Mis clientes" (registro explícito de destinatarios, reversión de la decisión de
     /// acta 3.5 — ver acta_sistema.md changelog 4.10). Misma forma que
@@ -85,11 +91,55 @@ public class MiCuentaController(
     public record GuardarClienteDestinatarioRequest(
         string Nombre, string Telefono, long DestinoUbicacionId, string? Observaciones);
 
+    public record EventoEstado(string Estado, string? Motivo, DateTimeOffset OcurridoEn);
+
+    /// <summary>Un envío del día con su historial de estados, para la línea de tiempo de "Mi plan".
+    /// Sin nombre de actor a propósito: nunca visible para el cliente (RF-33).</summary>
+    public record PedidoDelDia(
+        long Id, string DestinatarioNombre, string Estado,
+        string DestinoCalleNumero, string? DestinoLocalidad, List<EventoEstado> Eventos);
+
     private static string EstadoDe(decimal saldo, decimal total, DateOnly vencimiento, DateOnly hoy)
     {
         if (saldo <= 0) return "pagada";
         if (vencimiento < hoy) return "vencida";
         return saldo < total ? "parcial" : "pendiente";
+    }
+
+    /// <summary>Envíos de hoy del cliente (fecha de entrega = hoy, día local), con la línea de tiempo
+    /// de estados de cada uno. El cliente sale del claim, nunca de la URL. Una sola consulta de
+    /// eventos para todo el lote.</summary>
+    [HttpGet("plan-del-dia")]
+    public async Task<IActionResult> PlanDelDia(CancellationToken ct)
+    {
+        var clienteId = User.ClienteId();
+        if (clienteId is null) return Forbid();
+
+        var hoy = Reloj.HoyLocal();
+        var pedidos = await db.Pedidos.AsNoTracking()
+            .Where(p => p.ClienteId == clienteId.Value && p.FechaEntrega == hoy)
+            .OrderBy(p => p.Id)
+            .Select(p => new
+            {
+                p.Id,
+                p.DestinatarioNombre,
+                p.Estado,
+                p.DestinoUbicacion.CalleNumero,
+                Localidad = p.DestinoUbicacion.Localidad != null ? p.DestinoUbicacion.Localidad.Nombre : null,
+            })
+            .ToListAsync(ct);
+
+        var ids = pedidos.Select(p => p.Id).ToList();
+        var eventos = (await db.PedidoEventos.AsNoTracking()
+                .Where(e => ids.Contains(e.PedidoId))
+                .OrderBy(e => e.OcurridoEn)
+                .Select(e => new { e.PedidoId, e.EstadoNuevo, e.Motivo, e.OcurridoEn })
+                .ToListAsync(ct))
+            .ToLookup(e => e.PedidoId);
+
+        return Ok(pedidos.Select(p => new PedidoDelDia(
+            p.Id, p.DestinatarioNombre, p.Estado.ToString(), p.CalleNumero, p.Localidad,
+            eventos[p.Id].Select(e => new EventoEstado(e.EstadoNuevo.ToString(), e.Motivo, e.OcurridoEn)).ToList())));
     }
 
     [HttpGet]
@@ -120,6 +170,7 @@ public class MiCuentaController(
     /// <summary>Espejo de LocalidadesController.Buscar (ver comentario arriba de estos records) —
     /// necesario para que SelectorLocalidad funcione dentro de /mis-envios/nuevo.</summary>
     [HttpGet("localidades/buscar")]
+    [EnableRateLimiting("geo")]
     public async Task<IActionResult> BuscarLocalidad([FromQuery] string q, CancellationToken ct)
     {
         q = q.Trim();
@@ -144,34 +195,47 @@ public class MiCuentaController(
         return Ok(new ResultadoBusquedaLocalidad(existentes, sugeridas));
     }
 
-    /// <summary>Espejo de LocalidadesController.Crear. Nace sin zona, igual que el alta interna:
-    /// un cliente eligiendo su localidad no puede decidir sola la zona de precio.</summary>
+    /// <summary>Espejo de LocalidadesController.Crear. La zona la decide el servidor midiendo contra
+    /// el depósito (nunca el cliente: no acepta coordenadas ni zona en el body).</summary>
     [HttpPost("localidades")]
+    [EnableRateLimiting("geo")]
     public async Task<IActionResult> CrearLocalidad(CrearLocalidadRequest req, CancellationToken ct)
     {
         var nombre = req.Nombre.Trim();
         if (nombre.Length == 0) return BadRequest("El nombre de la localidad no puede estar vacío.");
         var partido = string.IsNullOrWhiteSpace(req.Partido) ? null : req.Partido.Trim();
 
-        var existente = await db.Localidades.FirstOrDefaultAsync(l =>
-            l.Nombre.ToLower() == nombre.ToLower() &&
-            (partido == null ? l.Partido == null : l.Partido!.ToLower() == partido.ToLower()), ct);
-        if (existente is not null)
-            return Ok(new LocalidadResumen(existente.Id, existente.Nombre, existente.Partido, existente.ZonaId));
-
-        var nueva = new Localidad { Nombre = nombre, Partido = partido, ZonaId = null };
-        db.Localidades.Add(nueva);
-        await db.SaveChangesAsync(ct);
-        return Ok(new LocalidadResumen(nueva.Id, nueva.Nombre, nueva.Partido, nueva.ZonaId));
+        var localidad = await zonasLocalidad.CrearAsync(nombre, partido, ct);
+        return Ok(new LocalidadResumen(localidad.Id, localidad.Nombre, localidad.Partido, localidad.ZonaId));
     }
+
+    /// <summary>Precio orientativo al elegir la localidad: solo tarifa de zona, con la lista propia
+    /// del cliente si la tiene (el cliente sale del claim, nunca de la URL).</summary>
+    [HttpGet("localidades/{id:int}/precio-sugerido")]
+    public async Task<IActionResult> PrecioSugerido(int id, CancellationToken ct)
+    {
+        var clienteId = User.ClienteId();
+        if (clienteId is null) return Forbid();
+        var precio = await zonasLocalidad.PrecioSugeridoAsync(id, clienteId.Value, ct);
+        return precio is null ? NotFound() : Ok(precio);
+    }
+
+    /// <summary>Espejo de UbicacionesController.DesdeMapa: propone dirección y localidad desde un link
+    /// de Google Maps; el cliente las confirma o corrige antes de cargar el envío.</summary>
+    [HttpPost("ubicaciones/desde-mapa")]
+    [EnableRateLimiting("geo")]
+    public async Task<IActionResult> DesdeMapa(DesdeMapaRequest req, CancellationToken ct) =>
+        Ok(await desdeMapa.LeerAsync(req.UrlMapa, ct));
 
     /// <summary>Espejo de UbicacionesController.Resolver — geocodifica al salir del campo
     /// dirección, mismo resolver-o-crear que el alta interna.</summary>
     [HttpPost("ubicaciones")]
+    [EnableRateLimiting("geo")]
     public async Task<IActionResult> ResolverUbicacion(ResolverUbicacionRequest req, CancellationToken ct)
     {
-        var ubicacion = await ubicaciones.ResolverOCrearAsync(req.CalleNumero, req.LocalidadId, req.Referencia, ct);
-        return Ok(new UbicacionResuelta(ubicacion.Id, ubicacion.Lat, ubicacion.Lng, ubicacion.GeoConfianza));
+        var r = await ubicaciones.ResolverConMapaAsync(req.CalleNumero, req.LocalidadId, req.Referencia, req.UrlMapa, ct);
+        return Ok(new UbicacionResuelta(
+            r.Ubicacion.Id, r.Ubicacion.Lat, r.Ubicacion.Lng, r.Ubicacion.GeoConfianza, r.UrlMapaAplicada, r.UrlMapaError));
     }
 
     /// <summary>
@@ -202,6 +266,9 @@ public class MiCuentaController(
         // del servidor al confirmar, no solo al mostrar el formulario, para que dejar la pantalla
         // abierta no permita colarse en el lote de hoy después del corte.
         var hoy = Reloj.HoyLocal();
+        // Ni en el pasado (antes solo se frenaba pasada la hora de corte) ni a más de 90 días.
+        var errorFecha = ValidacionFechas.FechaEntrega(req.FechaEntrega, hoy, diasAtras: 0, diasAdelante: 90);
+        if (errorFecha is not null) return BadRequest(errorFecha);
         var horaCorte = opcionesPortal.Value.HoraCorte;
         if (req.FechaEntrega <= hoy && Reloj.HoraLocal() > horaCorte)
         {

@@ -1,4 +1,5 @@
 using Logistica.Auth;
+using Logistica.Web;
 using Logistica.Datos;
 using Logistica.Dominio;
 using Logistica.Servicios;
@@ -108,9 +109,10 @@ public class FacturasController(LogisticaDbContext db, CuentaCorrienteService cu
             _ => query.OrderByDescending(x => x.FechaEmision).ThenByDescending(x => x.Id),
         };
 
+        tamanioPagina = Paginacion.TamanioEfectivo(tamanioPagina);
         if (tamanioPagina is > 0)
         {
-            var paginaActual = pagina is > 0 ? pagina.Value : 1;
+            var paginaActual = pagina is > 0 ? Math.Min(pagina.Value, 1_000_000) : 1;
             query = query.Skip((paginaActual - 1) * tamanioPagina.Value).Take(tamanioPagina.Value);
         }
 

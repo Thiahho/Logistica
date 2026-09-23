@@ -50,7 +50,7 @@ function Retiro() {
   if (errorCarga) {
     return (
       <div className="p-4">
-        <CabeceraRepartidor titulo="Retiro" />
+        <CabeceraRepartidor titulo="Empezar ruta" />
         <p className="text-sm text-destructive">{errorCarga}</p>
       </div>
     );
@@ -59,7 +59,7 @@ function Retiro() {
   if (!jornada) {
     return (
       <div className="p-4">
-        <CabeceraRepartidor titulo="Retiro" />
+        <CabeceraRepartidor titulo="Empezar ruta" />
         <p className="text-muted-foreground">Cargando…</p>
       </div>
     );
@@ -68,7 +68,7 @@ function Retiro() {
   if (jornada.rutaId === null) {
     return (
       <div className="p-4">
-        <CabeceraRepartidor titulo="Retiro" />
+        <CabeceraRepartidor titulo="Empezar ruta" />
         <p className="text-muted-foreground">No tenés una ruta en curso.</p>
       </div>
     );
@@ -84,7 +84,7 @@ function Retiro() {
   if (jornada.retiroConfirmadoEn) {
     return (
       <div className="p-4 flex flex-col gap-4">
-        <CabeceraRepartidor titulo="Retiro" />
+        <CabeceraRepartidor titulo="Empezar ruta" />
         <p className="rounded-2xl border bg-card shadow-sm p-4">
           El retiro ya está firmado ({new Date(jornada.retiroConfirmadoEn).toLocaleTimeString()}).
         </p>
@@ -124,7 +124,7 @@ function Retiro() {
 
   return (
     <div className="p-4 flex flex-col gap-4 pb-8">
-      <CabeceraRepartidor titulo="Retiro de la ruta" volverA="/hoy" />
+      <CabeceraRepartidor titulo="Empezar ruta" volverA="/hoy" />
 
       <div className="rounded-2xl border-2 border-bf-azul bg-bf-celeste/10 p-4 text-center">
         <p className="text-xs font-semibold uppercase tracking-wide text-bf-azul">Bultos de la ruta</p>
@@ -183,7 +183,7 @@ function Retiro() {
       {envioError && <p className="text-sm text-destructive">{envioError}</p>}
 
       <Button className="h-12 w-full text-base" disabled={!listo || enviando} onClick={confirmar}>
-        {enviando ? "Enviando…" : "Confirmar retiro"}
+        {enviando ? "Enviando…" : "Confirmar y salir"}
       </Button>
     </div>
   );

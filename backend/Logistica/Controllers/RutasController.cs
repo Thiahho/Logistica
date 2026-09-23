@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Logistica.Web;
 using Logistica.Auth;
 using Logistica.Datos;
 using Logistica.Dominio;
@@ -31,7 +32,9 @@ public class RutasController(
     LogisticaDbContext db, OrigenRutaService origenes, PrecioService precios,
     DistanciaService distancias, JornadaService jornada) : ControllerBase
 {
-    public record RutaResumen(long Id, DateOnly Fecha, string? VehiculoPatente, string? RepartidorNombre, string Estado, int CantidadParadas);
+    public record RutaResumen(
+        long Id, DateOnly Fecha, string? VehiculoPatente, string? RepartidorNombre, string Estado,
+        int CantidadParadas, int CantidadBultos);
 
     public record RutaDetalle(
         long Id, DateOnly Fecha, long? VehiculoId, string? VehiculoPatente, Guid? RepartidorId, string? RepartidorNombre,
@@ -134,9 +137,10 @@ public class RutasController(
             _ => query.OrderByDescending(r => r.Fecha).ThenByDescending(r => r.Id),
         };
 
+        tamanioPagina = Paginacion.TamanioEfectivo(tamanioPagina);
         if (tamanioPagina is > 0)
         {
-            var paginaActual = pagina is > 0 ? pagina.Value : 1;
+            var paginaActual = pagina is > 0 ? Math.Min(pagina.Value, 1_000_000) : 1;
             query = query.Skip((paginaActual - 1) * tamanioPagina.Value).Take(tamanioPagina.Value);
         }
 
@@ -149,10 +153,16 @@ public class RutasController(
                 RepartidorNombre = r.Repartidor != null ? r.Repartidor.Nombre : null,
                 r.Estado,
                 CantidadParadas = db.RutaParadas.Count(p => p.RutaId == r.Id),
+                // Suma de bultos de los pedidos de todas sus paradas — una sola subconsulta por fila
+                // de la página, sin N+1 desde C#.
+                CantidadBultos = db.ParadaPedidos
+                    .Where(pp => pp.Parada.RutaId == r.Id)
+                    .Sum(pp => (int?)pp.Pedido.Bultos) ?? 0,
             })
             .ToListAsync(ct);
 
-        var resultado = filas.Select(r => new RutaResumen(r.Id, r.Fecha, r.VehiculoPatente, r.RepartidorNombre, r.Estado, r.CantidadParadas)).ToList();
+        var resultado = filas.Select(r => new RutaResumen(
+            r.Id, r.Fecha, r.VehiculoPatente, r.RepartidorNombre, r.Estado, r.CantidadParadas, r.CantidadBultos)).ToList();
 
         return Ok(new ListaPaginada<RutaResumen>(resultado, total));
     }

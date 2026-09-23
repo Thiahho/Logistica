@@ -174,10 +174,12 @@ function CierreJornada() {
       )}
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="km-final">Kilometraje del odómetro al volver</Label>
+        <Label htmlFor="km-final">Kilometraje del odómetro al volver (obligatorio)</Label>
         <Input
           id="km-final"
           type="number"
+          required
+          autoFocus
           inputMode="numeric"
           min={0}
           className="h-12 text-base"
@@ -218,8 +220,12 @@ function CierreJornada() {
 
       {envioError && <p className="text-sm text-destructive">{envioError}</p>}
 
+      {/* Un botón apagado sin explicación parece roto: se dice qué falta. */}
+      {!listo && pendientes === 0 && (
+        <p className="text-sm text-amber-700">Falta el kilometraje del odómetro para poder terminar la ruta.</p>
+      )}
       <Button className="h-12 w-full text-base" disabled={!listo || enviando} onClick={confirmar}>
-        {enviando ? "Enviando…" : "Cerrar la jornada"}
+        {enviando ? "Enviando…" : "Confirmar y terminar la ruta"}
       </Button>
     </div>
   );

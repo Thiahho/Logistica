@@ -16,6 +16,7 @@ import {
 } from "@/lib/dominio/tipos";
 import { ETIQUETA_TRANSICION, motivoObligatorio, transicionesDisponibles } from "@/lib/dominio/estados";
 import { ContactoYNovedadesDePedido } from "@/components/ContactoYNovedadesDePedido";
+import { TarjetaPruebaEntrega } from "@/components/TarjetaPruebaEntrega";
 
 interface PedidoDetalleContenidoProps {
   pedidoId: number;
@@ -489,6 +490,10 @@ export function PedidoDetalleContenido({ pedidoId, onCambio, onAbrirPedidoOrigen
             onCambio?.();
           }}
         />
+      )}
+
+      {usuario?.rol === "administracion" && (pedido.estado === "Entregado" || pedido.estado === "Fallido") && (
+        <TarjetaPruebaEntrega pedidoId={pedido.id} />
       )}
 
       <Card>

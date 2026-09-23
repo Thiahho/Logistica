@@ -1,4 +1,5 @@
 using Logistica.Datos;
+using Microsoft.AspNetCore.RateLimiting;
 using Logistica.Dominio;
 using Logistica.Entidades;
 using Logistica.Servicios;
@@ -11,21 +12,34 @@ namespace Logistica.Controllers;
 [ApiController]
 [Route("api/ubicaciones")]
 [Authorize(Policy = "BackOffice")]
-public class UbicacionesController(UbicacionService ubicaciones, OrigenRutaService origenes) : ControllerBase
+public class UbicacionesController(
+    UbicacionService ubicaciones, OrigenRutaService origenes, DireccionDesdeMapaService desdeMapa) : ControllerBase
 {
-    public record ResolverRequest(string CalleNumero, int LocalidadId, string? Referencia);
-    public record UbicacionResuelta(long Id, decimal? Lat, decimal? Lng, string? GeoConfianza);
+    public record ResolverRequest(string CalleNumero, int LocalidadId, string? Referencia, string? UrlMapa = null);
+    public record DesdeMapaRequest(string UrlMapa);
+    public record UbicacionResuelta(
+        long Id, decimal? Lat, decimal? Lng, string? GeoConfianza,
+        bool UrlMapaAplicada = false, string? UrlMapaError = null);
     public record CrearDepositoRequest(string Nombre, string CalleNumero, int LocalidadId);
     public record RenombrarDepositoRequest(string Nombre);
 
     /// <summary>Geocodifica al salir del campo dirección (construccion_v1.md §4.1). Resolver-o-crear:
     /// una dirección ya cargada no vuelve a pegarle al geocoder.</summary>
     [HttpPost]
+    [EnableRateLimiting("geo")]
     public async Task<IActionResult> Resolver(ResolverRequest req, CancellationToken ct)
     {
-        var ubicacion = await ubicaciones.ResolverOCrearAsync(req.CalleNumero, req.LocalidadId, req.Referencia, ct);
-        return Ok(new UbicacionResuelta(ubicacion.Id, ubicacion.Lat, ubicacion.Lng, ubicacion.GeoConfianza));
+        var r = await ubicaciones.ResolverConMapaAsync(req.CalleNumero, req.LocalidadId, req.Referencia, req.UrlMapa, ct);
+        return Ok(new UbicacionResuelta(
+            r.Ubicacion.Id, r.Ubicacion.Lat, r.Ubicacion.Lng, r.Ubicacion.GeoConfianza, r.UrlMapaAplicada, r.UrlMapaError));
     }
+
+    /// <summary>Dirección y localidad propuestas a partir de un link de Google Maps — solo lee, no guarda
+    /// nada: la persona las confirma o corrige y recién ahí se resuelve la ubicación (`Resolver`).</summary>
+    [HttpPost("desde-mapa")]
+    [EnableRateLimiting("geo")]
+    public async Task<IActionResult> DesdeMapa(DesdeMapaRequest req, CancellationToken ct) =>
+        Ok(await desdeMapa.LeerAsync(req.UrlMapa, ct));
 
     /// <summary>Catálogo de depósitos seleccionables al armar una ruta (acta changelog 3.8). Puede
     /// haber varios — a diferencia del resto del controller, de lectura abierta a todo BackOffice
@@ -89,12 +103,16 @@ public class UbicacionesController(UbicacionService ubicaciones, OrigenRutaServi
 [ApiController]
 [Route("api/localidades")]
 [Authorize(Policy = "BackOffice")]
-public class LocalidadesController(LogisticaDbContext db, GeocodificacionService geocodificador, OrigenRutaService origenes) : ControllerBase
+public class LocalidadesController(
+    LogisticaDbContext db, GeocodificacionService geocodificador, ZonaLocalidadService zonasLocalidad) : ControllerBase
 {
     public record LocalidadResumen(int Id, string Nombre, string? Partido, int? ZonaId);
     public record CrearLocalidadRequest(string Nombre, string? Partido);
     public record ResultadoBusquedaLocalidad(IReadOnlyList<LocalidadResumen> Existentes, IReadOnlyList<SugerenciaLocalidad> Sugeridas);
-    public record LocalidadPendiente(int Id, string Nombre, string? Partido, decimal? DistanciaKmDeposito, int? ZonaSugeridaId, string? ZonaSugeridaCodigo, string? ZonaSugeridaNombre);
+    /// <summary>Localidad automática que no pudo quedar con zona. Motivo: "sin_coordenadas" (no se
+    /// pudo medir contra el depósito) | "fuera_de_rango" (midió, pero ninguna zona activa la cubre).</summary>
+    public record LocalidadPendiente(int Id, string Nombre, string? Partido, decimal? DistanciaKmDeposito, string Motivo);
+    public record LocalidadDeZona(int Id, string Nombre, string? Partido, int? ZonaId, string? ZonaCodigo, decimal? DistanciaKmDeposito, bool ZonaManual);
     public record AsignarZonaRequest(int ZonaId);
 
     [HttpGet]
@@ -109,6 +127,7 @@ public class LocalidadesController(LogisticaDbContext db, GeocodificacionService
     /// dirección real en una localidad que no está ahí no tiene forma de entrar sin esto. Las
     /// sugeridas nunca duplican una ya existente (se descartan por nombre, sin distinguir mayúsculas).</summary>
     [HttpGet("buscar")]
+    [EnableRateLimiting("geo")]
     public async Task<IActionResult> Buscar([FromQuery] string q, CancellationToken ct)
     {
         q = q.Trim();
@@ -136,39 +155,25 @@ public class LocalidadesController(LogisticaDbContext db, GeocodificacionService
     }
 
     /// <summary>Resolver-o-crear una localidad a partir de una sugerencia elegida (mismo patrón que
-    /// `UbicacionService`). Siempre nace sin zona (`ZonaId = null`): queda disponible al instante
-    /// para depósitos y direcciones, pero un pedido ahí sigue bloqueado en /pedidos hasta que
-    /// administración le asigne zona a mano — la decisión de precio nunca se infiere sola.</summary>
+    /// `UbicacionService`). Nace con zona automática: se mide contra el depósito y se le asigna la
+    /// zona cuyo rango de km la cubre (acta changelog 4.11). Si no se pudo medir o ninguna zona la
+    /// cubre, queda sin zona y aparece en "pendientes" de /tarifas para asignarla a mano.</summary>
     [HttpPost]
+    [EnableRateLimiting("geo")]
     public async Task<IActionResult> Crear(CrearLocalidadRequest req, CancellationToken ct)
     {
         var nombre = req.Nombre.Trim();
         if (nombre.Length == 0) return BadRequest("El nombre de la localidad no puede estar vacío.");
         var partido = string.IsNullOrWhiteSpace(req.Partido) ? null : req.Partido.Trim();
 
-        var existente = await db.Localidades.FirstOrDefaultAsync(l =>
-            l.Nombre.ToLower() == nombre.ToLower() &&
-            (partido == null ? l.Partido == null : l.Partido!.ToLower() == partido.ToLower()), ct);
-        if (existente is not null)
-            return Ok(new LocalidadResumen(existente.Id, existente.Nombre, existente.Partido, existente.ZonaId));
-
-        var nueva = new Localidad { Nombre = nombre, Partido = partido, ZonaId = null };
-        db.Localidades.Add(nueva);
-        await db.SaveChangesAsync(ct);
-        return Ok(new LocalidadResumen(nueva.Id, nueva.Nombre, nueva.Partido, nueva.ZonaId));
+        var localidad = await zonasLocalidad.CrearAsync(nombre, partido, ct);
+        return Ok(new LocalidadResumen(localidad.Id, localidad.Nombre, localidad.Partido, localidad.ZonaId));
     }
 
-    /// <summary>Localidades sin zona (ninguna pantalla las creaba antes de acta changelog 3.9;
-    /// ahora el buscador de direcciones sí, y quedan bloqueadas para cotizar hasta que alguien
-    /// pase por acá). Restringido a Administracion, no a todo BackOffice — asignar zona fija el
-    /// precio de la localidad, misma decisión de empresa que el alta de un depósito.
-    ///
-    /// La zona sugerida es eso, una sugerencia: se calcula la distancia real (haversine,
-    /// `Dominio.Geo`, mismo cálculo que ya usa la prueba de entrega) desde el depósito que usa el
-    /// alta de pedido hoy (`PrincipalParaPedidosAsync`) hasta una dirección ya geocodificada de
-    /// esa localidad, y se busca qué zona activa la cubre según el rango de km que administración
-    /// ya cargó en /tarifas (`zonas.km_desde/km_hasta`) — dato que existía desde antes y no se
-    /// usaba para nada. Nunca se aplica sola: `AsignarZona` exige que alguien la confirme.</summary>
+    /// <summary>Localidades automáticas que quedaron sin zona: sin coordenadas (no se pudo medir
+    /// contra el depósito) o fuera de todo rango de km. Las que tienen zona —automática o a mano—
+    /// no aparecen. Restringido a Administracion: asignar zona fija el precio de la localidad.
+    /// Lee lo ya guardado (ZonaLocalidadService) — no mide nada en el request.</summary>
     [HttpGet("pendientes")]
     [Authorize(Policy = "Administracion")]
     public async Task<IActionResult> Pendientes(CancellationToken ct)
@@ -176,80 +181,27 @@ public class LocalidadesController(LogisticaDbContext db, GeocodificacionService
         var sinZona = await db.Localidades.AsNoTracking()
             .Where(l => l.ZonaId == null)
             .OrderBy(l => l.Nombre)
+            .Select(l => new LocalidadPendiente(
+                l.Id, l.Nombre, l.Partido, l.DistanciaKmDeposito,
+                l.DistanciaKmDeposito == null ? "sin_coordenadas" : "fuera_de_rango"))
             .ToListAsync(ct);
-        if (sinZona.Count == 0) return Ok(Array.Empty<LocalidadPendiente>());
-
-        // Sin depósito cargado no hay desde dónde medir distancia — la pantalla igual tiene que
-        // poder listar las localidades pendientes para asignarlas a mano.
-        Deposito? deposito;
-        try
-        {
-            deposito = await origenes.PrincipalParaPedidosAsync(ct);
-        }
-        catch (InvalidOperationException)
-        {
-            deposito = null;
-        }
-
-        var zonas = deposito?.Lat is null || deposito?.Lng is null
-            ? []
-            : await db.Zonas.AsNoTracking()
-                .Where(z => z.Activa && z.KmDesde != null)
-                .OrderBy(z => z.KmDesde)
-                .ToListAsync(ct);
-
-        // Antes era una query (con su propio round-trip) por localidad sin zona, dentro del
-        // foreach. DISTINCT ON (Postgres) trae en una sola consulta la ubicación de referencia
-        // (mayor id, con lat/lng) de cada localidad a la vez.
-        var localidadIds = sinZona.Select(l => l.Id).ToList();
-        var referenciasPorLocalidad = deposito?.Lat is null || deposito?.Lng is null
-            ? new Dictionary<int, Ubicacion>()
-            : (await db.Ubicaciones
-                    .FromSql($"""
-                        select distinct on (localidad_id) *
-                        from ubicaciones
-                        where localidad_id = any({localidadIds}) and lat is not null and lng is not null
-                        order by localidad_id, id desc
-                        """)
-                    .AsNoTracking()
-                    .ToListAsync(ct))
-                .ToDictionary(u => u.LocalidadId!.Value);
-
-        var resultado = new List<LocalidadPendiente>();
-        foreach (var l in sinZona)
-        {
-            decimal? distanciaKm = null;
-            int? zonaSugeridaId = null;
-            string? zonaSugeridaCodigo = null;
-            string? zonaSugeridaNombre = null;
-
-            if (deposito?.Lat is not null && deposito.Lng is not null)
-            {
-                if (referenciasPorLocalidad.TryGetValue(l.Id, out var referencia))
-                {
-                    var metros = Geo.DistanciaMetros(deposito.Lat.Value, deposito.Lng.Value, referencia.Lat!.Value, referencia.Lng!.Value);
-                    distanciaKm = Math.Round(metros / 1000m, 1);
-                    // Semiabierto [KmDesde, KmHasta) — auditoría §7: antes era inclusivo en los
-                    // dos extremos, así que una distancia justo en la frontera (ej. 10km entre
-                    // A=0-10 y B=10-20) matcheaba las dos zonas y ganaba la primera por orden de
-                    // iteración. Ahora la frontera es siempre de la zona de arriba.
-                    var zona = zonas.FirstOrDefault(z => distanciaKm >= z.KmDesde! && (z.KmHasta == null || distanciaKm < z.KmHasta));
-                    if (zona is not null)
-                    {
-                        zonaSugeridaId = zona.Id;
-                        zonaSugeridaCodigo = zona.Codigo;
-                        zonaSugeridaNombre = zona.Nombre;
-                    }
-                }
-            }
-            resultado.Add(new LocalidadPendiente(l.Id, l.Nombre, l.Partido, distanciaKm, zonaSugeridaId, zonaSugeridaCodigo, zonaSugeridaNombre));
-        }
-        return Ok(resultado);
+        return Ok(sinZona);
     }
 
-    /// <summary>Confirma la zona de una localidad (sugerida o elegida a mano) — la única forma de
-    /// sacarla de "pendientes". No es cotizar en el momento: pedidos futuros ahí recién cotizan
-    /// una vez asignada.</summary>
+    /// <summary>Todas las localidades con su zona y si fue automática o manual, para revisarlas y
+    /// volver a automática las que se corrigieron a mano.</summary>
+    [HttpGet("con-zona")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> ConZona(CancellationToken ct) =>
+        Ok(await db.Localidades.AsNoTracking()
+            .OrderBy(l => l.Nombre)
+            .Select(l => new LocalidadDeZona(
+                l.Id, l.Nombre, l.Partido, l.ZonaId, l.Zona != null ? l.Zona.Codigo : null,
+                l.DistanciaKmDeposito, l.ZonaManual))
+            .ToListAsync(ct));
+
+    /// <summary>Confirma la zona de una localidad a mano. Queda como manual: ningún recálculo la
+    /// pisa hasta que se pida volver a automática.</summary>
     [HttpPut("{id:int}/zona")]
     [Authorize(Policy = "Administracion")]
     public async Task<IActionResult> AsignarZona(int id, AsignarZonaRequest req, CancellationToken ct)
@@ -260,7 +212,36 @@ public class LocalidadesController(LogisticaDbContext db, GeocodificacionService
         if (zona is null) return BadRequest("La zona no existe.");
 
         localidad.ZonaId = zona.Id;
+        localidad.ZonaManual = true;
         await db.SaveChangesAsync(ct);
         return Ok(new LocalidadResumen(localidad.Id, localidad.Nombre, localidad.Partido, localidad.ZonaId));
+    }
+
+    /// <summary>Descarta la zona manual y vuelve a medir contra el depósito.</summary>
+    [HttpPut("{id:int}/zona/automatica")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> VolverAAutomatica(int id, CancellationToken ct)
+    {
+        var localidad = await db.Localidades.SingleOrDefaultAsync(l => l.Id == id, ct);
+        if (localidad is null) return NotFound();
+        await zonasLocalidad.VolverAAutomaticaAsync(localidad, ct);
+        return Ok(new LocalidadResumen(localidad.Id, localidad.Nombre, localidad.Partido, localidad.ZonaId));
+    }
+
+    /// <summary>Vuelve a medir todas las localidades automáticas contra el depósito principal y
+    /// reasigna su zona. Es lo que hay que correr si cambió el depósito, o para completar las
+    /// localidades que quedaron sin coordenadas. Lento a propósito (Nominatim ~1 req/s).</summary>
+    [HttpPost("recalcular")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> Recalcular(CancellationToken ct) =>
+        Ok(await zonasLocalidad.RecalcularTodasAsync(soloZona: false, ct));
+
+    /// <summary>Precio orientativo (solo tarifa de zona) al elegir la localidad en el alta interna.
+    /// Sin `clienteId` usa la lista general.</summary>
+    [HttpGet("{id:int}/precio-sugerido")]
+    public async Task<IActionResult> PrecioSugerido(int id, [FromQuery] int? clienteId, CancellationToken ct)
+    {
+        var precio = await zonasLocalidad.PrecioSugeridoAsync(id, clienteId ?? 0, ct);
+        return precio is null ? NotFound() : Ok(precio);
     }
 }

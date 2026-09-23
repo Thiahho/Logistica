@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Logistica.Datos;
+using Logistica.Servicios;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +10,7 @@ namespace Logistica.Controllers;
 [ApiController]
 [Route("api/zonas")]
 [Authorize(Policy = "BackOffice")]
-public class ZonasController(LogisticaDbContext db) : ControllerBase
+public class ZonasController(LogisticaDbContext db, ZonaLocalidadService zonasLocalidad) : ControllerBase
 {
     public record ActualizarKmRequest(
         [Range(0, int.MaxValue, ErrorMessage = "El km desde no puede ser negativo.")] int? KmDesde,
@@ -52,6 +53,8 @@ public class ZonasController(LogisticaDbContext db) : ControllerBase
         zona.KmDesde = req.KmDesde;
         zona.KmHasta = req.KmHasta;
         await db.SaveChangesAsync(ct);
+        // Cambió un rango: las localidades automáticas se reasignan con el km ya guardado (sin red).
+        await zonasLocalidad.RecalcularTodasAsync(soloZona: true, ct);
         return NoContent();
     }
 

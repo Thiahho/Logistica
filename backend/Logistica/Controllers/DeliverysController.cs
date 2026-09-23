@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Logistica.Web;
 using Logistica.Auth;
 using Logistica.Datos;
 using Logistica.Dominio;
@@ -49,11 +50,11 @@ public class DeliverysController(
         string? ReferenciaCliente,
         long OrigenUbicacionId,
         long DestinoUbicacionId,
-        string DestinatarioNombre,
-        string DestinatarioTelefono,
-        [Range(1, int.MaxValue, ErrorMessage = "Los bultos deben ser al menos 1.")] int Bultos,
-        [Range(0, double.MaxValue, ErrorMessage = "El peso no puede ser negativo.")] decimal? PesoKg,
-        [Range(0, double.MaxValue, ErrorMessage = "El valor declarado no puede ser negativo.")] decimal? ValorDeclarado,
+        [Required(AllowEmptyStrings = false, ErrorMessage = "El nombre del destinatario es obligatorio.")] string DestinatarioNombre,
+        [Required(AllowEmptyStrings = false, ErrorMessage = "El teléfono del destinatario es obligatorio.")] string DestinatarioTelefono,
+        [Range(1, 999, ErrorMessage = "Los bultos deben estar entre 1 y 999.")] int Bultos,
+        [Range(0, 100000, ErrorMessage = "El peso debe estar entre 0 y 100000 kg.")] decimal? PesoKg,
+        [Range(0, 1000000000, ErrorMessage = "El valor declarado debe estar entre 0 y 1.000.000.000.")] decimal? ValorDeclarado,
         DateOnly FechaEntrega,
         bool Urgente,
         string TipoVehiculo,
@@ -109,9 +110,10 @@ public class DeliverysController(
             _ => query.OrderByDescending(p => p.FechaEntrega).ThenByDescending(p => p.Id),
         };
 
+        tamanioPagina = Paginacion.TamanioEfectivo(tamanioPagina);
         if (tamanioPagina is > 0)
         {
-            var paginaActual = pagina is > 0 ? pagina.Value : 1;
+            var paginaActual = pagina is > 0 ? Math.Min(pagina.Value, 1_000_000) : 1;
             query = query.Skip((paginaActual - 1) * tamanioPagina.Value).Take(tamanioPagina.Value);
         }
 
@@ -168,6 +170,8 @@ public class DeliverysController(
         if (!cliente.Activo) return Conflict($"{cliente.RazonSocial} está inactivo; no admite pedidos nuevos.");
 
         var hoy = Reloj.HoyLocal();
+        var errorFecha = ValidacionFechas.FechaEntrega(req.FechaEntrega, hoy, diasAtras: 30, diasAdelante: 365);
+        if (errorFecha is not null) return BadRequest(errorFecha);
         var suspendido = cliente.CorteSuspendidoHasta is { } h && h >= hoy;
         if (!suspendido)
         {

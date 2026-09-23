@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO.Compression;
 using System.Text;
 using System.Threading.RateLimiting;
 using Logistica.Auth;
@@ -10,6 +11,7 @@ using Logistica.Web;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -24,6 +26,26 @@ CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Sin cabecera "Server: Kestrel" y con un tope global al body. Los endpoints multipart (fotos, firmas)
+// ya tienen su [RequestSizeLimit] propio, más chico; esto cubre a todo lo demás (antes el default era
+// 30 MB para cualquier JSON).
+builder.WebHost.ConfigureKestrel(o =>
+{
+    o.AddServerHeader = false;
+    o.Limits.MaxRequestBodySize = 5 * 1024 * 1024;
+});
+
+// Compresión de respuestas: los listados y exportes son JSON/CSV muy repetitivo (un export de pedidos
+// de 14 MB baja ~10 veces; la cuenta corriente de un cliente, de 371 KB a unos 30). Nivel rápido: el
+// costo de CPU es mínimo y en el teléfono se nota en la carga.
+builder.Services.AddResponseCompression(o =>
+{
+    o.EnableForHttps = true;
+    o.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(["text/csv", "application/problem+json"]);
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
 
 builder.Services.AddDatosLogistica(builder.Configuration);
 
@@ -45,10 +67,13 @@ builder.Services.AddScoped<PrecioService>();
 builder.Services.AddScoped<DistanciaService>();
 builder.Services.AddScoped<UbicacionService>();
 builder.Services.AddScoped<OrigenRutaService>();
+builder.Services.AddScoped<ZonaLocalidadService>();
+builder.Services.AddScoped<DireccionDesdeMapaService>();
 builder.Services.AddScoped<TarifaService>();
 builder.Services.AddScoped<AlmacenamientoFotos>();
 builder.Services.AddScoped<CuentaCorrienteService>();
 builder.Services.AddScoped<JornadaService>();
+builder.Services.AddHostedService<CalentamientoService>();
 
 // RuteoService cachea recorridos en memoria (acta changelog 3.4) — sin tabla nueva.
 builder.Services.AddMemoryCache();
@@ -65,6 +90,14 @@ builder.Services.AddHttpClient<GeocodificacionService>(client =>
     client.BaseAddress = new Uri("https://nominatim.openstreetmap.org/");
     client.DefaultRequestHeaders.Add("User-Agent", "Logistica/1.0 (contacto@logistica.local)");
 });
+
+// Links de Google Maps (fijar el punto exacto de una dirección). Sin auto-redirect: los links
+// cortos se siguen a mano y solo hacia hosts de Google (Servicios/EnlaceMapaService.cs).
+builder.Services.AddHttpClient<EnlaceMapaService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(5);
+    client.DefaultRequestHeaders.Add("User-Agent", "Logistica/1.0 (contacto@logistica.local)");
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
 // "Ruteo:BaseUrl" es PROVISIONAL: en desarrollo apunta al demo público de OSRM
 // (router.project-osrm.org), cuya política de uso no admite producción — ahí exige un
@@ -158,11 +191,25 @@ builder.Services.AddRateLimiter(options =>
             AutoReplenishment = true,
             QueueLimit = 0,
         }));
+    // Endpoints que le pegan a un servicio externo (Nominatim, OSRM) o dan de alta catálogo (localidades):
+    // un cliente del portal podía dispararlos sin límite (Nominatim admite ~1 req/s y bloquea la IP del
+    // servidor si se abusa). Por usuario autenticado; sin sesión, por IP. 30 de ráfaga, 10 cada 10 s.
+    options.AddPolicy("geo", httpContext => RateLimitPartition.GetTokenBucketLimiter(
+        partitionKey: httpContext.User.FindFirst("sub")?.Value ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "sin-ip",
+        factory: _ => new TokenBucketRateLimiterOptions
+        {
+            TokenLimit = 30,
+            TokensPerPeriod = 10,
+            ReplenishmentPeriod = TimeSpan.FromSeconds(10),
+            AutoReplenishment = true,
+            QueueLimit = 0,
+        }));
     options.OnRejected = async (contexto, ct) =>
     {
+        var esLogin = contexto.HttpContext.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName == "login";
         // 12, no 60: con token bucket el próximo token llega a los 12s (ReplenishmentPeriod), no
         // hay que esperar la ventana entera como con fixed window.
-        contexto.HttpContext.Response.Headers.RetryAfter = "12";
+        contexto.HttpContext.Response.Headers.RetryAfter = esLogin ? "12" : "10";
         var problemDetailsService = contexto.HttpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
         await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
         {
@@ -170,14 +217,17 @@ builder.Services.AddRateLimiter(options =>
             ProblemDetails = new ProblemDetails
             {
                 Status = StatusCodes.Status429TooManyRequests,
-                Title = "Demasiados intentos",
-                Detail = "Demasiados intentos de inicio de sesión. Esperá unos segundos y volvé a intentar.",
+                Title = esLogin ? "Demasiados intentos" : "Demasiadas solicitudes",
+                Detail = esLogin
+                    ? "Demasiados intentos de inicio de sesión. Esperá unos segundos y volvé a intentar."
+                    : "Demasiadas solicitudes seguidas. Esperá unos segundos y volvé a intentar.",
             },
         });
     };
 });
 
-builder.Services.AddControllers();
+// FiltroLimitesDeTexto: ningún campo de texto de un body puede ser gigante (ver Web/LimitesDeEntrada.cs).
+builder.Services.AddControllers(o => o.Filters.Add<FiltroLimitesDeTexto>());
 
 // Auditoría §7 (pisos numéricos): sin esto, un [Range] fallido sale como ValidationProblemDetails
 // SIN `detail` — lib/api/errores.ts:leerError cae a `problema.title`, "One or more validation
@@ -205,6 +255,10 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
+    // Los DTO viven anidados en cada controller y varios se repiten con el mismo nombre (p. ej.
+    // CrearLocalidadRequest en LocalidadesController y en MiCuentaController): con el id por defecto
+    // (solo el nombre) Swagger no podía generar el documento y /swagger devolvía 500.
+    c.CustomSchemaIds(t => (t.FullName ?? t.Name).Replace("Logistica.", "").Replace("+", "."));
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -228,6 +282,27 @@ var app = builder.Build();
 // Primero de todo el pipeline: tiene que envolver cualquier middleware/controller downstream.
 app.UseExceptionHandler();
 
+// Cabeceras de seguridad en toda respuesta. La API nunca se embebe en un frame ni necesita que el
+// navegador adivine tipos de contenido; y sus respuestas (datos de clientes, DNI, facturas) no se
+// cachean en disco de un equipo compartido ("no-store" salvo que el endpoint fije su propio caché,
+// como las fotos).
+app.Use(async (contexto, siguiente) =>
+{
+    contexto.Response.OnStarting(() =>
+    {
+        var h = contexto.Response.Headers;
+        h.XContentTypeOptions = "nosniff";
+        h.XFrameOptions = "DENY";
+        h["Referrer-Policy"] = "no-referrer";
+        if (contexto.Request.Path.StartsWithSegments("/api") && !h.ContainsKey("Cache-Control"))
+            h.CacheControl = "no-store";
+        return Task.CompletedTask;
+    });
+    await siguiente();
+});
+
+app.UseResponseCompression();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -239,13 +314,15 @@ if (app.Environment.IsDevelopment())
     await DatosSemilla.SembrarAsync(db, deposito);
 }
 
+if (!app.Environment.IsDevelopment()) app.UseHsts();
+
 app.UseHttpsRedirection();
 
 app.UseCors("Frontend");
 
-app.UseRateLimiter();
-
 app.UseAuthentication();
+// Después de autenticar: la política "geo" particiona por usuario (claim "sub"), no por IP.
+app.UseRateLimiter();
 app.UseAuthorization();
 
 app.MapHealthChecks("/health");

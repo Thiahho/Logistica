@@ -6,6 +6,8 @@
 
 **Verificación independiente (13/09/2026):** tras generarse este reporte, se re-ejecutó por separado una muestra de los tests más sensibles — RBAC (`/api/tarifas` sin token/con rol insuficiente/con rol correcto), JWT forjado con `alg:none`, inyección SQL contra `/api/pedidos` y `/api/facturas` sin truncar la respuesta, IDOR contra `/api/mi-cuenta` y `/api/clientes/{id}/cuenta-corriente` con token real de cliente, y validación de km negativo en zonas — todos confirmaron el resultado original. Se encontró y corrigió una imprecisión: el test de SQLi contra `/api/clientes?q=` (fila de §7) daba PASS por un motivo distinto al descripto; ver la nota en esa fila.
 
+**Segunda pasada — 23/09/2026:** validación, seguridad y carga con datos sintéticos de volumen (100.000 pedidos) y con 100 usuarios simultáneos; ver **§10** al final. Las secciones 1 a 9 son la pasada original del 13-14/09/2026 y no se reescribieron.
+
 ---
 
 ## 1. Resumen ejecutivo
@@ -166,3 +168,87 @@ Este testing escribió contra la base de datos real de desarrollo (no una base d
 - Pedido 25: 4 ajustes de bultos aprobados (incluye cargo de gestión de $500).
 - Cliente 5: `corte-suspendido` extendido hasta 2026-12-31 (plan de cuotas).
 - Zona A: km fue mutado temporalmente durante el test de solapamiento y **restaurado a su valor original (5–10)** antes de continuar.
+
+---
+
+## 10. Segunda pasada — 23/09/2026: validación, seguridad y carga
+
+**Pedida como:** "test completo: validación, seguridad, problema de carga y mejora en la carga". **Método:** una copia del backend (mismo código, puertos 5191 y 5192) probada con scripts de Node y `curl`; la seguridad y la validación contra la base real, la carga contra una base aparte (`bd_logistica_perf`, creada con las migraciones y luego eliminada) con **100.000 pedidos, 195.012 eventos, 30.005 direcciones, 4.001 rutas, 40.004 paradas, 60.000 ítems de factura y 3.000 pagos** generados por SQL. Los datos de prueba creados en la base real se borraron al terminar (quedó exactamente lo que había). Hallazgos y correcciones en `auditoria_seguridad.md` (hallazgos 7 a 13).
+
+### 10.1 Resumen
+
+| | Antes de las correcciones | Después |
+|---|---|---|
+| Batería de seguridad y validación (38 pruebas) | 30 correctas, 8 fallas | **38 correctas** |
+| Matriz de permisos (125 endpoints × sin sesión / 4 roles) | sin incidencias | sin incidencias |
+| Aislamiento entre clientes (IDOR) | sin fugas | sin fugas |
+| `GET /api/pedidos?tamanioPagina=1000000` | 27 MB, 1.219 ms | 26 KB, 13 ms |
+| `GET /api/pedidos` sin paginar | 10 en paralelo: 3 respuestas/s, 3,3 s cada una | una solicitud: 17 ms (ahora 500 filas, 133 KB; no se repitió en paralelo) |
+| Búsqueda de pedidos por nombre, 100 usuarios simultáneos | 29 req/s · p50 3,3 s · p95 4,4 s | **no se pudo repetir** (ver §10.6); latencia individual: 215 → 20 ms |
+
+### 10.2 Seguridad y validación — las 38 pruebas
+
+| Bloque | Qué se probó | Resultado |
+|---|---|---|
+| JWT (5) | `alg: none`; firma alterada; rol `cliente` → `administracion` editando el payload; token basura; `refresh` sin cookie | 5/5 → 401 |
+| Cabeceras / CORS (5) | `X-Content-Type-Options`; `Server` sin versión; sin `X-Powered-By`; origen ajeno sin `Access-Control-Allow-Origin`; origen del frontend permitido | antes: **falló** `nosniff` (ausente) · después: 5/5 |
+| Validación del alta de pedido, portal (15) | bultos 0, negativos e int máximo; peso negativo; vehículo inválido; destino inexistente; nombre vacío; nombre de 100.000 caracteres; teléfono de 5.000; observaciones de 200.000; fecha del año 2000 y del 9999; nombre con `<script>`; JSON malformado; cuerpo vacío | antes: **7 fallas** (aceptaba int máximo, nombre vacío, los tres textos gigantes y el año 9999; la fecha del 2000 se rechazó solo por la hora de corte) · después: 15/15 con 400 y mensaje en español |
+| Inyección / parámetros hostiles (11) | `' OR 1=1 --` y `'; DROP TABLE` en `q`; `orden` hostil; estado y fecha inválidos; página negativa y desbordada; `tamanioPagina` enorme (pedidos y facturas); id numérico gigante e id no numérico | 11/11 sin 5xx (estado/fecha → 400, página desbordada → 400) |
+| Fuerza bruta (2) | 8 intentos fallidos seguidos; usuario inexistente | 429 al agotarse el cupo de 5; sin distinguir usuario inexistente |
+
+Pruebas adicionales fuera de la batería numerada:
+
+- **Matriz de permisos:** los 125 endpoints del Swagger, sin sesión y con `administracion`, `operacion`, `cliente` y `repartidor`. Los que modifican datos se probaron solo con ids inexistentes (999999999 o GUID nulo) para no tocar la base. **Sin sesión, todo da 401** (las excepciones aparentes son 404 por ids que no cumplen la restricción `:guid` de la ruta y 415 en los tres endpoints multipart, que rechazan un JSON antes de autorizar). Cada rol recibe 403 fuera de su política; un cliente puede listar `GET /api/pedidos` solo porque el controlador lo filtra por su claim. Los endpoints modificadores **sin id en la ruta** (`POST /api/clientes`, `POST /api/rutas`, `POST /api/usuarios`…) no se llamaron con roles válidos: su política se verificó leyendo los atributos.
+- **IDOR:** se creó un segundo usuario de cliente sobre otro cliente. Con su token: 0 pedidos visibles (el otro cliente tenía 9), `GET /api/pedidos/{id}`, `/prueba-entrega` y `/ajustes` de pedidos ajenos sin ningún 200, `PUT`/`DELETE` de un contacto ajeno → 404, `GET /api/facturas` → 403, y un `POST /api/mi-cuenta/pedidos` con `clienteId: 1` inyectado en el body → el pedido quedó a nombre del cliente de la sesión (2). `GET /api/mi-cuenta` dio el mismo JSON para ambos clientes solo porque las dos cuentas estaban vacías (falsa alarma, verificado).
+- **DNI:** `GET /api/pedidos/{id}/prueba-entrega` → 200 para administración, 403 para operación y para cliente; el detalle del pedido para un cliente no contiene el campo `documento`.
+
+### 10.3 Latencia por endpoint (100.000 pedidos, un usuario, 12 repeticiones tras la primera llamada en frío)
+
+| Endpoint | Frío | Promedio | p95 |
+|---|---|---|---|
+| `/api/pedidos` pág. 1 (15, `-fecha`) | 88 ms | 12 ms | 15 ms |
+| `/api/pedidos` pág. 5000 (paginación profunda) | 58 ms | 56 ms | 62 ms |
+| `/api/pedidos` orden por estado | 54 ms | 40 ms | 45 ms |
+| `/api/pedidos?q=` (búsqueda por nombre) | 35 ms | 20 ms | 22 ms |
+| `/api/pedidos?q=` sin resultados | 6 ms | 5 ms | 8 ms |
+| `/api/pedidos/{id}` | 62 ms | 7 ms | 13 ms |
+| `/api/pedidos/candidatos-ruta` | 24 ms | 5 ms | 6 ms |
+| `/api/pedidos/recepcion-pendiente` | 31 ms | 21 ms | 22 ms |
+| `/api/rutas` (pág.) / por paradas / detalle | 22–62 ms | 5–15 ms | 6–17 ms |
+| `/api/rutas/{id}/jornada` | **900 ms** | 6 ms | 8 ms |
+| `/api/facturas` (pág.) / detalle | 28–37 ms | 7–11 ms | 9–13 ms |
+| `/api/clientes/{id}/cuenta-corriente` | 79 ms | 29 ms | 46 ms |
+| `/api/clientes/riesgo`, `/jornada/resumen`, `/tarifas`, `/localidades` | 11–51 ms | 2–8 ms | 3–10 ms |
+| Cliente: `/api/pedidos` pág., `/mi-cuenta/plan-del-dia`, `/mi-cuenta` | 15–33 ms | 7–14 ms | 8–14 ms |
+| Repartidor: `/api/mis-paradas/dia` | **304 ms** | 9 ms | 10 ms |
+
+Las cifras "antes" de los mismos casos (misma base, código anterior): búsqueda por nombre 215 ms (promedio) y 192 ms sin resultados; `tamanioPagina=1000000` y sin paginar 1.205–1.237 ms y 27 MB; el resto de las filas eran del mismo orden que las de arriba. **Las llamadas en frío de `jornada` y `mis-paradas/dia` (0,3–0,9 s) no cambiaron con el calentamiento al arrancar**: se sospecha que es la consulta de recorrido a OSRM (servicio externo), no el JIT ni EF; no se verificó.
+
+### 10.4 Concurrencia — 100 conexiones simultáneas, código anterior a las correcciones
+
+| Caso | Solicitudes | Req/s | p50 | p95 | p99 | Errores |
+|---|---|---|---|---|---|---|
+| `/api/pedidos` pág. 15 | 1.500 | 720 | 116 ms | 363 ms | 415 ms | 0 |
+| `/api/pedidos?q=` (nombre) | 600 | **29** | **3.268 ms** | **4.437 ms** | 4.930 ms | 0 |
+| `/api/pedidos/{id}` | 1.500 | 1.241 | 74 ms | 162 ms | 218 ms | 0 |
+| `/api/pedidos/candidatos-ruta` | 1.000 | 1.859 | 54 ms | 67 ms | 74 ms | 0 |
+| `/api/rutas/{id}/jornada` | 1.000 | 1.396 | 61 ms | 120 ms | 128 ms | 0 |
+| `/api/facturas` pág. 15 | 1.000 | 641 | 146 ms | 207 ms | 236 ms | 0 |
+| Cliente: `plan-del-dia` | 1.000 | 628 | 150 ms | 222 ms | 268 ms | 0 |
+| Repartidor: `mis-paradas/dia` | 1.000 | 1.151 | 79 ms | 127 ms | 132 ms | 0 |
+| `/api/pedidos` sin paginar (10 conc.) | 20 | **3** | 3.255 ms | 3.572 ms | — | 0 |
+
+Sin errores ni agotamiento del pool de conexiones (`MaxPoolSize` 20). **Los dos cuellos de botella** eran la búsqueda por nombre (recorrido completo de la tabla: `lower(destinatario_nombre)` + `strpos`, que un índice común no ayuda) y los listados sin techo.
+
+### 10.5 Exportes (rango 2025-01-01 a 2027-12-31)
+
+`/api/exportar/pedidos` 549 ms y **14,6 MB**; `/rutas` 13 ms, 0,19 MB; `/resultados` **1.745 ms** (lista `IN` con 4.000 ids). Ahora el rango se limita a 366 días (el ejemplo daría 400) y `resultados` filtra por rango; no se volvió a medir con un rango válido de un año.
+
+### 10.6 Lo que quedó sin medir (dicho explícitamente)
+
+- **La repetición de la prueba de concurrencia con el código nuevo no se ejecutó**: el sistema de permisos de la sesión bloqueó el comando y no se buscó un rodeo. Las mejoras de concurrencia (búsqueda por nombre, listados) se **deducen** de las latencias individuales medidas después y del plan de ejecución (`explain analyze`: búsqueda con el índice GIN de trigramas 5,6 ms; sin resultados 0,03 ms; sin índice, recorrido de la tabla), no están medidas con 100 usuarios.
+- Compresión de respuestas: implementada y compilada, **no se midió el tamaño transferido**.
+- Calentamiento al arrancar: el servidor informó "Calentamiento listo en 275 y 420 ms"; su efecto sobre la primera llamada de cada endpoint no se pudo demostrar (ver §10.3, `jornada`).
+- `Content-Security-Policy` estricta: no implementada (ver hallazgo 9).
+- Navegador: solo se abrió en un Chrome real (headless, 390 px) el recorrido del repartidor `/hoy` → `/hoy/cierre` (sesión anterior); esta pasada no revisó pantallas.
+- **Frontend (compilación de producción):** `next build` pasa; 1.717 KB de JS sin comprimir (541 KB gzip) repartidos en 59 paquetes por ruta, 91 KB de CSS (17 KB gzip); el paquete más grande es de 70 KB gzip, y Leaflet (44 KB gzip) se carga bajo demanda desde `MapaDinamico`.

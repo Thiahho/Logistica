@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { EstadoPedidoBadge } from "@/components/EstadoBadge";
+import { LineaTiempoEstados } from "@/components/LineaTiempoEstados";
+import { UbicacionEnvio } from "@/components/UbicacionEnvio";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { leerError, leerJson } from "@/lib/api/errores";
 import type { PedidoDetalle } from "@/lib/dominio/tipos";
@@ -39,21 +41,46 @@ export function PedidoDetalleCliente({ pedidoId }: { pedidoId: number }) {
   const precioFinal = pedido.precioManual?.precio ?? pedido.total;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <Card>
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex items-center justify-between gap-3">
           <CardTitle className="text-base">{pedido.destinatarioNombre}</CardTitle>
           <EstadoPedidoBadge estado={pedido.estado} size="md" />
         </CardHeader>
+        <CardContent>
+          <LineaTiempoEstados
+            eventos={pedido.historial.map((e) => ({ estado: e.estadoNuevo, ocurridoEn: e.ocurridoEn, motivo: e.motivo }))}
+            estadoActual={pedido.estado}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Ubicación</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <UbicacionEnvio
+            calleNumero={pedido.destinoCalleNumero}
+            localidad={pedido.destinoLocalidad}
+            lat={pedido.destinoLat}
+            lng={pedido.destinoLng}
+            dudosa={pedido.direccionDudosa}
+            entregado={pedido.estado === "Entregado"}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Datos del envío</CardTitle>
+        </CardHeader>
         <CardContent className="flex flex-col gap-2 text-sm">
           <p>
-            <span className="text-muted-foreground">Dirección: </span>
-            {pedido.destinoCalleNumero}
-            {pedido.destinoLocalidad ? `, ${pedido.destinoLocalidad}` : ""}
-          </p>
-          <p>
             <span className="text-muted-foreground">Teléfono: </span>
-            {pedido.destinatarioTelefono}
+            <a href={`tel:${pedido.destinatarioTelefono}`} className="underline-offset-2 hover:underline">
+              {pedido.destinatarioTelefono}
+            </a>
           </p>
           <p>
             <span className="text-muted-foreground">Bultos: </span>
@@ -84,28 +111,6 @@ export function PedidoDetalleCliente({ pedidoId }: { pedidoId: number }) {
             <p className="text-lg font-semibold">${precioFinal.toLocaleString("es-AR")}</p>
           ) : (
             <p className="text-muted-foreground">Todavía sin definir.</p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Historial</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {pedido.historial.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Sin movimientos todavía.</p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {pedido.historial.map((e) => (
-                <li key={e.id} className="text-sm border-b pb-2 flex justify-between gap-4">
-                  <span>{e.estadoNuevo}</span>
-                  <span className="text-muted-foreground shrink-0">
-                    {new Date(e.ocurridoEn).toLocaleString("es-AR")}
-                  </span>
-                </li>
-              ))}
-            </ul>
           )}
         </CardContent>
       </Card>

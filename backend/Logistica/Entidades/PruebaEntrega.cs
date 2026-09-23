@@ -21,6 +21,16 @@ public class PruebaEntrega
     /// Se conserva cuando 4.7 sume documento_numero/foto_documento_path: responde "¿se verificó?".</summary>
     public bool IdentidadVerificada { get; set; }
 
+    /// <summary>Número de documento del receptor, solo dígitos (sin puntos ni espacios). Sin imagen del
+    /// documento a propósito: la foto de un documento de un tercero exige retención con plazo, purga y
+    /// dictamen legal (acta RF-23, changelog 4.7) — esto es la versión reducida, solo el número.
+    /// Dato personal de un tercero (RNF-09): lo ve únicamente administración.</summary>
+    public string? DocumentoNumero { get; set; }
+
+    /// <summary>Motivo escrito cuando el receptor no dio el documento. Exactamente uno de
+    /// DocumentoNumero / SinDocumentoMotivo está cargado en una entrega.</summary>
+    public string? SinDocumentoMotivo { get; set; }
+
     public string? FotoPath { get; set; }
     public decimal? Lat { get; set; }
     public decimal? Lng { get; set; }

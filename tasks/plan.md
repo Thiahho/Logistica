@@ -3,6 +3,14 @@
 **18/09/2026 · rama `demo-d`.** Reemplaza el plan anterior "Jornada del repartidor" (acta 4.7), que
 queda absorbido. Estado de cada tarea en [todo.md](todo.md).
 
+**Nota posterior (23/09/2026):** el flujo que este plan construyó evolucionó en las tandas de acta 4.11 a 4.18,
+sin cambiar sus decisiones: el retiro firmado se presenta como **"Empezar ruta"** y `/hoy` suma el botón de
+**toda la ruta en Google Maps**; "Cerrar la jornada" pasa a un bloque **"Terminé la ruta"** que indica cuántas
+paradas faltan; cada entrega exige el **número de DNI** del receptor (o un motivo escrito) además de la foto y el
+nombre (RF-23 en versión reducida: **sin imagen del documento**, que sigue bloqueada por la consulta legal de acta
+§11.2 — la fase F7 de [todo.md](todo.md) queda parcial). Ver la sección "Tandas posteriores (22–23/09/2026)" de
+[todo.md](todo.md) para el detalle y los pendientes, y `construccion_v1.md` changelog 1.31.
+
 **Nota posterior (21/09/2026):** `components/Shell.tsx`, `/hoy/*` y el resto de la PWA que este plan
 construyó fueron restyleados sin cambio de contrato en `construccion_v1.md` changelog 1.23 (identidad
 "BF Transportes" — `docs/Paleta.png`, `Logo.png`, `MobileVistaOperador.png`). No es parte de este plan;
@@ -83,6 +91,13 @@ No hay test runner en el repo: `curl` y SQL contra la API real, luego compilaci�
    en `EnRuta` y la ruta `cerrada`.
 4. `dotnet build`, `tsc --noEmit`, `eslint`, `next build`.
 5. **RNF-06 en un teléfono real** — pendiente: un dedo, botones ≥ 48 px, sin scroll, trazo de la firma.
+
+## Verificación realizada el 23/09/2026
+
+Sobre el recorrido `/hoy` → "Terminé la ruta" → `/hoy/cierre` → "Jornada cerrada" en un **Chrome real** (headless,
+390 px, `puppeteer-core`) con un repartidor, una ruta y una entrega de prueba creados para eso y borrados después.
+El resto del escenario integral de arriba sigue verificado solo con `curl`/SQL, y el punto 5 (RNF-06 en un teléfono
+real) **sigue pendiente**.
 
 ## Fuera de alcance
 

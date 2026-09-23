@@ -80,9 +80,15 @@ public class MisParadasController(
 
         public string? ReceptorNombre { get; set; }
 
-        /// <summary>RF-23 en su redacción anterior a acta changelog 4.7 (solo el booleano, sin imagen).
-        /// La imagen del documento y su retención son fase 2 de la tanda de 4.7, todavía sin construir.</summary>
+        /// <summary>Ya no lo manda el cliente: el servidor lo deriva (true si hay un DNI válido). Se
+        /// deja en el modelo para no romper a un cliente viejo que todavía lo envíe; se ignora.</summary>
         public bool IdentidadVerificada { get; set; }
+
+        /// <summary>DNI del receptor: 6 a 9 dígitos; se aceptan puntos y espacios ("12.345.678").</summary>
+        public string? DocumentoNumero { get; set; }
+
+        /// <summary>Si el receptor no dio el DNI: el motivo (obligatorio en ese caso).</summary>
+        public string? SinDocumentoMotivo { get; set; }
 
         public string? MotivoFallo { get; set; }
         public decimal? Lat { get; set; }
@@ -264,6 +270,23 @@ public class MisParadasController(
         if (req.Resultado == "entregado" && (req.Foto is null || string.IsNullOrWhiteSpace(req.ReceptorNombre)))
             return BadRequest("La entrega exige foto y nombre del receptor.");
 
+        // Entrega = el DNI del receptor, o el motivo por el que no lo dio (uno de los dos, nunca ninguno).
+        // En 'fallido' no aplica: nadie recibió nada.
+        string? documentoNumero = null;
+        string? sinDocumentoMotivo = null;
+        if (req.Resultado == "entregado")
+        {
+            documentoNumero = NormalizarDocumento(req.DocumentoNumero);
+            if (!string.IsNullOrWhiteSpace(req.DocumentoNumero) && documentoNumero is null)
+                return BadRequest("El DNI debe tener entre 6 y 9 dígitos.");
+            if (documentoNumero is null)
+            {
+                sinDocumentoMotivo = req.SinDocumentoMotivo?.Trim();
+                if (string.IsNullOrEmpty(sinDocumentoMotivo) || sinDocumentoMotivo.Length < 3)
+                    return BadRequest("La entrega exige el DNI del receptor, o el motivo por el que no lo dio.");
+            }
+        }
+
         var pedidos = todosLosPedidos.Where(p => pedidoIds.Contains(p.Id)).ToList();
         if (pedidos.Any(p => !TransicionesPedido.Permitida(p.Estado, nuevoEstadoPedido)))
             return Conflict("Alguno de los pedidos de la parada ya cambió de estado; volvé a cargar la jornada.");
@@ -297,7 +320,10 @@ public class MisParadasController(
                 Resultado = req.Resultado,
                 MotivoFallo = req.Resultado == "fallido" ? req.MotivoFallo : null,
                 ReceptorNombre = req.ReceptorNombre,
-                IdentidadVerificada = req.IdentidadVerificada,
+                // Derivado acá: un DNI válido es lo único que cuenta como identidad verificada.
+                IdentidadVerificada = documentoNumero is not null,
+                DocumentoNumero = documentoNumero,
+                SinDocumentoMotivo = sinDocumentoMotivo,
                 FotoPath = fotoPath,
                 Lat = req.Lat,
                 Lng = req.Lng,
@@ -341,6 +367,16 @@ public class MisParadasController(
 
         return Ok(new CierreResultado(paradaId, parada.Estado, pedidos.Count, desvioMetros, desvioAlto, Duplicado: false,
             await SiguienteParadaAsync(parada.RutaId, ct)));
+    }
+
+    /// <summary>Solo dígitos, 6 a 9 (DNI argentino, con o sin puntos/espacios). null si no hay o no es válido.</summary>
+    private static string? NormalizarDocumento(string? texto)
+    {
+        if (string.IsNullOrWhiteSpace(texto)) return null;
+        var digitos = new string(texto.Where(char.IsDigit).ToArray());
+        // Cualquier otro carácter que no sea separador (letras, símbolos) invalida el valor.
+        var soloSeparadores = texto.All(c => char.IsDigit(c) || c is '.' or ' ' or '-');
+        return soloSeparadores && digitos.Length is >= 6 and <= 9 ? digitos : null;
     }
 
     /// <summary>La pendiente de menor Orden de la ruta, ya aplicado el cierre. Una query.</summary>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   CheckCircle2,
@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
+import { AvisoParadaHecha } from "@/components/AvisoParadaHecha";
 import { leerError, leerJson } from "@/lib/api/errores";
 import { comprimirFoto } from "@/lib/captura/foto";
 import { limpiarUuidDeCaptura, uuidDeCaptura } from "@/lib/captura/dispositivo";
@@ -40,6 +42,10 @@ export default function ParadaPage() {
 }
 
 type Modo = "detalle" | "entregado" | "fallido" | "corregir";
+
+/** DNI argentino: 6 a 9 dígitos, con o sin puntos/espacios ("12.345.678"). Igual criterio que el servidor. */
+const soloDigitosDni = (texto: string) => texto.replace(/[.\s-]/g, "");
+const dniValido = (texto: string) => /^\d{6,9}$/.test(soloDigitosDni(texto));
 
 /** Timeout corto a propósito (RF-29): nunca vale la pena bloquear el cierre esperando un fix
  * de GPS. Sin posición, el servidor no calcula desvío y sigue andando igual. */
@@ -69,7 +75,10 @@ function ParadaDetalle() {
   const [registrandoLlegada, setRegistrandoLlegada] = useState(false);
 
   const [receptorNombre, setReceptorNombre] = useState("");
-  const [identidadVerificada, setIdentidadVerificada] = useState(false);
+  // DNI del receptor, o el motivo por el que no lo dio (uno de los dos: el servidor lo exige).
+  const [documento, setDocumento] = useState("");
+  const [sinDocumento, setSinDocumento] = useState(false);
+  const [sinDocumentoMotivo, setSinDocumentoMotivo] = useState("");
   const [foto, setFoto] = useState<File | null>(null);
 
   const [enviando, setEnviando] = useState(false);
@@ -143,8 +152,14 @@ function ParadaDetalle() {
       if (resultado === "entregado") {
         if (!foto) throw new Error("La entrega necesita una foto.");
         if (!receptorNombre.trim()) throw new Error("La entrega necesita el nombre del receptor.");
-        form.append("receptorNombre", receptorNombre);
-        form.append("identidadVerificada", String(identidadVerificada));
+        form.append("receptorNombre", receptorNombre.trim());
+        if (sinDocumento) {
+          if (sinDocumentoMotivo.trim().length < 3) throw new Error("Contá por qué no dio el DNI.");
+          form.append("sinDocumentoMotivo", sinDocumentoMotivo.trim());
+        } else {
+          if (!dniValido(documento)) throw new Error("El DNI debe tener entre 6 y 9 dígitos.");
+          form.append("documentoNumero", soloDigitosDni(documento));
+        }
         form.append("foto", await comprimirFoto(foto), "entrega.jpg");
       } else {
         form.append("motivoFallo", motivoFallo!);
@@ -156,7 +171,9 @@ function ParadaDetalle() {
       limpiarUuidDeCaptura(Number(paradaId));
       // replace, no push: atrás desde la parada siguiente no debe volver a una ya cerrada, que
       // solo puede mostrar "ya quedó completada".
-      router.replace(cierre.siguienteParadaId ? `/hoy/parada/${cierre.siguienteParadaId}` : "/hoy");
+      // ?hecha: la pantalla que sigue muestra "Parada N cerrada · quedan M".
+      const hecha = `hecha=${parada?.orden ?? ""}`;
+      router.replace(cierre.siguienteParadaId ? `/hoy/parada/${cierre.siguienteParadaId}?${hecha}` : `/hoy?${hecha}`);
     } catch (err) {
       setEnvioError(err instanceof Error ? err.message : "No se pudo cerrar la parada.");
     } finally {
@@ -222,6 +239,10 @@ function ParadaDetalle() {
   return (
     <div className="p-4 flex flex-col gap-4 pb-8">
       <CabeceraRepartidor titulo="Parada" volverA="/hoy" />
+
+      <Suspense fallback={null}>
+        <AvisoParadaHecha pendientes={jornada.paradas.filter((p) => p.estado === "pendiente").length} />
+      </Suspense>
 
       <div className="rounded-2xl border bg-card p-4 flex flex-col gap-3 shadow-sm">
         <div className="flex items-start gap-3">
@@ -422,18 +443,56 @@ function ParadaDetalle() {
       )}
 
       {modo === "entregado" && (
-        <div className="flex flex-col gap-3 rounded-2xl border bg-card shadow-sm p-4">
+        <div className="flex flex-col gap-4 rounded-2xl border bg-card shadow-sm p-4">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="receptor">Nombre del receptor</Label>
+            <Label htmlFor="receptor">Nombre de quien recibe</Label>
             <Input
               id="receptor"
               className="h-12 text-base"
+              autoComplete="off"
               value={receptorNombre}
               onChange={(e) => setReceptorNombre(e.target.value)}
             />
           </div>
+
           <div className="flex flex-col gap-2">
-            <Label htmlFor="foto">Foto de la entrega</Label>
+            <Label htmlFor="dni">DNI de quien recibe</Label>
+            <Input
+              id="dni"
+              className="h-12 text-base"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="12345678"
+              disabled={sinDocumento}
+              value={documento}
+              onChange={(e) => setDocumento(e.target.value.replace(/[^\d.\s-]/g, ""))}
+              aria-invalid={!sinDocumento && documento !== "" && !dniValido(documento)}
+            />
+            {!sinDocumento && documento !== "" && !dniValido(documento) && (
+              <p className="text-xs text-destructive">El DNI tiene entre 6 y 9 dígitos.</p>
+            )}
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="sin-dni"
+                checked={sinDocumento}
+                onCheckedChange={(v) => setSinDocumento(v === true)}
+              />
+              <Label htmlFor="sin-dni" className="font-normal">
+                No dio el DNI
+              </Label>
+            </div>
+            {sinDocumento && (
+              <Textarea
+                aria-label="Motivo por el que no dio el DNI"
+                placeholder="¿Por qué no lo dio? (ej.: no lo tenía a mano, se negó)"
+                value={sinDocumentoMotivo}
+                onChange={(e) => setSinDocumentoMotivo(e.target.value)}
+              />
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="foto">Foto del pedido entregado</Label>
             <Input
               id="foto"
               type="file"
@@ -443,20 +502,20 @@ function ParadaDetalle() {
             />
             {previewFoto && (
               // eslint-disable-next-line @next/next/no-img-element -- objectURL local, no pasa por el optimizador de next/image
-              <img src={previewFoto} alt="Foto de la entrega" className="h-40 w-full rounded-lg border object-cover" />
+              <img src={previewFoto} alt="Foto del pedido entregado" className="h-40 w-full rounded-lg border object-cover" />
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="identidad"
-              checked={identidadVerificada}
-              onCheckedChange={(v) => setIdentidadVerificada(v === true)}
-            />
-            <Label htmlFor="identidad" className="font-normal">
-              Identidad verificada
-            </Label>
-          </div>
-          <Button className="h-12 w-full text-base" disabled={enviando} onClick={() => cerrar("entregado")}>
+
+          <Button
+            className="h-12 w-full text-base"
+            disabled={
+              enviando ||
+              !foto ||
+              !receptorNombre.trim() ||
+              (sinDocumento ? sinDocumentoMotivo.trim().length < 3 : !dniValido(documento))
+            }
+            onClick={() => cerrar("entregado")}
+          >
             {enviando ? "Enviando…" : "Confirmar entrega"}
           </Button>
           <Button variant="outline" className="h-12 w-full text-base" disabled={enviando} onClick={() => setModo("detalle")}>

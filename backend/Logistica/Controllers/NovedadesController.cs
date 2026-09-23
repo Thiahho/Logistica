@@ -1,4 +1,5 @@
 using Logistica.Auth;
+using Logistica.Web;
 using Logistica.Datos;
 using Logistica.Dominio;
 using Logistica.Entidades;
@@ -49,8 +50,9 @@ public class NovedadesController(LogisticaDbContext db, AlmacenamientoFotos alma
         var total = await query.CountAsync(ct);
 
         query = query.OrderByDescending(n => n.CreadaEn);
+        tamanioPagina = Paginacion.TamanioEfectivo(tamanioPagina);
         if (tamanioPagina is > 0)
-            query = query.Skip(((pagina is > 0 ? pagina.Value : 1) - 1) * tamanioPagina.Value).Take(tamanioPagina.Value);
+            query = query.Skip(((pagina is > 0 ? Math.Min(pagina.Value, 1_000_000) : 1) - 1) * tamanioPagina.Value).Take(tamanioPagina.Value);
 
         return Ok(new ListaPaginada<NovedadResumen>(await Proyectar(query).ToListAsync(ct), total));
     }

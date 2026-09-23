@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
 import { SelectorDireccion, type DireccionResuelta } from "@/components/SelectorDireccion";
+import { PrecioSugeridoLocalidad } from "@/components/PrecioSugeridoLocalidad";
 import { leerError, leerJson } from "@/lib/api/errores";
 import {
   etiquetaTipoVehiculo,
@@ -38,6 +39,8 @@ function FormularioPortal() {
   const [destinatarioNombre, setDestinatarioNombre] = useState("");
   const [destinatarioTelefono, setDestinatarioTelefono] = useState("");
   const [direccion, setDireccion] = useState<DireccionResuelta | null>(null);
+  // La localidad se conoce antes que la dirección resuelta: el precio sugerido no espera a geocodificar.
+  const [localidadElegidaId, setLocalidadElegidaId] = useState<number | null>(null);
   // "Mis clientes" (§5 del plan): elegir un contacto guardado prellena nombre/teléfono/dirección
   // sin tipear ni geocodificar de nuevo. direccionInicial + direccionKey fuerzan el remonte de
   // SelectorDireccion (no controlado — mismo criterio que /depositos al limpiar tras crear).
@@ -84,6 +87,7 @@ function FormularioPortal() {
     };
     setDireccionInicial(resuelta);
     setDireccion(resuelta);
+    setLocalidadElegidaId(c.localidadId);
     setDireccionKey((k) => k + 1);
   }
 
@@ -165,6 +169,7 @@ function FormularioPortal() {
                   setDestinatarioNombre("");
                   setDestinatarioTelefono("");
                   setDireccion(null);
+                  setLocalidadElegidaId(null);
                   setDireccionInicial(null);
                   setContactoElegidoId(null);
                   setDireccionKey((k) => k + 1);
@@ -237,8 +242,17 @@ function FormularioPortal() {
               key={direccionKey}
               inicial={direccionInicial}
               onCambio={setDireccion}
+              onLocalidadCambio={setLocalidadElegidaId}
               basePath="/api/mi-cuenta"
+              permitirLinkMapa
             />
+            <div className="mt-4">
+              <PrecioSugeridoLocalidad
+                localidadId={localidadElegidaId}
+                basePath="/api/mi-cuenta"
+                tipoVehiculo={tipoVehiculo}
+              />
+            </div>
           </CardContent>
         </Card>
 
