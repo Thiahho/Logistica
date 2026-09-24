@@ -9,6 +9,7 @@ using Logistica.Opciones;
 using Logistica.Servicios;
 using Logistica.Web;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
@@ -70,7 +71,25 @@ builder.Services.AddScoped<OrigenRutaService>();
 builder.Services.AddScoped<ZonaLocalidadService>();
 builder.Services.AddScoped<DireccionDesdeMapaService>();
 builder.Services.AddScoped<TarifaService>();
-builder.Services.AddScoped<AlmacenamientoFotos>();
+// Fotos y firmas: disco local en desarrollo, Cloudinary en producción (auditoria_seguridad.md hallazgo
+// 15 — el disco del contenedor de Render se borra en cada deploy). Ver Opciones/OpcionesAlmacenamiento.cs.
+builder.Services.Configure<OpcionesAlmacenamiento>(builder.Configuration.GetSection("Almacenamiento"));
+var almacenamiento = builder.Configuration.GetSection("Almacenamiento").Get<OpcionesAlmacenamiento>() ?? new OpcionesAlmacenamiento();
+switch (almacenamiento.Proveedor)
+{
+    case "local":
+        builder.Services.AddScoped<AlmacenamientoFotos, AlmacenamientoFotosLocal>();
+        break;
+    case "cloudinary":
+        if (string.IsNullOrWhiteSpace(almacenamiento.CloudinaryUrl))
+            throw new InvalidOperationException(
+                "Almacenamiento:Proveedor=cloudinary sin Almacenamiento:CloudinaryUrl. En producción: variable de entorno Almacenamiento__CloudinaryUrl.");
+        builder.Services.AddSingleton(new CloudinaryDotNet.Cloudinary(almacenamiento.CloudinaryUrl));
+        builder.Services.AddHttpClient<AlmacenamientoFotos, AlmacenamientoFotosCloudinary>(c => c.Timeout = TimeSpan.FromSeconds(15));
+        break;
+    default:
+        throw new InvalidOperationException($"Almacenamiento:Proveedor inválido: '{almacenamiento.Proveedor}' (local o cloudinary).");
+}
 builder.Services.AddScoped<CuentaCorrienteService>();
 builder.Services.AddScoped<JornadaService>();
 builder.Services.AddHostedService<CalentamientoService>();
@@ -99,14 +118,18 @@ builder.Services.AddHttpClient<EnlaceMapaService>(client =>
     client.DefaultRequestHeaders.Add("User-Agent", "Logistica/1.0 (contacto@logistica.local)");
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
-// "Ruteo:BaseUrl" es PROVISIONAL: en desarrollo apunta al demo público de OSRM
-// (router.project-osrm.org), cuya política de uso no admite producción — ahí exige un
-// contenedor propio (construccion_v1.md §1, acta changelog 3.4).
-var ruteoBaseUrl = builder.Configuration["Ruteo:BaseUrl"]
-    ?? throw new InvalidOperationException("Falta Ruteo:BaseUrl");
+// Recorrido por calles: OSRM (demo público) en desarrollo, OpenRouteService en producción — el demo
+// de OSRM no admite uso productivo (construccion_v1.md §1). Ver Opciones/OpcionesRuteo.cs.
+builder.Services.Configure<OpcionesRuteo>(builder.Configuration.GetSection("Ruteo"));
+var ruteo = builder.Configuration.GetSection("Ruteo").Get<OpcionesRuteo>() ?? new OpcionesRuteo();
+if (ruteo.Proveedor is not ("osrm" or "ors" or "ninguno"))
+    throw new InvalidOperationException($"Ruteo:Proveedor inválido: '{ruteo.Proveedor}' (osrm, ors o ninguno).");
+if (ruteo.Proveedor == "ors" && string.IsNullOrWhiteSpace(ruteo.ApiKey))
+    throw new InvalidOperationException("Ruteo:Proveedor=ors sin Ruteo:ApiKey. En producción: variable de entorno Ruteo__ApiKey.");
 builder.Services.AddHttpClient<RuteoService>(client =>
 {
-    client.BaseAddress = new Uri(ruteoBaseUrl);
+    client.BaseAddress = new Uri(ruteo.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(ruteo.TimeoutSegundos);
     client.DefaultRequestHeaders.Add("User-Agent", "Logistica/1.0 (contacto@logistica.local)");
 });
 
@@ -158,6 +181,11 @@ builder.Services.AddAuthorizationBuilder()
     // Ninguna de las policies de arriba cubre "back-office O repartidor": el mapa lo consultan
     // tanto el planificador (armar ruta) como el repartidor (guía del día).
     .AddPolicy("Recorrido", p => p.RequireRole(Roles.Administracion, Roles.Operacion, Roles.Repartidor));
+
+var proxy = builder.Configuration.GetSection("Proxy").Get<OpcionesProxy>() ?? new OpcionesProxy();
+if (proxy.Habilitado && string.IsNullOrWhiteSpace(proxy.Secreto))
+    throw new InvalidOperationException(
+        "Proxy:Habilitado sin Proxy:Secreto. En producción: variable de entorno Proxy__Secreto, igual a PROXY_SECRETO del frontend.");
 
 var frontendOrigin = builder.Configuration["Frontend:Origin"]
     ?? throw new InvalidOperationException("Falta Frontend:Origin");
@@ -281,6 +309,23 @@ var app = builder.Build();
 
 // Primero de todo el pipeline: tiene que envolver cualquier middleware/controller downstream.
 app.UseExceptionHandler();
+
+// Detrás de Vercel → Render (auditoria_seguridad.md hallazgo 14): antes que HSTS, HTTPS y el límite
+// de tasa, que necesitan el esquema y la IP reales. Ver Opciones/OpcionesProxy.cs.
+if (proxy.Habilitado)
+{
+    var reenvio = new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+        // Solo el último salto, el que agrega el balanceador de Render: los anteriores los puede
+        // escribir cualquiera. Las IP de Render no son fijas, por eso no hay lista de proxies conocidos.
+        ForwardLimit = 1,
+    };
+    reenvio.KnownNetworks.Clear();
+    reenvio.KnownProxies.Clear();
+    app.UseForwardedHeaders(reenvio);
+    app.UseIpClienteDesdeProxy(proxy.Secreto!);
+}
 
 // Cabeceras de seguridad en toda respuesta. La API nunca se embebe en un frame ni necesita que el
 // navegador adivine tipos de contenido; y sus respuestas (datos de clientes, DNI, facturas) no se

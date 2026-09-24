@@ -1,3 +1,4 @@
 <Solution>
+  <Project Path="../Logistica.Tests/Logistica.Tests.csproj" />
   <Project Path="Logistica.csproj" />
 </Solution>

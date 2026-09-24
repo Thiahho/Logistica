@@ -21,13 +21,8 @@ const cabecerasDeSeguridad = [
 const nextConfig: NextConfig = {
   // No anunciar "X-Powered-By: Next.js".
   poweredByHeader: false,
-  // Producción (Vercel): BACKEND_URL=https://<servicio>.onrender.com y sin NEXT_PUBLIC_API_URL. El navegador
-  // habla solo con el dominio del frontend, que reenvía /api/* al backend. Sin BACKEND_URL (desarrollo) no
-  // hay reenvío y se usa NEXT_PUBLIC_API_URL directo.
-  async rewrites() {
-    const backend = process.env.BACKEND_URL?.replace(/\/+$/, "");
-    return backend ? [{ source: "/api/:path*", destination: `${backend}/api/:path*` }] : [];
-  },
+  // El reenvío de /api/* al backend en producción vive en proxy.ts, no en rewrites(): necesita agregar
+  // cabeceras al request reenviado, y un rewrite de configuración no puede.
   async headers() {
     return [{ source: "/:path*", headers: cabecerasDeSeguridad }];
   },
