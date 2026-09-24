@@ -883,8 +883,8 @@ function UsuariosCliente({
 
   async function resetearPassword(id: string) {
     const nuevaPassword = passwords[id];
-    if (!nuevaPassword || nuevaPassword.length < 8) {
-      setError("La contraseña debe tener al menos 8 caracteres.");
+    if (!nuevaPassword || nuevaPassword.length < 10) {
+      setError("La contraseña debe tener al menos 10 caracteres, con letras y números.");
       return;
     }
     setError(null);
@@ -937,7 +937,7 @@ function UsuariosCliente({
                     <div className="flex gap-2">
                       <Input
                         type="password"
-                        placeholder="mín. 8 caracteres"
+                        placeholder="mín. 10, letras y números"
                         className="w-40"
                         value={passwords[u.id] ?? ""}
                         onChange={(e) => setPasswords((p) => ({ ...p, [u.id]: e.target.value }))}
@@ -984,7 +984,7 @@ function UsuariosCliente({
               id="nuevo-usuario-password"
               type="password"
               required
-              minLength={8}
+              minLength={10}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />

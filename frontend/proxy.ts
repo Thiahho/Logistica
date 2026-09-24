@@ -23,6 +23,11 @@ const RUTAS_PROTEGIDAS = [
   "/cobranza",
   "/deliverys",
   "/liquidaciones",
+  "/rentabilidad",
+  "/tablero",
+  // Faltaban desde sus changelogs (4.6 y 4.9); aparecieron al ampliar el matcher para la CSP.
+  "/repartidores",
+  "/recepcion",
 ];
 
 // Producción (Vercel): BACKEND_URL=https://<servicio>.onrender.com y sin NEXT_PUBLIC_API_URL. El navegador
@@ -44,6 +49,37 @@ function reenviarAlBackend(request: NextRequest, backend: string) {
   return NextResponse.rewrite(new URL(`${backend}${pathname}${search}`), { request: { headers: cabeceras } });
 }
 
+/**
+ * CSP estricta con nonce (auditoria_seguridad.md hallazgo 9; guía de Next en
+ * node_modules/next/dist/docs/01-app/02-guides/content-security-policy.md). Un nonce nuevo por request:
+ * solo corren los scripts que Next marca con él, más lo que esos cargan ('strict-dynamic'). Por eso las
+ * páginas se renderizan por request (app/layout.tsx llama a connection()).
+ *
+ * style-src admite 'unsafe-inline' a propósito: Leaflet, recharts y algunos componentes ponen estilos en
+ * línea en tiempo de ejecución, que no llevan nonce. Un estilo inyectado no ejecuta código.
+ */
+function politicaDeSeguridad(nonce: string): string {
+  const desarrollo = process.env.NODE_ENV === "development";
+  // En desarrollo sin BACKEND_URL el navegador llama directo a la API en otro puerto, y Next usa un
+  // websocket para recargar en caliente.
+  const api = process.env.NEXT_PUBLIC_API_URL ? new URL(process.env.NEXT_PUBLIC_API_URL).origin : "";
+  const conexiones = ["'self'", api, desarrollo ? "ws: wss:" : ""].filter(Boolean).join(" ");
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${desarrollo ? " 'unsafe-eval'" : ""}`,
+    "style-src 'self' 'unsafe-inline'",
+    // Teselas del mapa (Mapa.tsx), vistas previas de fotos (blob:) y los data: que generan Leaflet y recharts.
+    "img-src 'self' data: blob: https://*.tile.openstreetmap.org",
+    "font-src 'self'",
+    `connect-src ${conexiones}`,
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    ...(desarrollo ? [] : ["upgrade-insecure-requests"]),
+  ].join("; ");
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -61,26 +97,28 @@ export function proxy(request: NextRequest) {
     }
   }
 
-  return NextResponse.next();
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const csp = politicaDeSeguridad(nonce);
+  // En el request para que Next lea el nonce al renderizar y lo aplique a sus scripts; en la respuesta
+  // para que el navegador haga cumplir la política.
+  const cabeceras = new Headers(request.headers);
+  cabeceras.set("x-nonce", nonce);
+  cabeceras.set("Content-Security-Policy", csp);
+  const respuesta = NextResponse.next({ request: { headers: cabeceras } });
+  respuesta.headers.set("Content-Security-Policy", csp);
+  return respuesta;
 }
 
 export const config = {
   matcher: [
-    "/api/:path*",
-    "/pedidos/:path*",
-    "/hoy/:path*",
-    "/mis-envios/:path*",
-    "/clientes/:path*",
-    "/usuarios/:path*",
-    "/vehiculos/:path*",
-    "/tarifas/:path*",
-    "/rutas/:path*",
-    "/jornada/:path*",
-    "/exportar/:path*",
-    "/depositos/:path*",
-    "/facturas/:path*",
-    "/cobranza/:path*",
-    "/deliverys/:path*",
-    "/liquidaciones/:path*",
+    // Todo menos los estáticos de Next y el favicon (no son documentos) y los prefetch de next/link.
+    // /api/* entra: es el reenvío al backend.
+    {
+      source: "/((?!_next/static|_next/image|favicon.ico).*)",
+      missing: [
+        { type: "header", key: "next-router-prefetch" },
+        { type: "header", key: "purpose", value: "prefetch" },
+      ],
+    },
   ],
 };

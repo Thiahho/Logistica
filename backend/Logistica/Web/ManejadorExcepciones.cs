@@ -11,28 +11,49 @@ namespace Logistica.Web;
 /// trg_bloquear_direccion_dudosa sale como 500 con stack trace en vez de un mensaje accionable.
 /// Traduce las excepciones que vienen de reglas de negocio en la base (triggers con RAISE
 /// EXCEPTION, checks, unique) a ProblemDetails.
+///
+/// Lo inesperado (changelog 1.42, monitoreo): se registra con su traceId y el 500 lo devuelve, sin
+/// detalle interno. Así quien ve el error puede reportar un código y el log tiene el stack trace.
 /// </summary>
-public class ManejadorExcepciones(IProblemDetailsService problemDetailsService) : IExceptionHandler
+public class ManejadorExcepciones(IProblemDetailsService problemDetailsService, ILogger<ManejadorExcepciones> log)
+    : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(
         HttpContext httpContext, Exception exception, CancellationToken ct)
     {
+        var traceId = httpContext.TraceIdentifier;
         var (status, detalle) = Clasificar(exception);
-        if (status is null) return false;
+        if (status is null)
+        {
+            log.LogError(exception, "Error inesperado en {Metodo} {Ruta} (traceId {TraceId})",
+                httpContext.Request.Method, httpContext.Request.Path.Value, traceId);
+            status = StatusCodes.Status500InternalServerError;
+            detalle = $"Ocurrió un error inesperado. Si se repite, pasale este código a soporte: {traceId}";
+        }
+        else
+        {
+            log.LogDebug("Regla del sistema en {Metodo} {Ruta}: {Detalle}",
+                httpContext.Request.Method, httpContext.Request.Path.Value, detalle);
+        }
 
         httpContext.Response.StatusCode = status.Value;
+        var problema = new ProblemDetails
+        {
+            Status = status.Value,
+            Title = status switch
+            {
+                StatusCodes.Status409Conflict => "Conflicto con una regla del sistema",
+                StatusCodes.Status500InternalServerError => "Error inesperado",
+                _ => "Solicitud inválida",
+            },
+            Detail = detalle,
+        };
+        problema.Extensions["traceId"] = traceId;
         return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
         {
             HttpContext = httpContext,
             Exception = exception,
-            ProblemDetails = new ProblemDetails
-            {
-                Status = status.Value,
-                Title = status == StatusCodes.Status409Conflict
-                    ? "Conflicto con una regla del sistema"
-                    : "Solicitud inválida",
-                Detail = detalle,
-            },
+            ProblemDetails = problema,
         });
     }
 

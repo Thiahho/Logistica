@@ -4,6 +4,7 @@ using Logistica.Datos;
 using Logistica.Entidades;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Logistica.Migrations
 {
     [DbContext(typeof(LogisticaDbContext))]
-    partial class LogisticaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260924181000_AgregarRentabilidad")]
+    partial class AgregarRentabilidad
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -950,11 +953,11 @@ namespace Logistica.Migrations
 
                             t.HasCheckConstraint("ck_novedades_origen", "origen in ('repartidor','operacion')");
 
-                            t.HasCheckConstraint("ck_novedades_origen_coherente", "(origen = 'repartidor' and tipo in ('incidencia_ruta','problema_carga','cambio_propuesto')) or (origen = 'operacion' and tipo in ('cambio_operacion','cancelacion','urgencia'))");
+                            t.HasCheckConstraint("ck_novedades_origen_coherente", "(origen = 'repartidor' and tipo in ('incidencia_ruta','problema_carga','cambio_propuesto')) or (origen = 'operacion' and tipo in ('cambio_operacion','cancelacion'))");
 
                             t.HasCheckConstraint("ck_novedades_propuesta", "(tipo = 'cambio_propuesto') = (propuesta_campo is not null and propuesta_valor_nuevo is not null)");
 
-                            t.HasCheckConstraint("ck_novedades_tipo", "tipo in ('incidencia_ruta','problema_carga','cambio_propuesto','cambio_operacion','cancelacion','urgencia')");
+                            t.HasCheckConstraint("ck_novedades_tipo", "tipo in ('incidencia_ruta','problema_carga','cambio_propuesto','cambio_operacion','cancelacion')");
                         });
                 });
 

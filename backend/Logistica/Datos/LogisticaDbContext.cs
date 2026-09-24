@@ -52,6 +52,8 @@ public class LogisticaDbContext(DbContextOptions<LogisticaDbContext> options) : 
     public DbSet<Liquidacion> Liquidaciones => Set<Liquidacion>();
     public DbSet<Rango> Rangos => Set<Rango>();
     public DbSet<ClienteRango> ClienteRangos => Set<ClienteRango>();
+    public DbSet<CostoFijo> CostosFijos => Set<CostoFijo>();
+    public DbSet<ObjetivoRentabilidad> ObjetivosRentabilidad => Set<ObjetivoRentabilidad>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

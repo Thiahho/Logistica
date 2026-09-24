@@ -1,3 +1,4 @@
+using Logistica.Dominio;
 using Logistica.Datos;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -51,7 +52,7 @@ public class JornadaController(LogisticaDbContext db) : ControllerBase
     [HttpGet("resumen")]
     public async Task<IActionResult> Resumen([FromQuery] DateOnly? fecha, CancellationToken ct)
     {
-        var fechaValor = fecha ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var fechaValor = fecha ?? Reloj.HoyLocal();
 
         var rutas = await db.Rutas.AsNoTracking()
             .Where(r => r.Fecha == fechaValor)

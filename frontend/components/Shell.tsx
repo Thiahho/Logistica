@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  BarChart3,
   Bike,
   Building2,
   CalendarClock,
@@ -21,6 +22,7 @@ import {
   Receipt,
   Route,
   Tag,
+  TrendingUp,
   Truck,
   UserCog,
   Users,
@@ -69,6 +71,8 @@ const NAV: ItemNav[] = [
   { href: "/facturas", label: "Facturas", icono: Receipt, roles: ["administracion"], grupo: "finanzas" },
   { href: "/cobranza", label: "Cobranza", icono: Wallet, roles: ["administracion"], grupo: "finanzas" },
   { href: "/liquidaciones", label: "Liquidaciones", icono: HandCoins, roles: ["administracion"], grupo: "finanzas" },
+  { href: "/rentabilidad", label: "Rentabilidad", icono: TrendingUp, roles: ["administracion"], grupo: "finanzas" },
+  { href: "/tablero", label: "Tablero", icono: BarChart3, roles: ["administracion"], grupo: "finanzas" },
   { href: "/usuarios", label: "Usuarios", icono: UserCog, roles: ["administracion"], grupo: "admin" },
   { href: "/depositos", label: "Depósitos", icono: Warehouse, roles: ["administracion"], grupo: "admin" },
   { href: "/exportar", label: "Exportar", icono: Download, roles: ["administracion"], grupo: "admin" },

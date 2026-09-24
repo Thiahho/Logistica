@@ -1,6 +1,6 @@
 # Estado de implementación — relevamiento de código
 
-**Generado:** 13/09/2026, actualizado puntualmente el 15/09/2026 (monitor de jornada, changelog 4.4), el 16/09/2026 (deliverys/recargo por km, changelog 4.5), el 17/09/2026 (disponibilidad de repartidores, changelog 4.6; y en una segunda pasada del mismo día, la fase de gobernanza de changelog 4.7), el 18/09/2026 (novedades de la calle, changelog 4.8 — §3.13), el 21/09/2026 (identidad visual "BF Transportes", `construccion_v1.md` changelog 1.23 — cambio puramente visual, no suma ninguna fila a los conteos de este documento; ver nota debajo de §1), el 22/09/2026 (portal de carga y recepción, changelog 4.9 — §3.14, nueva) una segunda pasada del mismo día (detalle de envío, envío en curso y "mis clientes", changelog 4.10 — §3.15, nueva) y el 23/09/2026 (changelog 4.11 a 4.18 — §3.16 a §3.22, nuevas: zonas automáticas, ubicación por link de Maps, "Mi plan", bultos y armado rápido, detalle de ruta y Maps, flujo del repartidor con DNI, y la auditoría de validación/seguridad/carga; ninguna de estas pasadas es una repasada completa del resto) y el 24/09/2026 (preparación del despliegue en Render + Vercel, changelog 4.19 — §3.23, nueva; no mueve ningún conteo) · **Rama:** `main` (desde el merge squash de `demo-d`, commit `22c6735`, 23/09/2026; `demo-d` queda como historial de trabajo) · **Fuente:** lectura directa del código (backend ASP.NET Core 8 + PostgreSQL, frontend Next.js), cruzado contra `acta_sistema.md` v4.22 y `Anexo_I_Alcance_V2.docx`.
+**Generado:** 13/09/2026, actualizado puntualmente el 15/09/2026 (monitor de jornada, changelog 4.4), el 16/09/2026 (deliverys/recargo por km, changelog 4.5), el 17/09/2026 (disponibilidad de repartidores, changelog 4.6; y en una segunda pasada del mismo día, la fase de gobernanza de changelog 4.7), el 18/09/2026 (novedades de la calle, changelog 4.8 — §3.13), el 21/09/2026 (identidad visual "BF Transportes", `construccion_v1.md` changelog 1.23 — cambio puramente visual, no suma ninguna fila a los conteos de este documento; ver nota debajo de §1), el 22/09/2026 (portal de carga y recepción, changelog 4.9 — §3.14, nueva) una segunda pasada del mismo día (detalle de envío, envío en curso y "mis clientes", changelog 4.10 — §3.15, nueva) y el 23/09/2026 (changelog 4.11 a 4.18 — §3.16 a §3.22, nuevas: zonas automáticas, ubicación por link de Maps, "Mi plan", bultos y armado rápido, detalle de ruta y Maps, flujo del repartidor con DNI, y la auditoría de validación/seguridad/carga; ninguna de estas pasadas es una repasada completa del resto) y el 24/09/2026 (preparación del despliegue en Render + Vercel, changelog 4.19 — §3.23, nueva; no mueve ningún conteo) · **Rama:** `main` (desde el merge squash de `demo-d`, commit `22c6735`, 23/09/2026; `demo-d` queda como historial de trabajo) · **Fuente:** lectura directa del código (backend ASP.NET Core 8 + PostgreSQL, frontend Next.js), cruzado contra `acta_sistema.md` v4.26 y `Anexo_I_Alcance_V2.docx`.
 
 **Regla de este documento, explícita desde la pasada de changelog 4.7:** acá se cuenta lo que existe en el repositorio. Lo diseñado y acordado pero no escrito se nombra como tal y **no suma a ningún conteo** — para eso están `acta_sistema.md` (alcance) y `construccion_v1.md` (diseño). Es la diferencia que hace auditable este inventario.
 
@@ -12,13 +12,13 @@ Este documento no reemplaza a `acta_sistema.md` (reglas de negocio) ni a `constr
 
 | | |
 |---|---|
-| Controladores API | **23** (suman `LiquidacionesController`, E2/B4, y `RangosController`, E2/B3 — `construccion_v1.md` 1.35/1.36) |
-| Endpoints | **139** acciones `[Http*]` en `Controllers/*.cs` — conteo mecánico y reproducible: `grep -cE '^\s*\[Http(Get\|Post\|Put\|Patch\|Delete)' backend/Logistica/Controllers/*.cs`. Seis de B3 (`GET`/`PUT /rangos[/{codigo}]`, `POST /rangos/recalculo/previsualizacion`, `POST /rangos/recalculo`, `GET /clientes/{id}/rango`, `PUT /clientes/{id}/rango/ajuste`) sobre las 133 de B4. Esas eran ocho más que las 125 de changelog 4.18, todas de B4: `GET /rutas/{id}/liquidacion-sugerida`, `GET` y `PUT /parametros-liquidacion[/{tipo}]`, `GET /liquidaciones/previsualizacion`, `POST /liquidaciones`, `GET /liquidaciones`, `GET /liquidaciones/{id}` y `GET /liquidaciones/{id}/csv`. Las 125 de antes eran ocho más que las 117 de changelog 4.10: `GET /localidades/con-zona`, `PUT /localidades/{id}/zona/automatica`, `POST /localidades/recalcular`, `GET /localidades/{id}/precio-sugerido` y `GET /mi-cuenta/localidades/{id}/precio-sugerido` (4.11), `POST /ubicaciones/desde-mapa` y su espejo `POST /mi-cuenta/ubicaciones/desde-mapa` (4.14) y `GET /mi-cuenta/plan-del-dia` (4.12) |
-| Pantallas frontend (`page.tsx`) | **41** (suman `/liquidaciones` y `/liquidaciones/[id]`, B4, y `/clientes/rangos`, B3; recontado con `find frontend/app -name page.tsx`, no adelantado) |
-| Entidades / tablas núcleo | **26 entidades / 23 tablas núcleo** (suman `parametros_liquidacion` y `liquidaciones`, B4, y `rangos` y `cliente_rangos`, B3 — cuatro de las seis que acordó acta 4.21 para E2; `ls Entidades/*.cs` da 27 archivos porque incluye el enum `EstadoPedido.cs`). Antes de B4 (22/19, sin cambio desde 4.10: `localidades` suma `lat`, `lng`, `distancia_km_deposito`, `distancia_fuente` y `zona_manual` — 4.11 — y `pruebas_entrega` suma `documento_numero` y `sin_documento_motivo` — 4.17; ninguna tabla ni entidad nueva) |
-| Migraciones aplicadas | **21** (`Inicial` → `AgregarRangos`; la última, B3, crea `rangos` (con sus cinco filas) y `cliente_rangos`, suma el rango y su ajuste a `clientes` y `descuento_rango` a `pedidos`, y agrega esa columna a `fn_congelar_pedido`. La anterior, `AgregarLiquidacion` (B4), agrega las dos tablas, siete columnas en `rutas` y los triggers `trg_liquidaciones_inmutable` y `trg_rutas_liquidada`. Antes: suman `ZonasAutomaticas` (4.11), `AgregarDocumentoAPruebaEntrega` (4.17) e `IndiceBusquedaPedidos` (4.18, requiere la extensión `pg_trgm`)) |
+| Controladores API | **25** (suman `LiquidacionesController`, E2/B4, `RangosController`, E2/B3, `RentabilidadController`, E2/B7, y `TableroController`, E3/B2 — `construccion_v1.md` 1.35 a 1.38) |
+| Endpoints | **149** acciones (suman `GET /rutas/urgencias/ventana` y `POST /rutas/{id}/urgencias`, RF-45, acta 4.26; antes, 147) `[Http*]` en `Controllers/*.cs` — conteo mecánico y reproducible: `grep -cE '^\s*\[Http(Get\|Post\|Put\|Patch\|Delete)' backend/Logistica/Controllers/*.cs`. `GET /tablero` (E3) sobre las 146 de B7. Siete de B7 (`GET /rentabilidad`, `POST`/`PUT`/`DELETE /costos-fijos[/{id}]`, `POST /costos-fijos/copiar-mes-anterior`, `GET`/`PUT /objetivos-rentabilidad`) sobre las 139 de B3. Seis de B3 (`GET`/`PUT /rangos[/{codigo}]`, `POST /rangos/recalculo/previsualizacion`, `POST /rangos/recalculo`, `GET /clientes/{id}/rango`, `PUT /clientes/{id}/rango/ajuste`) sobre las 133 de B4. Esas eran ocho más que las 125 de changelog 4.18, todas de B4: `GET /rutas/{id}/liquidacion-sugerida`, `GET` y `PUT /parametros-liquidacion[/{tipo}]`, `GET /liquidaciones/previsualizacion`, `POST /liquidaciones`, `GET /liquidaciones`, `GET /liquidaciones/{id}` y `GET /liquidaciones/{id}/csv`. Las 125 de antes eran ocho más que las 117 de changelog 4.10: `GET /localidades/con-zona`, `PUT /localidades/{id}/zona/automatica`, `POST /localidades/recalcular`, `GET /localidades/{id}/precio-sugerido` y `GET /mi-cuenta/localidades/{id}/precio-sugerido` (4.11), `POST /ubicaciones/desde-mapa` y su espejo `POST /mi-cuenta/ubicaciones/desde-mapa` (4.14) y `GET /mi-cuenta/plan-del-dia` (4.12) |
+| Pantallas frontend (`page.tsx`) | **43** (suman `/liquidaciones` y `/liquidaciones/[id]`, B4, `/clientes/rangos`, B3, `/rentabilidad`, B7, y `/tablero`, E3; recontado con `find frontend/app -name page.tsx`, no adelantado) |
+| Entidades / tablas núcleo | **28 entidades / 25 tablas núcleo** (las seis que acordó acta 4.21 para E2: `parametros_liquidacion` y `liquidaciones`, B4; `rangos` y `cliente_rangos`, B3; `costos_fijos` y `objetivos_rentabilidad`, B7 — techo alcanzado; `ls Entidades/*.cs` da 29 archivos porque incluye el enum `EstadoPedido.cs`). Antes de B4 (22/19, sin cambio desde 4.10: `localidades` suma `lat`, `lng`, `distancia_km_deposito`, `distancia_fuente` y `zona_manual` — 4.11 — y `pruebas_entrega` suma `documento_numero` y `sin_documento_motivo` — 4.17; ninguna tabla ni entidad nueva) |
+| Migraciones aplicadas | **23** (`Inicial` → `AgregarNovedadUrgencia`; la última, RF-45, solo amplía los checks de `novedades` con el tipo `urgencia`. Antes, 22, hasta `AgregarRentabilidad`; la última, B7, crea `costos_fijos` y `objetivos_rentabilidad`. La anterior, `AgregarRangos` (B3), crea `rangos` (con sus cinco filas) y `cliente_rangos`, suma el rango y su ajuste a `clientes` y `descuento_rango` a `pedidos`, y agrega esa columna a `fn_congelar_pedido`. La anterior, `AgregarLiquidacion` (B4), agrega las dos tablas, siete columnas en `rutas` y los triggers `trg_liquidaciones_inmutable` y `trg_rutas_liquidada`. Antes: suman `ZonasAutomaticas` (4.11), `AgregarDocumentoAPruebaEntrega` (4.17) e `IndiceBusquedaPedidos` (4.18, requiere la extensión `pg_trgm`)) |
 | Roles | administracion, operacion, repartidor (personal interno) + cliente (`clientes_usuarios`, tabla separada) |
-| Última etapa cerrada | **E1 — Cuenta corriente y facturación** (Anexo I §5, changelog acta 4.2). El monitor de jornada (4.4), los deliverys/recargo por km (4.5), el panel de repartidores (4.6) y el portal de carga/recepción/"mis clientes" (4.9/4.10) son ampliaciones sobre etapas ya cerradas o adelantadas puntualmente (§9.3, D14/§10.2-N, RF-15/§9.3 y Anexo I §5/E4 respectivamente), no un cierre completo de etapa nueva del Anexo I. |
+| Última etapa cerrada | **E3 — Tablero de control** (Anexo I §5: B2; changelog acta 4.24, 24/09/2026), después de **E2 — Rangos y liquidación** (B3, B4 y B7; acta 4.23) y **E1 — Cuenta corriente y facturación** (acta 4.2). Quedan E4 (lo que falta: B6 aviso de estado, B11 importación masiva) y E5 (B10, cola offline). El monitor de jornada (4.4), los deliverys/recargo por km (4.5), el panel de repartidores (4.6) y el portal de carga/recepción/"mis clientes" (4.9/4.10) son ampliaciones sobre etapas ya cerradas o adelantadas puntualmente (§9.3, D14/§10.2-N, RF-15/§9.3 y Anexo I §5/E4 respectivamente), no un cierre completo de etapa nueva del Anexo I. |
 
 **Identidad visual "BF Transportes" (`construccion_v1.md` changelog 1.23, 21/09/2026):** rediseño de marca (paleta, tipografía, logo provisorio, navegación mobile) sobre tres referencias en `docs/` — `Paleta.png`, `Logo.png`, `MobileVistaOperador.png`. No suma ni resta un solo controlador, endpoint, pantalla, entidad o migración: por eso no mueve ninguna cifra de la tabla de arriba. Detalle técnico completo en `construccion_v1.md` §1 y changelog 1.23, no repetido acá — es la diferencia de alcance entre los dos documentos (regla del encabezado).
 
@@ -217,7 +217,7 @@ Lo que existe en el repositorio: un `Dockerfile` de dos etapas para el backend (
 - **Parámetros:** en `/tarifas`, por tipo de vehículo, con vigencia.
 - **Acceso:** todo solo Administración.
 - **Verificado:** con `curl`/`psql` sobre una copia de la base y recorrido completo en Chrome headless (detalle en §7).
-- **B7 (rentabilidad), la última pieza de E2, sigue sin código.**
+- **B7 (rentabilidad), la última pieza de E2, está en §3.26.**
 
 ### 3.25 Rangos de cliente (`RangosController`, `Servicios/RangoClienteService.cs`, `Dominio/RangosCliente.cs`) — E2/B3, acta RF-42 (changelog 4.21), `construccion_v1.md` 1.36
 
@@ -232,7 +232,52 @@ Lo que existe en el repositorio: un `Dockerfile` de dos etapas para el backend (
 - **Corrección incluida (acta 4.22):** el precio vinculante del portal ya no se recalcula al cerrar la planificación. Antes, la urgencia y el recargo por km se sumaban dos veces.
 - **Verificado:** con `curl`/`psql` sobre una copia de la base y con un recorrido en Chrome headless (detalle en §7).
 
-## 4. Pantallas del frontend (41)
+### 3.26 Costos fijos y rentabilidad mensual (`RentabilidadController`, `Dominio/Rentabilidad.cs`) — E2/B7, acta RF-43 (changelog 4.21), `construccion_v1.md` 1.37
+
+- **Qué muestra:** el resultado de un mes en `/rentabilidad`:
+  - ingresos: los `factura_items` aprobados que nacieron en el mes;
+  - costos variables: los de las rutas cerradas del mes;
+  - costos fijos: los cargados para el mes;
+  - margen.
+- **Estructura objetivo:** tramos con nombre libre, rango de % sobre los ingresos y fuentes que suman. La Empresa todavía no definió qué es cada tramo.
+- **Costos fijos:** se cargan, se borran y se pueden copiar del mes anterior.
+- **Acceso:** solo Administración.
+- **No es el tablero de indicadores (B2/E3):** es la cuenta de un mes en plata, sin series ni cortes por cliente, zona o vehículo.
+- **Verificado:** con `curl`/`psql` sobre una copia de la base y con un recorrido en Chrome headless (detalle en §7).
+- **Con esto E2 queda completa** (acta 4.23).
+
+### 3.27 Tablero de indicadores (`TableroController`, `components/tablero/Graficos.tsx`) — E3/B2, acta RF-44 (changelog 4.24), `construccion_v1.md` 1.38
+
+- **Qué muestra** (`/tablero`, solo Administración): los indicadores del Anexo I, definidos en `diseño_b2_tablero.md`, por período y con corte por cliente, zona, vehículo y repartidor.
+- **Cómo se calcula:** en cada consulta. No guarda nada y no agrega tablas.
+- **Sin prorrateo:** con filtro de cliente o de zona, los indicadores de ruta no se muestran, porque el costo de una ruta no se reparte entre sus clientes ni sus zonas.
+- **NPS:** sin datos; el mecanismo de encuesta está fuera de alcance.
+- **Gráficos:** `recharts`, con la paleta validada en claro y oscuro; cada uno tiene tooltip y tabla.
+- **Verificado:** con `curl`/`psql` sobre una copia de la base y con un recorrido en Chrome headless con datos sintéticos (detalle en §7).
+- **Con esto E3 queda completa** (acta 4.24).
+
+### 3.28 Urgencias en una ruta en curso (`RutasController.InsertarUrgencia`, `Dominio/Urgencias.cs`) — acta RF-45 (changelog 4.26), `construccion_v1.md` 1.41
+
+- **Qué hace:** operación agrega un pedido urgente a una ruta que ya salió, desde "Agregar urgencia" en `/rutas/[id]`.
+- **Condiciones:**
+  - solo dentro de la ventana de reagrupamiento (13:00 por una hora, provisional y configurable);
+  - solo si desplaza como mucho dos paradas pendientes;
+  - siempre con recargo.
+- **Consolidación:** si el destino ya es una parada pendiente, se suma ahí.
+- **Precio y estados:** se congela igual que al cerrar una planificación (código compartido), y el pedido queda en ruta.
+- **Repartidor:** ve la parada nueva (anclada) y un aviso de urgencia en `/hoy`.
+- **No es el delivery ad-hoc (D14):** ese sigue siendo otro producto.
+- **Verificado:** sobre una copia de la base y con un recorrido en Chrome headless (detalle en §7).
+
+### 3.29 Monitoreo básico (`Web/RegistroSolicitudes.cs`, `Web/ChequeoMigraciones.cs`, `Web/ManejadorExcepciones.cs`) — `construccion_v1.md` 1.42
+
+- **Log por solicitud:** método, ruta sin query, status, duración, rol y `traceId`. Los 5xx y lo que tarda más de 2 s salen en Warning.
+- **Errores inesperados:** se registran con la excepción y el `traceId`. El usuario ve ese código en el 500 para reportarlo.
+- **Formato:** logs en JSON fuera de `Development`.
+- **`/health/listo`:** da 503 si hay migraciones sin aplicar. `/health` sigue igual (liveness para Render).
+- **Monitor externo:** no está conectado; los pasos están en `construccion_v1.md` §9.
+
+## 4. Pantallas del frontend (43)
 
 **El conteo pasó de 36 a 38 cuando el código existió, no antes:** `/mis-envios/[id]` y `/mis-envios/contactos` (changelog 4.10). Recontado con `find frontend/app -name page.tsx`. **Sin pantallas nuevas en 4.11–4.18**: `/mis-envios` ahora es "Mi plan" (4.12), `/rutas` suma "Preparar la ruta del día siguiente" y columna de bultos, `/rutas/[id]` se reordena para mobile y suma el botón de Maps (4.16), `/rutas/[id]/armar` suma totales y selección masiva (4.15), `/hoy`, `/hoy/retiro`, `/hoy/cierre` y `/hoy/parada/[paradaId]` cambian según el flujo del repartidor (4.17) y `/tarifas` suma la gestión de zonas automáticas (4.11). Este documento cuenta lo que existe, no lo que está acordado — y que exista no es que se haya probado en un teléfono: de las pantallas de esta ronda solo el recorrido `/hoy` → `/hoy/cierre` se abrió en un Chrome real (headless, 390 px); el resto se verificó con `tsc`, `eslint`, `next build` y la API.
 
@@ -257,6 +302,8 @@ Lo que existe en el repositorio: un `Dockerfile` de dos etapas para el backend (
 | `/depositos` | Catálogo de depósitos |
 | `/facturas` | Facturación / cuenta corriente (E1) |
 | `/cobranza` | Panel de riesgo de cuenta corriente y aviso de vencimiento (changelog 4.3) |
+| `/tablero` | Tablero de indicadores por período con corte por cliente, zona, vehículo y repartidor (E3/B2, `construccion_v1.md` 1.38) |
+| `/rentabilidad` | Costos fijos del mes y resultado contra la estructura objetivo (E2/B7, `construccion_v1.md` 1.37) |
 | `/clientes/rangos` | Recálculo trimestral de rangos de cliente: medir, previsualizar y aplicar (E2/B3, `construccion_v1.md` 1.36) |
 | `/liquidaciones`, `/liquidaciones/[id]` | Liquidación al repartidor: previsualizar y emitir por repartidor y período; comprobante imprimible y en CSV (E2/B4, `construccion_v1.md` 1.35) |
 | `/exportar` | Exportación CSV |
@@ -277,10 +324,11 @@ Lo que existe en el repositorio: un `Dockerfile` de dos etapas para el backend (
 | Cuenta corriente (E1) | `facturas`, `factura_items`, `pagos` |
 | Liquidación al repartidor (E2/B4) | `parametros_liquidacion`, `liquidaciones` |
 | Rangos de cliente (E2/B3) | `rangos`, `cliente_rangos` |
+| Rentabilidad (E2/B7) | `costos_fijos`, `objetivos_rentabilidad` |
 | Usuarios | `usuarios`, `clientes_usuarios`, `refresh_tokens` |
 
-**`docs/schema_v3.sql` está desactualizado desde antes de E1** (verificado el 24/09/2026: no tiene `facturas`, `factura_items`, `pagos`, `novedades`, `clientes_destinatarios` ni ninguna columna posterior). El DDL real es el de las migraciones (`backend/Logistica/Migrations`); regenerar `schema_v3.sql` desde la base (`pg_dump --schema-only`) queda pendiente. Historial de migraciones (21, cronológico; las dos últimas son `AgregarLiquidacion` (E2/B4) y `AgregarRangos` (E2/B3); antes de ellas, las tres últimas eran `ZonasAutomaticas` (4.11 — agrega las columnas de medición a `localidades` y marca como manuales las zonas ya cargadas), `AgregarDocumentoAPruebaEntrega` (4.17) e `IndiceBusquedaPedidos` (4.18 — extensión `pg_trgm` más un índice GIN sobre `pedidos.destinatario_nombre`); antes de ellas, las cuatro últimas eran `AgregarRetiroDeRuta` (4.7), `AgregarNovedades` (4.8), `AgregarRecepcionPortal` (4.9 — también elimina la FK de `pedidos.precio_manual_por`, no solo agrega columnas) y `AgregarClienteDestinatarios` (4.10)):
-`Inicial` → `ReglasDeBaseDeDatos` → `AgregarVehiculos` → `AgregarKmZonas` → `SepararUsuariosCliente` → `AgregarOrigenRuta` → `AgregarCatalogoDepositos` → `AgregarTipoVehiculo` → `AgregarPrecioManual` → `AgregarCuentaCorriente` → `AgregarTipoEventoAvisoCobranza` → `AgregarPrecioPorKm` → `AgregarRetiroDeRuta` → `AgregarNovedades` → `AgregarRecepcionPortal` → `AgregarClienteDestinatarios` → `ZonasAutomaticas` → `AgregarDocumentoAPruebaEntrega` → `IndiceBusquedaPedidos` → `AgregarLiquidacion` (E2/B4) → `AgregarRangos` (E2/B3).
+**`docs/schema_v3.sql` está desactualizado desde antes de E1** (verificado el 24/09/2026: no tiene `facturas`, `factura_items`, `pagos`, `novedades`, `clientes_destinatarios` ni ninguna columna posterior). El DDL real es el de las migraciones (`backend/Logistica/Migrations`); regenerar `schema_v3.sql` desde la base (`pg_dump --schema-only`) queda pendiente. Historial de migraciones (22, cronológico; las tres últimas son `AgregarLiquidacion` (E2/B4), `AgregarRangos` (E2/B3) y `AgregarRentabilidad` (E2/B7); antes de ellas, las tres últimas eran `ZonasAutomaticas` (4.11 — agrega las columnas de medición a `localidades` y marca como manuales las zonas ya cargadas), `AgregarDocumentoAPruebaEntrega` (4.17) e `IndiceBusquedaPedidos` (4.18 — extensión `pg_trgm` más un índice GIN sobre `pedidos.destinatario_nombre`); antes de ellas, las cuatro últimas eran `AgregarRetiroDeRuta` (4.7), `AgregarNovedades` (4.8), `AgregarRecepcionPortal` (4.9 — también elimina la FK de `pedidos.precio_manual_por`, no solo agrega columnas) y `AgregarClienteDestinatarios` (4.10)):
+`Inicial` → `ReglasDeBaseDeDatos` → `AgregarVehiculos` → `AgregarKmZonas` → `SepararUsuariosCliente` → `AgregarOrigenRuta` → `AgregarCatalogoDepositos` → `AgregarTipoVehiculo` → `AgregarPrecioManual` → `AgregarCuentaCorriente` → `AgregarTipoEventoAvisoCobranza` → `AgregarPrecioPorKm` → `AgregarRetiroDeRuta` → `AgregarNovedades` → `AgregarRecepcionPortal` → `AgregarClienteDestinatarios` → `ZonasAutomaticas` → `AgregarDocumentoAPruebaEntrega` → `IndiceBusquedaPedidos` → `AgregarLiquidacion` (E2/B4) → `AgregarRangos` (E2/B3) → `AgregarRentabilidad` (E2/B7).
 
 Nota: `AgregarTipoEventoAvisoCobranza` (changelog 4.3, una fila de catálogo) faltaba en esta lista desde su propia versión — el conteo de "10" en §1 antes de esta pasada ya estaba desactualizado; quedó corregido acá de paso, no es parte del alcance de changelog 4.5.
 
@@ -292,18 +340,17 @@ Coincide con lo que el Anexo I declara en §4/§7 como brecha o exclusión — s
 
 - **Modo sin conexión de la PWA (B10 / RNF-01 / H2-E5):** no hay cola local ni sincronización diferida, ni `manifest.json`, ni service worker, ni Dexie en `package.json` — verificado archivo por archivo. Lo que sí existe y la cola no tiene que reinventar: `device_uuid` generado en la captura y persistido (`lib/captura/dispositivo.ts`), compresión de la foto antes de enviar (`lib/captura/foto.ts`) e idempotencia del lado del servidor. **Las pantallas de `/hoy` sí están construidas** desde changelog 3.4 — `construccion_v1.md` §4.2 decía "sin construir" hasta la corrección de 1.21. Lo que mantiene H2/E5 abierto es solo la cola: sin ella no se puede correr la prueba de modo avión (criterio de aceptación 3 del acta), y por decisión del 17/09/2026 se construye **después** de la tanda de changelog 4.7, para envolver los cinco caminos de escritura de una sola vez en vez de migrarlos de a uno.
 - **Imagen del documento con retención y purga (RF-23 reescrito, changelog 4.7):** diseñada y acordada, **sin código** — ni segunda foto en el cierre de parada, ni purgado, ni endpoint de la imagen. Bloqueada por la consulta legal de acta §11.2. **Desde el changelog 4.17 sí existe la versión reducida**: el número de documento (`documento_numero`) o el motivo por el que no se dio, sin imagen, visible solo para administración (§3.21). El retiro firmado, el cierre en dos actores y las novedades (changelog 4.7/4.8) también están construidos: ver §3.6, §3.7 y §3.13.
-- **Tablero de indicadores (B2):** sigue sin construir. `/jornada` (changelog 4.4) agrega contadores y `/repartidores` (changelog 4.6) suma paradas por rango, pero ninguno calcula las 10 métricas que B2 prevé (entregas/día, km, tiempo, margen, NPS, ocupación de flota) ni compara períodos entre sí ni arma series: el acumulado de `/repartidores` es una sumatoria recalculada en cada request, sin persistir, para decidir a quién asignar — mismo encuadre que `/cobranza` (changelog 4.3). `ExportarController` sigue siendo la única vía de análisis histórico (CSV).
-- **E2 — B7: diseñado y acordado el 24/09/2026 (acta 4.21, `diseño_e2_rangos_liquidacion.md`), sin código.** No suma a ningún conteo hasta que exista. B4 y B3 sí están construidos (§3.24, §3.25). Lo que sigue describe el código actual.
+- **Tablero de indicadores (B2): construido el 24/09/2026, ya no es brecha** (§3.27). Lo que no existe: comparación contra el período anterior, prorrateo de costos por cliente o zona, la encuesta de NPS y exportar el tablero (para eso siguen los CSV de `ExportarController`).
 - **Motor de rango de cliente (B3): construido el 24/09/2026, ya no es brecha** (§3.25). Los tres indicadores de RF-32 (`ColorPago/Trato/Oper`) siguen siendo manuales y sin efecto automático: el rango no los reemplaza.
 - **Liquidación al repartidor (B4): construida el 24/09/2026, ya no es brecha** (§3.24). `RepartidoresController` (changelog 4.6) sigue sin mostrar importes: la liquidación vive en su propia pantalla. Lo que no existe: el pago efectivo (el sistema emite el comprobante, no transfiere) y notas de crédito al repartidor.
 - **Notificaciones (B6):** sigue sin construir *como sistema de notificaciones*, pero la línea previa ("sin integración de correo/WhatsApp en el código") quedó desactualizada en changelog 4.3 y no se había corregido acá. Lo que sí existe, y solo para el aviso de vencimiento del panel de cobranza: `Servicios/EmailService.cs` (HttpClient tipado contra la API REST de Resend, best-effort, nunca propaga excepción), `Servicios/AvisosCobranzaService.cs`, `Servicios/PlantillasAviso.cs` y `Dominio/EnlaceWhatsApp.cs` (link `wa.me` con el mensaje precargado — **sin API de WhatsApp**, Anexo I R7). Lo que no existe: notificación al cliente por cambio de estado del pedido, aviso al repartidor, y cualquier envío que no lo dispare una persona desde la pantalla — el sistema sigue sin scheduler.
-- **Costos fijos y rentabilidad objetivo (B7):** el margen se calcula por ruta, no hay tabla de costos fijos ni prorrateo.
+- **Costos fijos y rentabilidad objetivo (B7): construido el 24/09/2026, ya no es brecha** (§3.26). Lo que no existe: prorrateo de costos fijos por ruta o por cliente (el margen por ruta sigue sin fijos) y comparación entre meses.
 
 ---
 
 ## 7. Fuentes
 
-- `docs/acta_sistema.md` v4.22 (reglas de negocio vigentes)
+- `docs/acta_sistema.md` v4.26 (reglas de negocio vigentes)
 - `docs/Anexo_I_Alcance_V2.docx` v1.0 (alcance comercial, brechas, decisiones D1-D15, definiciones §10.2)
 - `docs/construccion_v1.md` (especificación técnica, changelog detallado)
 - `docs/schema_v3.sql` (DDL)
@@ -321,3 +368,8 @@ Coincide con lo que el Anexo I declara en §4/§7 como brecha o exclusión — s
   - **Conteos,** recontados mecánicamente: 139 endpoints, 23 controladores, 41 pantallas, 26 entidades / 23 tablas y 21 migraciones.
   - **Verificado** con `curl`/`psql` contra una copia de la base (borrada después), incluida la reproducción del precio vinculante: un envío urgente del portal a 6.000 sigue en 6.000 al cerrar la planificación. También con un recorrido en Chrome headless.
   - `dotnet test` 32/32, `tsc`, `eslint` y `next build` limpios.
+- Quinta pasada del 24/09/2026 (E2/B7, `construccion_v1.md` changelog 1.37, acta 4.23 — E2 completa): §1, §3.26 nueva, §4, §5 y §6, con `RentabilidadController`, `Dominio/Rentabilidad.cs` y `frontend/app/rentabilidad/*` releídos. Conteos recontados mecánicamente (146 endpoints, 24 controladores, 42 pantallas, 28 entidades / 25 tablas, 22 migraciones). **Verificado** con `curl`/`psql` sobre una copia de la base (borrada después) y con un recorrido en Chrome headless. `dotnet test` 45/45, `tsc`, `eslint` y `next build` limpios.
+- Sexta pasada del 24/09/2026 (E3/B2, `construccion_v1.md` changelog 1.38, acta 4.24 — E3 completa): §1, §3.27 nueva, §4 y §6, con `TableroController`, `components/tablero/Graficos.tsx` y `frontend/app/tablero` releídos. Conteos recontados (147 endpoints, 25 controladores, 43 pantallas; tablas y migraciones sin cambio: 25 y 22). **Verificado** con `curl`/`psql` sobre una copia de la base (borrada después; se le agregaron 14 días sintéticos para ver los gráficos) y con un recorrido en Chrome headless a 1280 y 390 px. `tsc`, `eslint` y `next build` limpios.
+- Séptima pasada del 24/09/2026 (hoy en hora local, seguridad y urgencias; `construccion_v1.md` 1.39 a 1.41, acta 4.25 y 4.26): §1 y §3.28 nueva. Conteos recontados: 149 endpoints, 25 controladores, 43 pantallas, 25 tablas, 23 migraciones. **Verificado** con `curl`/`psql` sobre copias de la base (borradas después) y con recorridos en Chrome headless (CSP en modo producción y el diálogo de urgencia). `dotnet test` 80/80, `tsc`, `eslint` y `next build` limpios.
+- Octava pasada del 24/09/2026 (monitoreo, `construccion_v1.md` 1.42): §3.29 nueva. Sin endpoints de API nuevos: `/health/listo` es un chequeo de salud y no entra en el conteo. **Verificado** en modo `Production` sobre una copia de la base (borrada después). `dotnet test` 80/80.
+- Novena pasada del 24/09/2026 (CI, `construccion_v1.md` 1.43): `.github/workflows/ci.yml` nuevo y, en `frontend/package.json`, `packageManager` y el script `typecheck`. Los pasos se corrieron en local y dieron limpios. **Todavía no corrió en GitHub:** corre con el primer push.

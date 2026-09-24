@@ -7,6 +7,7 @@ using Logistica.Entidades;
 using Logistica.Servicios;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace Logistica.Controllers;
@@ -186,6 +187,7 @@ public class ClientesController(
     /// CerrarCiclosAsync devolviendo `Omitido` en vez de tirar).</summary>
     [HttpPost("avisos")]
     [Authorize(Policy = "Administracion")]
+    [EnableRateLimiting("avisos")]
     public async Task<IActionResult> EnviarAvisos(AvisosRequest req, CancellationToken ct)
     {
         var error = ValidarClienteIds(req.ClienteIds);
@@ -205,6 +207,24 @@ public class ClientesController(
         return null;
     }
 
+    /// <summary>Hallazgo 3 de auditoria_seguridad.md: los tres son opcionales, pero si vienen tienen que
+    /// tener formato válido. El CUIT se guarda normalizado (solo dígitos); vacío se guarda como null.</summary>
+    private static (string? Error, string? Cuit, string? Telefono, string? Email) ValidarContacto(
+        string? cuit, string? telefono, string? email)
+    {
+        string? Limpio(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+        var (c, t, e) = (Limpio(cuit), Limpio(telefono), Limpio(email));
+
+        string? cuitNormalizado = null;
+        if (c is not null && (cuitNormalizado = Validaciones.NormalizarCuit(c)) is null)
+            return ("El CUIT no es válido: son 11 dígitos con el verificador correcto (por ejemplo 30-12345678-1).", null, null, null);
+        if (t is not null && !Validaciones.TelefonoValido(t))
+            return ("El teléfono no es válido: tiene que tener entre 8 y 15 dígitos.", null, null, null);
+        if (e is not null && !Validaciones.EmailValido(e))
+            return ("El email no es válido.", null, null, null);
+        return (null, cuitNormalizado, t, e);
+    }
+
     /// <summary>Colores por defecto para un cliente nuevo (RF-32: "un cliente sin historial no es
     /// neutro, es desconocido" — pago en rojo, trato y operación en amarillo). Ya son los valores
     /// por defecto de la entidad, no hace falta pisarlos acá.</summary>
@@ -212,13 +232,16 @@ public class ClientesController(
     [Authorize(Policy = "Administracion")]
     public async Task<IActionResult> Crear(CrearClienteRequest req, CancellationToken ct)
     {
+        var (error, cuit, telefono, email) = ValidarContacto(req.Cuit, req.Telefono, req.Email);
+        if (error is not null) return BadRequest(error);
+
         var cliente = new Cliente
         {
             RazonSocial = req.RazonSocial,
-            Cuit = req.Cuit,
+            Cuit = cuit,
             Contacto = req.Contacto,
-            Telefono = req.Telefono,
-            Email = req.Email,
+            Telefono = telefono,
+            Email = email,
         };
         db.Clientes.Add(cliente);
         await db.SaveChangesAsync(ct);
@@ -233,7 +256,7 @@ public class ClientesController(
         var cliente = await db.Clientes.AsNoTracking().SingleOrDefaultAsync(c => c.Id == id, ct);
         if (cliente is null) return NotFound();
 
-        var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+        var hoy = Reloj.HoyLocal();
         var zonas = await db.Zonas.AsNoTracking().OrderBy(z => z.Codigo).ToListAsync(ct);
 
         // Antes eran 4 round-trips por zona (tarifa_vigente x2 tipos + tarifa de cliente x2
@@ -291,11 +314,14 @@ public class ClientesController(
         var cliente = await db.Clientes.SingleOrDefaultAsync(c => c.Id == id, ct);
         if (cliente is null) return NotFound();
 
+        var (error, cuit, telefono, email) = ValidarContacto(req.Cuit, req.Telefono, req.Email);
+        if (error is not null) return BadRequest(error);
+
         cliente.RazonSocial = req.RazonSocial;
-        cliente.Cuit = req.Cuit;
+        cliente.Cuit = cuit;
         cliente.Contacto = req.Contacto;
-        cliente.Telefono = req.Telefono;
-        cliente.Email = req.Email;
+        cliente.Telefono = telefono;
+        cliente.Email = email;
         cliente.Activo = req.Activo;
         cliente.ColorPago = req.ColorPago;
         cliente.ColorTrato = req.ColorTrato;
@@ -423,14 +449,15 @@ public class ClientesController(
     {
         var clienteExiste = await db.Clientes.AnyAsync(c => c.Id == id, ct);
         if (!clienteExiste) return NotFound();
-        if (req.Password.Length < 8) return BadRequest("La contraseña debe tener al menos 8 caracteres.");
+        if (!Validaciones.EmailValido(req.Email)) return BadRequest("El email no es válido.");
+        if (PoliticaContrasena.Validar(req.Password, req.Email) is { } errorClave) return BadRequest(errorClave);
 
         var usuario = new ClienteUsuario
         {
             Id = Guid.NewGuid(),
             ClienteId = id,
             Nombre = req.Nombre,
-            Email = req.Email,
+            Email = req.Email.Trim(),
             CreadoEn = DateTimeOffset.UtcNow,
         };
         usuario.PasswordHash = AuthService.HashearCliente(usuario, req.Password);
@@ -459,10 +486,9 @@ public class ClientesController(
     public async Task<IActionResult> CambiarPasswordUsuario(
         int id, Guid usuarioId, CambiarPasswordClienteUsuarioRequest req, CancellationToken ct)
     {
-        if (req.Password.Length < 8) return BadRequest("La contraseña debe tener al menos 8 caracteres.");
-
         var usuario = await db.ClientesUsuarios.SingleOrDefaultAsync(u => u.Id == usuarioId && u.ClienteId == id, ct);
         if (usuario is null) return NotFound();
+        if (PoliticaContrasena.Validar(req.Password, usuario.Email) is { } errorClave) return BadRequest(errorClave);
 
         usuario.PasswordHash = AuthService.HashearCliente(usuario, req.Password);
         await db.SaveChangesAsync(ct);

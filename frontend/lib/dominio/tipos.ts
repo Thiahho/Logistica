@@ -707,7 +707,9 @@ export type TipoNovedad =
   | "problema_carga"
   | "cambio_propuesto"
   | "cambio_operacion"
-  | "cancelacion";
+  | "cancelacion"
+  /** Acta RF-45 (changelog 4.26): operación agregó una urgencia a la ruta en curso. */
+  | "urgencia";
 
 /** Espejo de MisParadasController.NovedadDelDia. `sinVer`: el repartidor todavía no acusó recibo — un
  * aviso de operación (cambio, cancelación) o la respuesta a algo que él informó. */
@@ -769,7 +771,25 @@ export const ETIQUETA_TIPO_NOVEDAD: Record<TipoNovedad, string> = {
   cambio_propuesto: "Corrección propuesta",
   cambio_operacion: "Cambio de operación",
   cancelacion: "Pedido cancelado",
+  urgencia: "Urgencia agregada",
 };
+
+/** RF-45: GET /api/rutas/urgencias/ventana. Horas "HH:mm:ss". */
+export interface VentanaUrgencias {
+  desde: string;
+  hasta: string;
+  abierta: boolean;
+  maxParadasDesplazadas: number;
+}
+
+/** RF-45: respuesta de POST /api/rutas/{id}/urgencias. */
+export interface UrgenciaInsertada {
+  paradaId: number;
+  orden: number;
+  desplazadas: number;
+  consolidada: boolean;
+  total: number | null;
+}
 
 export const ETIQUETA_CAMPO_EDITABLE: Record<string, string> = {
   destinatario_telefono: "Teléfono",
@@ -982,6 +1002,74 @@ export interface HistorialRango {
   motivo: string | null;
   registradoPor: string;
   registradoEn: string;
+}
+
+/** B7 (acta RF-43): costo fijo de un mes. */
+export interface CostoFijo {
+  id: number;
+  mes: string;
+  categoria: string;
+  descripcion: string | null;
+  monto: number;
+}
+
+/** B7: un tramo de la estructura objetivo (PUT/GET /api/objetivos-rentabilidad). */
+export interface ObjetivoRentabilidad {
+  nombre: string;
+  pctMin: number;
+  pctMax: number;
+  /** pago_repartidor | combustible | peajes | otros_costos | fijos | fijos:<categoría> | margen */
+  fuentes: string[];
+}
+
+export interface TramoEvaluado extends ObjetivoRentabilidad {
+  id: number;
+  monto: number;
+  /** null si el mes no tuvo ingresos. */
+  pct: number | null;
+  estado: "debajo" | "dentro" | "encima" | null;
+}
+
+/** GET /api/rentabilidad?mes=2026-09 — solo Administración. */
+export interface ResultadoMes {
+  mes: string;
+  ingresos: number;
+  pagoRepartidor: number;
+  combustible: number;
+  peajes: number;
+  otrosCostos: number;
+  variables: number;
+  fijos: number;
+  margen: number;
+  pctMargen: number | null;
+  rutasCerradas: number;
+  fijosPorCategoria: Record<string, number>;
+  tramos: TramoEvaluado[];
+  costosFijos: CostoFijo[];
+}
+
+/** B2/E3: tablero de indicadores (GET /api/tablero). null = sin datos para calcularlo. */
+export interface Tablero {
+  desde: string;
+  hasta: string;
+  /** false con filtro de cliente o zona: el costo de una ruta no se prorratea, los indicadores de ruta no se muestran. */
+  indicadoresDeRuta: boolean;
+  entregas: number;
+  entregasPorDia: number | null;
+  kmPorEntrega: number | null;
+  minutosPorEntrega: number | null;
+  facturacion: number;
+  facturacionPorCliente: { nombre: string; valor: number }[];
+  facturacionPorRango: { nombre: string; valor: number }[];
+  cancelados: number;
+  pctCancelaciones: number | null;
+  rutasCerradas: number;
+  costoPorEntrega: number | null;
+  costoPorRuta: number | null;
+  margenTotal: number | null;
+  margenPorRuta: number | null;
+  pctOcupacion: number | null;
+  porDia: { fecha: string; entregas: number; margen: number | null }[];
 }
 
 /** GET /api/clientes/{id}/rango — solo Administración. */

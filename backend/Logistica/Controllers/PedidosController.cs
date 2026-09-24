@@ -882,7 +882,7 @@ public class PedidosController(
                 DestinatarioNombre = pedido.DestinatarioNombre.Trim(),
                 DestinatarioTelefono = pedido.DestinatarioTelefono.Trim(),
                 Bultos = pedido.Bultos,
-                FechaEntrega = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(1),
+                FechaEntrega = Reloj.HoyLocal().AddDays(1),
                 ZonaId = zonaRetorno,
                 Estado = EstadoPedido.Borrador,
                 Observaciones = $"Retorno del pedido #{pedido.Id}.",

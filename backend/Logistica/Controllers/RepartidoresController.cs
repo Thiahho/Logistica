@@ -1,3 +1,4 @@
+using Logistica.Dominio;
 using Logistica.Datos;
 using Logistica.Entidades;
 using Microsoft.AspNetCore.Authorization;
@@ -98,7 +99,7 @@ public class RepartidoresController(LogisticaDbContext db) : ControllerBase
     public async Task<IActionResult> Listar(
         [FromQuery] DateOnly? desde, [FromQuery] DateOnly? hasta, CancellationToken ct)
     {
-        var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+        var hoy = Reloj.HoyLocal();
         var (desdeValor, hastaValor) = ResolverRango(desde, hasta, hoy);
         if (desdeValor > hastaValor) return BadRequest("El rango de fechas está invertido: 'desde' es posterior a 'hasta'.");
 
@@ -179,7 +180,7 @@ public class RepartidoresController(LogisticaDbContext db) : ControllerBase
     public async Task<IActionResult> Detalle(
         Guid id, [FromQuery] DateOnly? desde, [FromQuery] DateOnly? hasta, CancellationToken ct)
     {
-        var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+        var hoy = Reloj.HoyLocal();
         var (desdeValor, hastaValor) = ResolverRango(desde, hasta, hoy);
         if (desdeValor > hastaValor) return BadRequest("El rango de fechas está invertido: 'desde' es posterior a 'hasta'.");
 
