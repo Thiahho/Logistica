@@ -984,6 +984,50 @@ export interface HistorialRango {
   registradoEn: string;
 }
 
+/** B7 (acta RF-43): costo fijo de un mes. */
+export interface CostoFijo {
+  id: number;
+  mes: string;
+  categoria: string;
+  descripcion: string | null;
+  monto: number;
+}
+
+/** B7: un tramo de la estructura objetivo (PUT/GET /api/objetivos-rentabilidad). */
+export interface ObjetivoRentabilidad {
+  nombre: string;
+  pctMin: number;
+  pctMax: number;
+  /** pago_repartidor | combustible | peajes | otros_costos | fijos | fijos:<categoría> | margen */
+  fuentes: string[];
+}
+
+export interface TramoEvaluado extends ObjetivoRentabilidad {
+  id: number;
+  monto: number;
+  /** null si el mes no tuvo ingresos. */
+  pct: number | null;
+  estado: "debajo" | "dentro" | "encima" | null;
+}
+
+/** GET /api/rentabilidad?mes=2026-09 — solo Administración. */
+export interface ResultadoMes {
+  mes: string;
+  ingresos: number;
+  pagoRepartidor: number;
+  combustible: number;
+  peajes: number;
+  otrosCostos: number;
+  variables: number;
+  fijos: number;
+  margen: number;
+  pctMargen: number | null;
+  rutasCerradas: number;
+  fijosPorCategoria: Record<string, number>;
+  tramos: TramoEvaluado[];
+  costosFijos: CostoFijo[];
+}
+
 /** GET /api/clientes/{id}/rango — solo Administración. */
 export interface RangoDeCliente {
   clienteId: number;
