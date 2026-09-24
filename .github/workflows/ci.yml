@@ -1,0 +1,59 @@
+# CI (construccion_v1.md changelog 1.43): compila y prueba backend y frontend en cada push y PR a main.
+# No usa secretos: ni el build ni las pruebas unitarias tocan la base, Resend, ORS o Cloudinary.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/Logistica
+    steps:
+      - uses: actions/checkout@v4
+      # SDK 10 para leer Logistica.slnx; runtime 8 para correr las pruebas (los proyectos apuntan a net8.0).
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - run: dotnet restore Logistica.slnx
+      - run: dotnet build Logistica.slnx --no-restore -c Release -warnaserror
+      - run: dotnet test Logistica.slnx --no-build -c Release
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      # La versión de pnpm sale de "packageManager" en frontend/package.json.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      # Vacía, como en producción: AuthProvider llama a /api en el mismo origen (construccion_v1.md §9).
+      - run: pnpm build
+        env:
+          NEXT_PUBLIC_API_URL: ""
+          NEXT_TELEMETRY_DISABLED: "1"
