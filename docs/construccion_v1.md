@@ -638,6 +638,12 @@ Cada hito termina cuando pasa su prueba, no cuando el código está escrito.
 
 Textos de interfaz, esquema de pruebas automatizadas, monitoreo y estrategia de despliegue. Se resuelven al llegar al hito que los necesita.
 
+**Pruebas automatizadas: parcialmente resuelto.**
+- Hay pruebas unitarias de la lógica pura de `Dominio/` en `backend/Logistica.Tests`, y CI las corre en cada PR (changelog 1.43).
+- No hay pruebas de integración contra la base ni del frontend: eso se sigue verificando a mano, sobre copias de la base y con recorridos en Chrome headless.
+
+**Flujo de trabajo (24/09/2026).** Cada cambio va en una rama y entra a `main` por PR con **CI / backend** y **CI / frontend** en verde, con squash and merge.
+
 **Despliegue: parcialmente resuelto desde el changelog 1.33** (dónde corre cada parte y cómo se conectan — §1, §9, §10). Sigue sin definir:
 - el proveedor de Postgres de producción;
 - el despliegue continuo;
