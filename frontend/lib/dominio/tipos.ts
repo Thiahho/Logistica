@@ -707,7 +707,9 @@ export type TipoNovedad =
   | "problema_carga"
   | "cambio_propuesto"
   | "cambio_operacion"
-  | "cancelacion";
+  | "cancelacion"
+  /** Acta RF-45 (changelog 4.26): operación agregó una urgencia a la ruta en curso. */
+  | "urgencia";
 
 /** Espejo de MisParadasController.NovedadDelDia. `sinVer`: el repartidor todavía no acusó recibo — un
  * aviso de operación (cambio, cancelación) o la respuesta a algo que él informó. */
@@ -769,7 +771,25 @@ export const ETIQUETA_TIPO_NOVEDAD: Record<TipoNovedad, string> = {
   cambio_propuesto: "Corrección propuesta",
   cambio_operacion: "Cambio de operación",
   cancelacion: "Pedido cancelado",
+  urgencia: "Urgencia agregada",
 };
+
+/** RF-45: GET /api/rutas/urgencias/ventana. Horas "HH:mm:ss". */
+export interface VentanaUrgencias {
+  desde: string;
+  hasta: string;
+  abierta: boolean;
+  maxParadasDesplazadas: number;
+}
+
+/** RF-45: respuesta de POST /api/rutas/{id}/urgencias. */
+export interface UrgenciaInsertada {
+  paradaId: number;
+  orden: number;
+  desplazadas: number;
+  consolidada: boolean;
+  total: number | null;
+}
 
 export const ETIQUETA_CAMPO_EDITABLE: Record<string, string> = {
   destinatario_telefono: "Teléfono",
