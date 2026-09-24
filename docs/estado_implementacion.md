@@ -269,6 +269,14 @@ Lo que existe en el repositorio: un `Dockerfile` de dos etapas para el backend (
 - **No es el delivery ad-hoc (D14):** ese sigue siendo otro producto.
 - **Verificado:** sobre una copia de la base y con un recorrido en Chrome headless (detalle en §7).
 
+### 3.29 Monitoreo básico (`Web/RegistroSolicitudes.cs`, `Web/ChequeoMigraciones.cs`, `Web/ManejadorExcepciones.cs`) — `construccion_v1.md` 1.42
+
+- **Log por solicitud:** método, ruta sin query, status, duración, rol y `traceId`. Los 5xx y lo que tarda más de 2 s salen en Warning.
+- **Errores inesperados:** se registran con la excepción y el `traceId`. El usuario ve ese código en el 500 para reportarlo.
+- **Formato:** logs en JSON fuera de `Development`.
+- **`/health/listo`:** da 503 si hay migraciones sin aplicar. `/health` sigue igual (liveness para Render).
+- **Monitor externo:** no está conectado; los pasos están en `construccion_v1.md` §9.
+
 ## 4. Pantallas del frontend (43)
 
 **El conteo pasó de 36 a 38 cuando el código existió, no antes:** `/mis-envios/[id]` y `/mis-envios/contactos` (changelog 4.10). Recontado con `find frontend/app -name page.tsx`. **Sin pantallas nuevas en 4.11–4.18**: `/mis-envios` ahora es "Mi plan" (4.12), `/rutas` suma "Preparar la ruta del día siguiente" y columna de bultos, `/rutas/[id]` se reordena para mobile y suma el botón de Maps (4.16), `/rutas/[id]/armar` suma totales y selección masiva (4.15), `/hoy`, `/hoy/retiro`, `/hoy/cierre` y `/hoy/parada/[paradaId]` cambian según el flujo del repartidor (4.17) y `/tarifas` suma la gestión de zonas automáticas (4.11). Este documento cuenta lo que existe, no lo que está acordado — y que exista no es que se haya probado en un teléfono: de las pantallas de esta ronda solo el recorrido `/hoy` → `/hoy/cierre` se abrió en un Chrome real (headless, 390 px); el resto se verificó con `tsc`, `eslint`, `next build` y la API.
@@ -363,3 +371,4 @@ Coincide con lo que el Anexo I declara en §4/§7 como brecha o exclusión — s
 - Quinta pasada del 24/09/2026 (E2/B7, `construccion_v1.md` changelog 1.37, acta 4.23 — E2 completa): §1, §3.26 nueva, §4, §5 y §6, con `RentabilidadController`, `Dominio/Rentabilidad.cs` y `frontend/app/rentabilidad/*` releídos. Conteos recontados mecánicamente (146 endpoints, 24 controladores, 42 pantallas, 28 entidades / 25 tablas, 22 migraciones). **Verificado** con `curl`/`psql` sobre una copia de la base (borrada después) y con un recorrido en Chrome headless. `dotnet test` 45/45, `tsc`, `eslint` y `next build` limpios.
 - Sexta pasada del 24/09/2026 (E3/B2, `construccion_v1.md` changelog 1.38, acta 4.24 — E3 completa): §1, §3.27 nueva, §4 y §6, con `TableroController`, `components/tablero/Graficos.tsx` y `frontend/app/tablero` releídos. Conteos recontados (147 endpoints, 25 controladores, 43 pantallas; tablas y migraciones sin cambio: 25 y 22). **Verificado** con `curl`/`psql` sobre una copia de la base (borrada después; se le agregaron 14 días sintéticos para ver los gráficos) y con un recorrido en Chrome headless a 1280 y 390 px. `tsc`, `eslint` y `next build` limpios.
 - Séptima pasada del 24/09/2026 (hoy en hora local, seguridad y urgencias; `construccion_v1.md` 1.39 a 1.41, acta 4.25 y 4.26): §1 y §3.28 nueva. Conteos recontados: 149 endpoints, 25 controladores, 43 pantallas, 25 tablas, 23 migraciones. **Verificado** con `curl`/`psql` sobre copias de la base (borradas después) y con recorridos en Chrome headless (CSP en modo producción y el diálogo de urgencia). `dotnet test` 80/80, `tsc`, `eslint` y `next build` limpios.
+- Octava pasada del 24/09/2026 (monitoreo, `construccion_v1.md` 1.42): §3.29 nueva. Sin endpoints de API nuevos: `/health/listo` es un chequeo de salud y no entra en el conteo. **Verificado** en modo `Production` sobre una copia de la base (borrada después). `dotnet test` 80/80.

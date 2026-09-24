@@ -53,7 +53,18 @@ builder.Services.AddDatosLogistica(builder.Configuration);
 // /health para el readiness probe del hosting gestionado — no existía ninguno. Solo chequea
 // que el DbContext puede conectar (AddDbContextCheck ejecuta un "select 1" equivalente), no
 // reglas de negocio.
-builder.Services.AddHealthChecks().AddDbContextCheck<LogisticaDbContext>();
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<LogisticaDbContext>()
+    // Solo en /health/listo: /health sigue siendo la liveness que usa el hosting (changelog 1.42).
+    .AddCheck<ChequeoMigraciones>("migraciones", tags: ["listo"]);
+
+// Fuera de desarrollo, logs en JSON (una línea por evento) para que el log de Render se pueda filtrar
+// por campo: nivel, traceId, ruta, status.
+if (!builder.Environment.IsDevelopment())
+{
+    builder.Logging.ClearProviders();
+    builder.Logging.AddJsonConsole(o => o.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffK ");
+}
 
 builder.Services.Configure<OpcionesJwt>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddSingleton<TokenService>();
@@ -328,6 +339,9 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// Antes que todo: mide el request completo, incluido el 500 que escriba el manejador de excepciones.
+app.UseRegistroSolicitudes();
+
 // Primero de todo el pipeline: tiene que envolver cualquier middleware/controller downstream.
 app.UseExceptionHandler();
 
@@ -391,7 +405,13 @@ app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
 
-app.MapHealthChecks("/health");
+// /health: liveness (proceso + base), la que usa el hosting. /health/listo: además, sin migraciones
+// pendientes — la que conviene vigilar con un monitor externo después de cada deploy.
+app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = chequeo => !chequeo.Tags.Contains("listo"),
+});
+app.MapHealthChecks("/health/listo");
 app.MapControllers();
 
 app.Run();
