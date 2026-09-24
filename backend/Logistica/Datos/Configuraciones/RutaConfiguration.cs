@@ -45,6 +45,17 @@ public class RutaConfiguration : IEntityTypeConfiguration<Ruta>
         b.Property(x => x.CerradaPor).HasColumnName("cerrada_por");
         b.Property(x => x.CreadaEn).HasColumnName("creada_en").HasDefaultValueSql("now()");
 
+        // B4 — liquidación al repartidor (acta changelog 4.21)
+        b.Property(x => x.LiqEntregas).HasColumnName("liq_entregas");
+        b.Property(x => x.LiqFallidasImputables).HasColumnName("liq_fallidas_imputables");
+        b.Property(x => x.LiqPctExito).HasColumnName("liq_pct_exito").HasColumnType("numeric(5,2)");
+        b.Property(x => x.LiqPagoEntregas).HasColumnName("liq_pago_entregas").HasColumnType("numeric(12,2)");
+        b.Property(x => x.LiqBono).HasColumnName("liq_bono").HasColumnType("numeric(12,2)");
+        b.Property(x => x.PagoAjusteMotivo).HasColumnName("pago_ajuste_motivo");
+        b.Property(x => x.LiquidacionId).HasColumnName("liquidacion_id");
+        b.HasOne(x => x.Liquidacion).WithMany()
+            .HasForeignKey(x => x.LiquidacionId).OnDelete(DeleteBehavior.Restrict);
+
         // RF-35 — retiro con conteo firmado (acta changelog 4.7)
         b.Property(x => x.RetiroConfirmadoEn).HasColumnName("retiro_confirmado_en");
         b.Property(x => x.RetiroBultosEsperados).HasColumnName("retiro_bultos_esperados");

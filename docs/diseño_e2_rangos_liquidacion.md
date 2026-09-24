@@ -5,7 +5,7 @@
 - **Mensual:** costos fijos, rentabilidad y liquidación por período (B4, B7).
 - **Trimestral:** recálculo de rango de cliente (B3).
 
-Los puntos marcados **[A CONFIRMAR]** tienen un valor por defecto que se construye si nadie lo cambia al revisar este documento.
+Los puntos marcados **[confirmado 24/09/2026]** tienen un valor por defecto que se construye si nadie lo cambia al revisar este documento.
 
 ---
 
@@ -40,9 +40,9 @@ Sin fila vigente para el tipo de vehículo de la ruta, **el pago se sigue tipean
 
 ### 2.2 Cálculo al cerrar la ruta (`RutasController.Cerrar`)
 
-- **Entrega:** una parada de tipo `entrega` en estado `completada`. **[A CONFIRMAR]** Se paga **por parada, no por pedido**: una parada consolidada con tres pedidos al mismo destino es un viaje, no tres (RF-14).
+- **Entrega:** una parada de tipo `entrega` en estado `completada`. **[confirmado 24/09/2026]** Se paga **por parada, no por pedido**: una parada consolidada con tres pedidos al mismo destino es un viaje, no tres (RF-14).
 - **Fallida imputable:** una parada `fallida` cuyo motivo, tomado de sus `pruebas_entrega`, está en `motivos_imputables`. Las fallidas no imputables y las paradas `cancelada` **no entran al cálculo**: ni suman ni restan.
-- **% de éxito:** entregas / (entregas + fallidas imputables). Sin ninguna parada que cuente, el % es 100.
+- **% de éxito:** entregas / (entregas + fallidas imputables). Sin ninguna parada que cuente, el % es 100. Aun así, una ruta sin ninguna entrega no cobra bono: el bono es por ruta completa (D6).
 - **Pago:** `entregas × pago_por_entrega`, más `bono_ruta` si el % de éxito ≥ `pct_minimo_exitosas`. Solo se paga con la ruta cerrada (D6): el cálculo corre en el propio cierre.
 - **Parámetros aplicados:** los vigentes en `rutas.fecha`, según el tipo del vehículo de la ruta.
 
@@ -60,7 +60,7 @@ El margen de la ruta (`CalcularResultadoAsync`) no cambia de fórmula: usa `Pago
 - **Qué incluye:** las rutas `cerrada` del repartidor dentro del período que todavía no están en otra liquidación.
 - **Cómo se vincula cada ruta:** con `rutas.liquidacion_id` (FK). No hay tabla de ítems, porque el detalle de cada ruta ya está en sus columnas `liq_*`.
 - **Una vez emitida no se edita:** lo impide el trigger `trg_liquidaciones_inmutable`, con el mismo criterio que `trg_facturas_inmutable`. Una ruta ya liquidada tampoco cambia de liquidación ni de `PagoRepartidor`.
-- **Correcciones:** ajuste manual en la liquidación siguiente. **[A CONFIRMAR]** No hay notas de crédito al repartidor.
+- **Correcciones:** ajuste manual en la liquidación siguiente. **[confirmado 24/09/2026]** No hay notas de crédito al repartidor.
 
 ### 2.4 Endpoints y pantallas (solo Administración)
 
@@ -92,7 +92,7 @@ El margen de la ruta (`CalcularResultadoAsync`) no cambia de fórmula: usa `Pago
 | `limite_credito` | nullable |
 
 - **Umbrales:** todos nullable, sin valores de fábrica (acta §13). Un umbral vacío no exige nada.
-- **Un rango sin ningún umbral cargado** no se alcanza por cálculo: solo por ajuste manual. Así arranca "Empresa". **[A CONFIRMAR]**
+- **Un rango sin ningún umbral cargado** no se alcanza por cálculo: solo por ajuste manual. Así arranca "Empresa". **[confirmado 24/09/2026]**
 - **Rango calculado:** el más alto cuyos umbrales cargados se cumplen **todos**.
 
 ### 3.2 Estado en `clientes`
@@ -124,13 +124,13 @@ El margen de la ruta (`CalcularResultadoAsync`) no cambia de fórmula: usa `Pago
 ### 3.5 Efectos del rango
 
 1. **Precio (J):** la fórmula de `construccion_v1.md` §6 suma `descuento_rango = precio_base × descuento_pct` del rango efectivo del cliente al momento de cotizar. Se congela con el resto del precio (P1), así que un cambio de rango posterior no mueve un precio ya congelado.
-   - **[A CONFIRMAR]** Aplica **solo sobre la lista general** de tarifas. Un cliente con lista propia (`tarifas.cliente_id`) ya tiene su precio negociado y no suma descuento por rango.
+   - **[confirmado 24/09/2026]** Aplica **solo sobre la lista general** de tarifas. Un cliente con lista propia (`tarifas.cliente_id`) ya tiene su precio negociado y no suma descuento por rango.
    - `DesglosePrecio` suma `DescuentoRango`, visible en el detalle del pedido. El cliente ve su descuento, pero **nunca los números internos con que se calculó su rango** (RF-33).
-2. **Límite de crédito:** **[A CONFIRMAR]** solo **avisa**. Si el saldo pendiente del cliente más el pedido nuevo supera `limite_credito`, el alta responde con una advertencia visible para el back-office. El bloqueo sigue siendo solo el corte por deuda vencida de D11; D1, que decía "el límite solo avisa", fue derogada por D11, y esto no la resucita como bloqueo.
-3. **Prioridad de asignación:** **[A CONFIRMAR, choca con acta §7]** acta §7 dice *"al buen cliente se lo premia con acceso, nunca con prioridad… nunca reordenando la ruta a su favor"*.
+2. **Límite de crédito:** **[confirmado 24/09/2026]** solo **avisa**. Si el saldo pendiente del cliente más el pedido nuevo supera `limite_credito`, el alta responde con una advertencia visible para el back-office. El bloqueo sigue siendo solo el corte por deuda vencida de D11; D1, que decía "el límite solo avisa", fue derogada por D11, y esto no la resucita como bloqueo.
+3. **Prioridad de asignación:** **[confirmado 24/09/2026; choca con acta §7 y se resuelve así]** acta §7 dice *"al buen cliente se lo premia con acceso, nunca con prioridad… nunca reordenando la ruta a su favor"*.
    - **Propuesta:** la prioridad se limita al **orden en que aparecen los pedidos pendientes en el armado** (quién entra primero cuando la capacidad no alcanza para todos). **Nunca** cambia el orden de paradas dentro de una ruta, que sigue siendo geográfico.
    - Si la Empresa entiende que ni eso corresponde, el efecto se descarta y `prioridad` sale del diseño.
-4. **Visible para el cliente:** el nombre de su rango y su descuento en "Mi plan". **[A CONFIRMAR]**
+4. **Visible para el cliente:** el nombre de su rango y su descuento en "Mi plan". **[confirmado 24/09/2026]**
 
 ### 3.6 Pantallas
 

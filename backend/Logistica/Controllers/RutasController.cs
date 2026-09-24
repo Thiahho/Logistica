@@ -30,7 +30,7 @@ namespace Logistica.Controllers;
 [Authorize(Policy = "BackOffice")]
 public class RutasController(
     LogisticaDbContext db, OrigenRutaService origenes, PrecioService precios,
-    DistanciaService distancias, JornadaService jornada) : ControllerBase
+    DistanciaService distancias, JornadaService jornada, LiquidacionService liquidacion) : ControllerBase
 {
     public record RutaResumen(
         long Id, DateOnly Fecha, string? VehiculoPatente, string? RepartidorNombre, string Estado,
@@ -47,7 +47,10 @@ public class RutasController(
         DateTimeOffset? RetiroConfirmadoEn, int? RetiroBultosEsperados, int? RetiroBultosContados,
         string? RetiroObservaciones, int? RetiroKmInicial,
         DateTimeOffset? CierreRepartidorEn, int? CierreRepartidorKmFinal, decimal? CierreRepartidorCombustible,
-        decimal? CierreRepartidorPeajes, string? CierreRepartidorNotas, Guid? CerradaPor);
+        decimal? CierreRepartidorPeajes, string? CierreRepartidorNotas, Guid? CerradaPor,
+        // B4 (acta changelog 4.21): desglose del pago calculado al cerrar y la liquidación que lo incluyó.
+        int? LiqEntregas, int? LiqFallidasImputables, decimal? LiqPctExito, decimal? LiqPagoEntregas, decimal? LiqBono,
+        string? PagoAjusteMotivo, long? LiquidacionId);
 
     public record CerrarRutaRequest(
         [Range(0, int.MaxValue, ErrorMessage = "El km inicial no puede ser negativo.")] int KmInicial,
@@ -59,7 +62,9 @@ public class RutasController(
         string? NotasCierre,
         // M2: cerrar sin que el repartidor haya declarado su cierre (teléfono muerto, se olvidó) es posible,
         // pero hay que decir que se cierra con datos que nadie verificó en la calle.
-        bool SinDeclaracionDelRepartidor = false);
+        bool SinDeclaracionDelRepartidor = false,
+        // B4 (acta changelog 4.21): obligatorio si PagoRepartidor difiere del pago calculado.
+        string? PagoAjusteMotivo = null);
 
     /// <summary>Aprobacion (M5) se deriva en lectura comparando los dos juegos de columnas, nunca se persiste:
     /// "tal_cual" (administración cerró con los números del repartidor), "corregido" (cerró con otros),
@@ -188,7 +193,9 @@ public class RutasController(
             ruta.RetiroConfirmadoEn, ruta.RetiroBultosEsperados, ruta.RetiroBultosContados,
             ruta.RetiroObservaciones, ruta.RetiroKmInicial,
             ruta.CierreRepartidorEn, ruta.CierreRepartidorKmFinal, ruta.CierreRepartidorCombustible,
-            ruta.CierreRepartidorPeajes, ruta.CierreRepartidorNotas, ruta.CerradaPor));
+            ruta.CierreRepartidorPeajes, ruta.CierreRepartidorNotas, ruta.CerradaPor,
+            ruta.LiqEntregas, ruta.LiqFallidasImputables, ruta.LiqPctExito, ruta.LiqPagoEntregas, ruta.LiqBono,
+            ruta.PagoAjusteMotivo, ruta.LiquidacionId));
     }
 
     /// <summary>Bundle de paradas con estado/horarios/pedidos para el detalle de ruta del
@@ -568,6 +575,18 @@ public class RutasController(
         return Ok(await CalcularResultadoAsync(id, ct));
     }
 
+    /// <summary>B4 (acta RF-41): el pago al repartidor que corresponde por esta ruta, para precargar la
+    /// pantalla de cierre. 204 si no se puede calcular (sin vehículo o sin parámetros vigentes): el pago
+    /// se tipea a mano, como antes.</summary>
+    [HttpGet("{id:long}/liquidacion-sugerida")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> LiquidacionSugerida(long id, CancellationToken ct)
+    {
+        if (!await db.Rutas.AnyAsync(r => r.Id == id, ct)) return NotFound();
+        var desglose = await liquidacion.SugerirAsync(id, ct);
+        return desglose is null ? NoContent() : Ok(desglose);
+    }
+
     /// <summary>RF-26/27: costos reales de la jornada y resultado económico disponible el mismo
     /// día (criterio de aceptación 4 del acta).</summary>
     [HttpPost("{id:long}/cierre")]
@@ -610,6 +629,21 @@ public class RutasController(
             if (diferencias.Count > 0)
                 return BadRequest("Corregís lo que declaró el repartidor: hace falta una nota con el motivo. " + string.Join("; ", diferencias) + ".");
         }
+
+        // B4 (acta RF-41): con parámetros vigentes, el pago se calcula y se congela su desglose. Pagar otro
+        // monto se puede, pero no en silencio: mismo criterio que M3 con la declaración del repartidor.
+        var desglose = await liquidacion.SugerirAsync(id, ct);
+        var motivoAjuste = string.IsNullOrWhiteSpace(req.PagoAjusteMotivo) ? null : req.PagoAjusteMotivo.Trim();
+        if (desglose is not null && req.PagoRepartidor != desglose.Total && motivoAjuste is null)
+            return BadRequest($"El pago calculado para esta ruta es {desglose.Total} ({desglose.Entregas} entregas" +
+                              (desglose.Bono > 0 ? " más el bono" : "") + $"); pagás {req.PagoRepartidor}: hace falta el motivo del ajuste.");
+
+        ruta.LiqEntregas = desglose?.Entregas;
+        ruta.LiqFallidasImputables = desglose?.FallidasImputables;
+        ruta.LiqPctExito = desglose?.PctExito;
+        ruta.LiqPagoEntregas = desglose?.PagoEntregas;
+        ruta.LiqBono = desglose?.Bono;
+        ruta.PagoAjusteMotivo = desglose is not null && req.PagoRepartidor != desglose.Total ? motivoAjuste : null;
 
         ruta.KmInicial = req.KmInicial;
         ruta.KmFinal = req.KmFinal;

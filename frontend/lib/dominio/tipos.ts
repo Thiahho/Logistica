@@ -400,6 +400,85 @@ export interface RutaDetalle {
   cierreRepartidorPeajes: number | null;
   cierreRepartidorNotas: string | null;
   cerradaPor: string | null;
+  // B4 (acta changelog 4.21): desglose del pago calculado al cerrar; null si se pagó a mano.
+  liqEntregas: number | null;
+  liqFallidasImputables: number | null;
+  liqPctExito: number | null;
+  liqPagoEntregas: number | null;
+  liqBono: number | null;
+  pagoAjusteMotivo: string | null;
+  liquidacionId: number | null;
+}
+
+/** B4: pago al repartidor calculado para una ruta (GET /api/rutas/{id}/liquidacion-sugerida). */
+export interface DesgloseLiquidacion {
+  tipoVehiculo: string;
+  entregas: number;
+  fallidasImputables: number;
+  fallidasNoImputables: number;
+  pctExito: number;
+  pagoPorEntrega: number;
+  pagoEntregas: number;
+  pctMinimoExitosas: number;
+  bono: number;
+  total: number;
+}
+
+/** B4: parámetros de liquidación vigentes por tipo de vehículo (GET /api/parametros-liquidacion). */
+export interface ParametroLiquidacion {
+  id: number;
+  tipoVehiculo: string;
+  pagoPorEntrega: number;
+  bonoRuta: number;
+  pctMinimoExitosas: number;
+  motivosImputables: string[];
+  vigenteDesde: string;
+  vigenteHasta: string | null;
+}
+
+export interface ParametrosLiquidacionResponse {
+  parametros: ParametroLiquidacion[];
+  motivosFallo: string[];
+}
+
+/** B4: una ruta dentro de una liquidación (o candidata a entrar). */
+export interface RutaLiquidable {
+  id: number;
+  fecha: string;
+  vehiculoPatente: string | null;
+  entregas: number | null;
+  fallidasImputables: number | null;
+  pctExito: number | null;
+  pagoEntregas: number | null;
+  bono: number | null;
+  pagoRepartidor: number;
+  pagoAjusteMotivo: string | null;
+}
+
+export interface PrevisualizacionLiquidacion {
+  repartidorId: string;
+  repartidorNombre: string;
+  desde: string;
+  hasta: string;
+  rutas: RutaLiquidable[];
+  total: number;
+}
+
+export interface LiquidacionResumen {
+  id: number;
+  repartidorId: string;
+  repartidorNombre: string;
+  desde: string;
+  hasta: string;
+  cantidadRutas: number;
+  total: number;
+  emitidaEn: string;
+}
+
+export interface LiquidacionDetalle extends LiquidacionResumen {
+  nota: string | null;
+  emitidaPorNombre: string;
+  rutas: RutaLiquidable[];
 }
 
 /** Candidato a entrar en una ruta (GET /api/pedidos/candidatos-ruta). */
