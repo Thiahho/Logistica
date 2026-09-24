@@ -7,6 +7,7 @@ import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
 import { AvisoCobranzaDialog } from "@/components/AvisoCobranzaDialog";
+import { RangoCliente } from "./RangoCliente";
 import { TarjetaMetrica } from "@/components/TarjetaMetrica";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,6 +147,7 @@ function DetalleCliente() {
 
       <DatosCliente cliente={cliente} fetchConSesion={fetchConSesion} onGuardado={cargar} />
       <TarifasCliente cliente={cliente} fetchConSesion={fetchConSesion} onCambio={cargar} />
+      <RangoCliente clienteId={cliente.id} />
       <CuentaCorrienteCliente clienteId={cliente.id} fetchConSesion={fetchConSesion} onAvisoEnviado={cargar} />
       <UsuariosCliente clienteId={cliente.id} fetchConSesion={fetchConSesion} />
       <EventosCliente

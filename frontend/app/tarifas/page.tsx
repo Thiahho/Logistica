@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table";
 import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
 import { ParametrosLiquidacion } from "./ParametrosLiquidacion";
+import { RangosConfig } from "./RangosConfig";
 import { leerError, leerJson } from "@/lib/api/errores";
 import {
   etiquetaTipoVehiculo,
@@ -389,6 +390,8 @@ function ListaTarifas() {
         Un pedido ya confirmado no se ve afectado por este cambio: el precio se congela al
         confirmar (P1) y solo aplica a pedidos nuevos.
       </p>
+
+      <RangosConfig />
 
       <ParametrosLiquidacion />
     </div>

@@ -504,7 +504,20 @@ public class RutasController(
             return Conflict("Alguno de los pedidos de la ruta cambió de estado; volvé a armar la ruta.");
 
         var tipoVehiculo = ruta.Vehiculo!.Tipo;
-        var pedidosACotizar = pedidos.Where(p => p.Estado == EstadoPedido.Borrador).ToList();
+        var borradores = pedidos.Where(p => p.Estado == EstadoPedido.Borrador).ToList();
+
+        // Precio vinculante del portal (B5, diseño_b5_portal_carga.md §1): lo fijó el propio cliente al
+        // cargar, y es el TOTAL que se cobra — no se vuelve a cotizar. Antes se re-cotizaba usándolo como
+        // precio base, así que la urgencia y el recargo por km se sumaban dos veces (un urgente cotizado a
+        // 1,2 × base terminaba en 1,44 × base). Se reconoce porque precio_manual_por es un login de
+        // cliente; un precio manual de administración (B9) sí es una base y sigue el camino normal.
+        var idsPrecioManual = borradores.Where(p => p.PrecioManualPor != null).Select(p => p.PrecioManualPor!.Value).ToList();
+        var fijadosPorCliente = idsPrecioManual.Count == 0 ? []
+            : (await db.ClientesUsuarios.Where(cu => idsPrecioManual.Contains(cu.Id)).Select(cu => cu.Id).ToListAsync(ct)).ToHashSet();
+        var vinculantes = borradores
+            .Where(p => p.PrecioManual != null && p.PrecioManualPor != null && fijadosPorCliente.Contains(p.PrecioManualPor.Value))
+            .ToList();
+        var pedidosACotizar = borradores.Except(vinculantes).ToList();
 
         // Cotizar todo ANTES de escribir nada: si un pedido no tiene tarifa cargada para su zona
         // en este tipo de vehículo, la ruta entera se rechaza sin tocar la base — no puede quedar
@@ -550,7 +563,17 @@ public class RutasController(
                 pedido.KmFuente = desglose.KmFuente;
                 pedido.RecargoUrgencia = desglose.RecargoUrgencia;
                 pedido.DescuentoRuta = desglose.DescuentoRuta;
+                pedido.DescuentoRango = desglose.DescuentoRango;
                 pedido.Total = desglose.Total;
+                pedido.PrecioCongeladoEn = DateTimeOffset.UtcNow;
+                pedido.Estado = EstadoPedido.Confirmado;
+            }
+            // El desglose del precio vinculante ya quedó guardado al cargarlo en el portal; los pedidos de
+            // portal anteriores a esa corrección no lo tienen y quedan con todo el precio como base.
+            foreach (var pedido in vinculantes)
+            {
+                pedido.PrecioBase ??= pedido.PrecioManual;
+                pedido.Total = pedido.PrecioManual;
                 pedido.PrecioCongeladoEn = DateTimeOffset.UtcNow;
                 pedido.Estado = EstadoPedido.Confirmado;
             }

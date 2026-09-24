@@ -226,6 +226,7 @@ public class DeliverysController(
             KmFuente = desglose.KmFuente,
             RecargoUrgencia = desglose.RecargoUrgencia,
             DescuentoRuta = desglose.DescuentoRuta,
+            DescuentoRango = desglose.DescuentoRango,
             Peajes = req.Peajes,
             Total = desglose.Total,
             PrecioCongeladoEn = ahora,

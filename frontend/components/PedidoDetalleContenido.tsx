@@ -293,6 +293,9 @@ export function PedidoDetalleContenido({ pedidoId, onCambio, onAbrirPedidoOrigen
               {(pedido.descuentoRuta ?? 0) > 0 && (
                 <Fila etiqueta="Descuento ruta" valor={`-$${pedido.descuentoRuta!.toLocaleString("es-AR")}`} />
               )}
+              {pedido.descuentoRango > 0 && (
+                <Fila etiqueta="Descuento por rango" valor={`-$${pedido.descuentoRango.toLocaleString("es-AR")}`} />
+              )}
               {pedido.peajes > 0 && <Fila etiqueta="Peajes" valor={`$${pedido.peajes.toLocaleString("es-AR")}`} />}
               <div className="flex justify-between border-t pt-2 font-semibold">
                 <span>Total</span>

@@ -639,7 +639,10 @@ function ArmarRuta() {
                         onCheckedChange={() => alternarSeleccion(c.pedidoId)}
                       />
                       <Label htmlFor={`pedido-${c.pedidoId}`} className="font-normal">
-                        #{c.pedidoId} · {c.clienteRazonSocial} · {c.destinatarioNombre} · {c.bultos} bulto(s)
+                        #{c.pedidoId} · {c.clienteRazonSocial}
+                        {/* B3 (acta 4.21): el rango ordena esta lista, nunca las paradas de la ruta. */}
+                        {c.rangoNombre && c.rangoNombre !== "Sin rango" && ` (${c.rangoNombre})`} · {c.destinatarioNombre} ·{" "}
+                        {c.bultos} bulto(s)
                         {c.urgente && " · urgente"}
                         {" — "}
                         {c.destinoCalleNumero}

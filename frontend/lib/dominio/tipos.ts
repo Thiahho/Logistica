@@ -39,6 +39,9 @@ export interface PedidoResumen {
   /** B9 (Anexo I §4, "+40 km → Cotización"): true si la zona de destino no tiene ninguna tarifa
    * cargada y todavía no se le fijó un precio manual. Solo puede ser true en Borrador. */
   requiereCotizacion: boolean;
+  /** B3 (acta changelog 4.21): solo en la respuesta del alta — el saldo supera el límite de crédito
+   * del rango del cliente. Solo avisa. */
+  avisoCredito?: string | null;
 }
 
 /** Envoltorio de página (GET /api/pedidos con `pagina`/`tamanioPagina`). `total` es la cantidad
@@ -105,6 +108,8 @@ export interface PedidoDetalle {
   kmFuente: string | null;
   recargoUrgencia: number | null;
   descuentoRuta: number | null;
+  /** B3, definición J (acta changelog 4.21): descuento del rango del cliente al cotizar. */
+  descuentoRango: number;
   peajes: number;
   total: number | null;
   precioCongeladoEn: string | null;
@@ -271,6 +276,8 @@ export interface DesglosePrecio {
   kmCobrados: number | null;
   /** ruta | recta | manual — de dónde salió kmCobrados, o null si kmCobrados es null. */
   kmFuente: string | null;
+  /** B3, definición J: descuento del rango del cliente, solo sobre la tarifa general. */
+  descuentoRango: number;
 }
 
 /** Estimado informativo de POST /api/pedidos/cotizar (acta changelog 3.11) — nunca es el precio
@@ -500,6 +507,9 @@ export interface CandidatoRuta {
    * — va a rechazar el cierre de planificación si entra a la ruta así. */
   requiereCotizacion: boolean;
   precioManual: number | null;
+  /** B3 (acta 4.21 frente a §7): el rango ordena la lista de pendientes al armar, nunca las paradas. */
+  rangoNombre: string;
+  prioridad: number;
 }
 
 /** Destinatario ya usado por un cliente, con su dirección ya geocodificada (GET
@@ -921,6 +931,72 @@ export interface CuentaPropia {
   servicioCortado: boolean;
   proximoVencimiento: string | null;
   facturas: FacturaPropia[];
+  /** B3 (acta RF-42): el cliente ve su rango y su descuento, nunca los números con que se calculó. */
+  rangoNombre: string;
+  descuentoPct: number;
+}
+
+/** B3 (acta RF-42): configuración de un rango (GET /api/rangos). Umbrales null = no exige nada. */
+export interface RangoConfig {
+  codigo: string;
+  nombre: string;
+  orden: number;
+  minEnviosTrimestre: number | null;
+  minFacturacionTrimestre: number | null;
+  minAntiguedadMeses: number | null;
+  minSemanasActivas: number | null;
+  minPctPagosEnTermino: number | null;
+  descuentoPct: number;
+  limiteCredito: number | null;
+  prioridad: number;
+}
+
+export interface CriteriosRango {
+  envios: number;
+  facturacion: number;
+  antiguedadMeses: number;
+  semanasActivas: number;
+  pctPagosEnTermino: number;
+  facturasVencidas: number;
+}
+
+/** Lo que el recálculo trimestral haría (o hizo) con un cliente. */
+export interface RangoRecalculado {
+  clienteId: number;
+  razonSocial: string;
+  criterios: CriteriosRango;
+  calculadoAnterior: string;
+  calculadoNuevo: string;
+  efectivoAnterior: string;
+  efectivoNuevo: string;
+  ajusteVencido: boolean;
+}
+
+export interface HistorialRango {
+  rangoAnterior: string | null;
+  rangoNuevo: string;
+  origen: "recalculo" | "ajuste";
+  trimestre: string | null;
+  /** CriteriosRango serializado por el backend (claves en PascalCase). */
+  criterios: string | null;
+  motivo: string | null;
+  registradoPor: string;
+  registradoEn: string;
+}
+
+/** GET /api/clientes/{id}/rango — solo Administración. */
+export interface RangoDeCliente {
+  clienteId: number;
+  calculado: string;
+  efectivo: string;
+  calculadoEn: string | null;
+  ajuste: number;
+  ajusteMotivo: string | null;
+  ajusteVence: string | null;
+  ajusteVigente: boolean;
+  descuentoPct: number;
+  limiteCredito: number | null;
+  historial: HistorialRango[];
 }
 
 /** Resultado de un cierre de ciclo por cliente (GET .../cierre/previsualizacion, POST .../cierre). */

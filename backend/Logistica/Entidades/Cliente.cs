@@ -30,4 +30,19 @@ public class Cliente
     public Guid? CorteSuspendidoPor { get; set; }
     public Usuario? CorteSuspendidoPorUsuario { get; set; }
     public DateTimeOffset? CorteSuspendidoEn { get; set; }
+
+    // Rango (B3, acta RF-42, changelog 4.21). El efectivo no se guarda: es el calculado movido por el
+    // ajuste si sigue vigente (Dominio/RangosCliente.Efectivo), así un ajuste que vence deja de contar
+    // solo, sin proceso que lo limpie.
+
+    /// <summary>El que dio el último recálculo trimestral (D4).</summary>
+    public string RangoCalculado { get; set; } = "sin_rango";
+    public DateTimeOffset? RangoCalculadoEn { get; set; }
+
+    /// <summary>Definición F: −1, 0 o +1. Distinto de 0 exige motivo y vencimiento (ck_clientes_rango_ajuste).</summary>
+    public short RangoAjuste { get; set; }
+    public string? RangoAjusteMotivo { get; set; }
+    public DateOnly? RangoAjusteVence { get; set; }
+    public Guid? RangoAjustePor { get; set; }
+    public DateTimeOffset? RangoAjusteEn { get; set; }
 }

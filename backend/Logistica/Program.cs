@@ -93,6 +93,7 @@ switch (almacenamiento.Proveedor)
 builder.Services.AddScoped<CuentaCorrienteService>();
 builder.Services.AddScoped<JornadaService>();
 builder.Services.AddScoped<LiquidacionService>();
+builder.Services.AddScoped<RangoClienteService>();
 builder.Services.AddHostedService<CalentamientoService>();
 
 // RuteoService cachea recorridos en memoria (acta changelog 3.4) — sin tabla nueva.
