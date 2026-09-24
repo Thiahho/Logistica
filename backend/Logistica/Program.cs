@@ -234,12 +234,27 @@ builder.Services.AddRateLimiter(options =>
             AutoReplenishment = true,
             QueueLimit = 0,
         }));
+    // Envío masivo de avisos de cobranza (auditoria_seguridad.md hallazgo 6): cada llamada puede mandar
+    // hasta 100 correos. Una cuenta de administración comprometida (o un doble clic insistente) podía
+    // agotar la cuota de Resend. Por usuario, no por IP: 3 envíos seguidos y después 1 cada 10 minutos.
+    // La previsualización no se limita: no manda nada.
+    options.AddPolicy("avisos", httpContext => RateLimitPartition.GetTokenBucketLimiter(
+        partitionKey: httpContext.User.FindFirst("sub")?.Value ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "sin-ip",
+        factory: _ => new TokenBucketRateLimiterOptions
+        {
+            TokenLimit = 3,
+            TokensPerPeriod = 1,
+            ReplenishmentPeriod = TimeSpan.FromMinutes(10),
+            AutoReplenishment = true,
+            QueueLimit = 0,
+        }));
     options.OnRejected = async (contexto, ct) =>
     {
-        var esLogin = contexto.HttpContext.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName == "login";
+        var politica = contexto.HttpContext.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName;
+        var esLogin = politica == "login";
         // 12, no 60: con token bucket el próximo token llega a los 12s (ReplenishmentPeriod), no
         // hay que esperar la ventana entera como con fixed window.
-        contexto.HttpContext.Response.Headers.RetryAfter = esLogin ? "12" : "10";
+        contexto.HttpContext.Response.Headers.RetryAfter = politica switch { "login" => "12", "avisos" => "600", _ => "10" };
         var problemDetailsService = contexto.HttpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
         await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
         {
@@ -248,9 +263,12 @@ builder.Services.AddRateLimiter(options =>
             {
                 Status = StatusCodes.Status429TooManyRequests,
                 Title = esLogin ? "Demasiados intentos" : "Demasiadas solicitudes",
-                Detail = esLogin
-                    ? "Demasiados intentos de inicio de sesión. Esperá unos segundos y volvé a intentar."
-                    : "Demasiadas solicitudes seguidas. Esperá unos segundos y volvé a intentar.",
+                Detail = politica switch
+                {
+                    "login" => "Demasiados intentos de inicio de sesión. Esperá unos segundos y volvé a intentar.",
+                    "avisos" => "Ya se mandaron varios envíos masivos de avisos seguidos. Esperá unos minutos antes del próximo.",
+                    _ => "Demasiadas solicitudes seguidas. Esperá unos segundos y volvé a intentar.",
+                },
             },
         });
     };
