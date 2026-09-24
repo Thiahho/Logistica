@@ -1,3 +1,4 @@
+using Logistica.Dominio;
 using System.ComponentModel.DataAnnotations;
 using Logistica.Datos;
 using Logistica.Entidades;
@@ -36,7 +37,7 @@ public class TarifasController(LogisticaDbContext db, TarifaService tarifas) : C
     [HttpGet]
     public async Task<IActionResult> Listar(CancellationToken ct)
     {
-        var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+        var hoy = Reloj.HoyLocal();
         var zonas = await db.Zonas.AsNoTracking().OrderBy(z => z.Codigo).ToListAsync(ct);
 
         // Antes eran 2 round-trips por zona (tarifa_vigente para camioneta y para moto) dentro

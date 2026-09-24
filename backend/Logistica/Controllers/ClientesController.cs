@@ -233,7 +233,7 @@ public class ClientesController(
         var cliente = await db.Clientes.AsNoTracking().SingleOrDefaultAsync(c => c.Id == id, ct);
         if (cliente is null) return NotFound();
 
-        var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+        var hoy = Reloj.HoyLocal();
         var zonas = await db.Zonas.AsNoTracking().OrderBy(z => z.Codigo).ToListAsync(ct);
 
         // Antes eran 4 round-trips por zona (tarifa_vigente x2 tipos + tarifa de cliente x2

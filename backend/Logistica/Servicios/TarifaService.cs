@@ -1,3 +1,4 @@
+using Logistica.Dominio;
 using Logistica.Datos;
 using Logistica.Entidades;
 using Microsoft.EntityFrameworkCore;
@@ -41,7 +42,7 @@ public class TarifaService(LogisticaDbContext db)
 
     public async Task FijarAsync(int? clienteId, int zonaId, string tipoVehiculo, decimal? precio, CancellationToken ct = default)
     {
-        var hoy = DateOnly.FromDateTime(DateTime.UtcNow);
+        var hoy = Reloj.HoyLocal();
         var vigente = await db.Tarifas
             .Where(t => t.ClienteId == clienteId && t.ZonaId == zonaId && t.TipoVehiculo == tipoVehiculo && t.VigenteHasta == null)
             .SingleOrDefaultAsync(ct);
