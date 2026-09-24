@@ -24,6 +24,7 @@ const RUTAS_PROTEGIDAS = [
   "/deliverys",
   "/liquidaciones",
   "/rentabilidad",
+  "/tablero",
 ];
 
 // Producción (Vercel): BACKEND_URL=https://<servicio>.onrender.com y sin NEXT_PUBLIC_API_URL. El navegador
@@ -84,5 +85,6 @@ export const config = {
     "/deliverys/:path*",
     "/liquidaciones/:path*",
     "/rentabilidad/:path*",
+    "/tablero/:path*",
   ],
 };

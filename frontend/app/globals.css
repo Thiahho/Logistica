@@ -82,6 +82,11 @@
   --chart-3: #003b95;
   --chart-4: #5f6b7a;
   --chart-5: #d9e2ec;
+  /* Tablero (B2): serie principal / valor negativo, validados con scripts/validate_palette.js de la
+     skill de visualización (todo PASS sobre #ffffff). Grilla un paso fuera de la superficie. */
+  --serie-principal: #0057d9;
+  --serie-negativa: #eb6834;
+  --grilla-grafico: #e6edf6;
   --radius: 0.875rem;
   --sidebar: #ffffff;
   --sidebar-foreground: #0f1b2d;
@@ -117,6 +122,10 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
+  /* Pasos propios del modo oscuro, validados contra #171717 (no una inversión automática). */
+  --serie-principal: #3987e5;
+  --serie-negativa: #d95926;
+  --grilla-grafico: #2a2a2a;
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);

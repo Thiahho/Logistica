@@ -1028,6 +1028,30 @@ export interface ResultadoMes {
   costosFijos: CostoFijo[];
 }
 
+/** B2/E3: tablero de indicadores (GET /api/tablero). null = sin datos para calcularlo. */
+export interface Tablero {
+  desde: string;
+  hasta: string;
+  /** false con filtro de cliente o zona: el costo de una ruta no se prorratea, los indicadores de ruta no se muestran. */
+  indicadoresDeRuta: boolean;
+  entregas: number;
+  entregasPorDia: number | null;
+  kmPorEntrega: number | null;
+  minutosPorEntrega: number | null;
+  facturacion: number;
+  facturacionPorCliente: { nombre: string; valor: number }[];
+  facturacionPorRango: { nombre: string; valor: number }[];
+  cancelados: number;
+  pctCancelaciones: number | null;
+  rutasCerradas: number;
+  costoPorEntrega: number | null;
+  costoPorRuta: number | null;
+  margenTotal: number | null;
+  margenPorRuta: number | null;
+  pctOcupacion: number | null;
+  porDia: { fecha: string; entregas: number; margen: number | null }[];
+}
+
 /** GET /api/clientes/{id}/rango — solo Administración. */
 export interface RangoDeCliente {
   clienteId: number;
