@@ -6,6 +6,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
+import { AvisoViajeDeRuta } from "@/components/viajes/AvisoViajeDeRuta";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -296,6 +297,7 @@ function ArmarRuta() {
         id: "origen",
         punto: puntoPartida,
         etiqueta: depositoElegido ? "D" : "P",
+        imagen: depositoElegido ? "/logo-solo.png" : undefined,
         variante: "origen",
         titulo: depositoElegido
           ? depositoElegido.nombre
@@ -482,6 +484,7 @@ function ArmarRuta() {
   return (
     <div className="p-4 md:p-8 max-w-4xl flex flex-col gap-6">
       <CabeceraSesion titulo={`Armar ruta #${ruta.id} — ${ruta.fecha}`} />
+      <AvisoViajeDeRuta rutaId={ruta.id} />
       <Button variant="outline" render={<Link href="/rutas" />} nativeButton={false} className="self-start">
         ← Rutas
       </Button>

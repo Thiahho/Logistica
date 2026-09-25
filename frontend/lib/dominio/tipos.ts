@@ -42,6 +42,11 @@ export interface PedidoResumen {
   /** B3 (acta changelog 4.21): solo en la respuesta del alta — el saldo supera el límite de crédito
    * del rango del cliente. Solo avisa. */
   avisoCredito?: string | null;
+  /** Login del portal que cargó el pedido (null si lo cargó el personal interno). */
+  cargadoPorNombre?: string | null;
+  /** Viaje (envío de varias paradas) al que pertenece, y su lugar en el orden de carga. */
+  viajeId?: number | null;
+  ordenEnViaje?: number | null;
 }
 
 /** Envoltorio de página (GET /api/pedidos con `pagina`/`tamanioPagina`). `total` es la cantidad
@@ -129,6 +134,10 @@ export interface PedidoDetalle {
    * generó el cargo. */
   facturado: boolean;
   historial: HistorialEvento[];
+  /** Login del portal que cargó el pedido (null si lo cargó el personal interno). */
+  cargadoPorNombre: string | null;
+  viajeId: number | null;
+  ordenEnViaje: number | null;
 }
 
 /** Quién fijó el precio manual y cuándo (B9, Anexo I §4) — criterio subjetivo que afecta precio,
@@ -318,6 +327,83 @@ export interface ClienteUsuarioCuenta {
   nombre: string;
   email: string;
   activo: boolean;
+  rol: "dueno" | "usuario";
+}
+
+export function etiquetaRolCliente(rol: "dueno" | "usuario"): string {
+  return rol === "dueno" ? "Dueño" : "Empleado";
+}
+
+/** Espejo de MiCuentaController.UsuarioEquipo (GET /api/mi-cuenta/usuarios, solo el dueño). */
+export interface UsuarioEquipo extends ClienteUsuarioCuenta {
+  creadoEn: string;
+}
+
+/** Espejo de EquipoCliente.FilaResumen: envíos cargados por un login en el período. */
+export interface FilaResumenEquipo {
+  usuarioId: string;
+  nombre: string;
+  rol: "dueno" | "usuario";
+  activo: boolean;
+  cargados: number;
+  entregados: number;
+  fallidos: number;
+  cancelados: number;
+  pendientes: number;
+}
+
+export interface ResumenEquipo {
+  desde: string;
+  hasta: string;
+  filas: FilaResumenEquipo[];
+}
+
+/** Espejo de MiCuentaController.ActividadEquipo (clientes_usuarios_actividad). */
+export interface ActividadEquipo {
+  id: number;
+  usuarioId: string;
+  usuarioNombre: string;
+  accion: string;
+  entidadTipo: string | null;
+  entidadId: string | null;
+  detalle: string | null;
+  ocurridoEn: string;
+}
+
+/** Texto de cada acción del portal (backend: Servicios/ActividadPortal.cs, AccionesPortal). */
+export function etiquetaAccionPortal(accion: string): string {
+  switch (accion) {
+    case "sesion.iniciada":
+      return "Inició sesión";
+    case "pedido.cargado":
+      return "Cargó un envío";
+    case "contacto.creado":
+      return "Agregó un contacto";
+    case "contacto.editado":
+      return "Editó un contacto";
+    case "contacto.eliminado":
+      return "Borró un contacto";
+    case "usuario.creado":
+      return "Creó un usuario";
+    case "usuario.activado":
+      return "Reactivó un usuario";
+    case "usuario.desactivado":
+      return "Desactivó un usuario";
+    case "usuario.contrasena":
+      return "Cambió la contraseña de un usuario";
+    case "pedido.cancelado":
+      return "Canceló un envío";
+    case "pedido.editado":
+      return "Editó un envío";
+    case "pago.informado":
+      return "Informó un pago";
+    case "viaje.cargado":
+      return "Cargó un viaje";
+    case "viaje.cancelado":
+      return "Canceló un viaje";
+    default:
+      return accion;
+  }
 }
 
 /** Fila del ABM de flota (GET /api/vehiculos). */
@@ -1435,4 +1521,248 @@ export interface GuardarClienteDestinatarioRequest {
   telefono: string;
   destinoUbicacionId: number;
   observaciones?: string | null;
+}
+
+// ---- "Mi negocio" del dueño (MiCuentaController) ----
+
+export type PeriodoNegocio = "dia" | "semana" | "mes";
+
+export const MEDIOS_PAGO = [
+  { value: "transferencia", label: "Transferencia" },
+  { value: "efectivo", label: "Efectivo" },
+  { value: "cheque", label: "Cheque" },
+  { value: "otro", label: "Otro" },
+] as const;
+
+export function etiquetaMedioPago(medio: string): string {
+  return MEDIOS_PAGO.find((m) => m.value === medio)?.label ?? medio;
+}
+
+/** Espejo de NegocioCliente.ConteoEnvios. */
+export interface ConteoEnvios {
+  total: number;
+  entregados: number;
+  fallidos: number;
+  cancelados: number;
+  enCurso: number;
+}
+
+export interface ResumenPeriodo {
+  desde: string;
+  hasta: string;
+  envios: ConteoEnvios;
+  /** Cargos ya generados en el período (entregas, cancelaciones cobradas, ajustes aprobados). */
+  facturable: number | null;
+  /** Precio de los envíos del período que todavía no terminaron. */
+  comprometido: number | null;
+  /** Envíos en curso sin precio todavía (zona sin tarifa). */
+  sinPrecio: number;
+}
+
+export interface DiaNegocio {
+  fecha: string;
+  envios: number;
+  entregados: number;
+  facturable: number | null;
+}
+
+export interface ResumenNegocio {
+  periodo: PeriodoNegocio;
+  actual: ResumenPeriodo;
+  anterior: ResumenPeriodo;
+  dias: DiaNegocio[];
+}
+
+/** Espejo de NegocioCliente.Movimiento. */
+export interface MovimientoCuenta {
+  fecha: string;
+  tipo: "factura" | "pago";
+  referencia: number;
+  descripcion: string;
+  debe: number;
+  haber: number;
+  saldo: number;
+}
+
+export interface EstadoDeCuentaPropio {
+  desde: string;
+  hasta: string;
+  saldoInicial: number;
+  saldoFinal: number;
+  saldoActual: number;
+  deudaVencida: number;
+  pendienteDeFacturar: number;
+  servicioCortado: boolean;
+  movimientos: MovimientoCuenta[];
+}
+
+export interface FacturaPropiaDetalle {
+  id: number;
+  periodoDesde: string;
+  periodoHasta: string;
+  fechaEmision: string;
+  fechaVencimiento: string;
+  total: number;
+  pagado: number;
+  saldo: number;
+  estado: EstadoFactura;
+  items: { pedidoId: number | null; tipo: string; descripcion: string; monto: number | null }[];
+}
+
+export type EstadoPagoInformado = "pendiente" | "confirmado" | "rechazado";
+
+export function etiquetaEstadoPagoInformado(estado: EstadoPagoInformado): string {
+  return estado === "pendiente" ? "En revisión" : estado === "confirmado" ? "Confirmado" : "Rechazado";
+}
+
+export interface PagosPropios {
+  imputados: { id: number; fechaPago: string; monto: number; medio: string }[];
+  informados: {
+    id: number;
+    monto: number;
+    fechaPago: string;
+    medio: string;
+    nota: string | null;
+    tieneComprobante: boolean;
+    estado: EstadoPagoInformado;
+    motivoRechazo: string | null;
+    informadoPor: string;
+    creadoEn: string;
+    revisadoEn: string | null;
+  }[];
+}
+
+/** Espejo de ClientesController.PagoInformadoResumen (BackOffice). */
+export interface PagoInformadoResumen {
+  id: number;
+  clienteId: number;
+  clienteRazonSocial: string;
+  informadoPor: string;
+  monto: number;
+  fechaPago: string;
+  medio: string;
+  nota: string | null;
+  tieneComprobante: boolean;
+  estado: EstadoPagoInformado;
+  motivoRechazo: string | null;
+  revisadoPor: string | null;
+  revisadoEn: string | null;
+  pagoId: number | null;
+  creadoEn: string;
+}
+
+// ---- Viajes: envío con varias paradas y su ruta propuesta (ViajeService) ----
+
+/** Una parada tal como se carga (espejo de ParadaViajeEntrada). */
+export interface ParadaViajeEntrada {
+  destinoUbicacionId: number;
+  destinatarioNombre: string;
+  destinatarioTelefono: string;
+  bultos: number;
+  observaciones: string | null;
+}
+
+export interface OrigenViaje {
+  ubicacionId: number;
+  nombre: string;
+  calleNumero: string;
+  lat: number | null;
+  lng: number | null;
+}
+
+/** Una dirección del recorrido sugerido; `indices` = qué paradas cargadas van ahí (RF-14). */
+export interface ParadaPrevista {
+  ubicacionId: number;
+  calleNumero: string;
+  localidad: string | null;
+  lat: number | null;
+  lng: number | null;
+  direccionApta: boolean;
+  indices: number[];
+}
+
+export interface PrevisualizacionViaje {
+  origen: OrigenViaje;
+  paradas: ParadaPrevista[];
+  km: number;
+  /** "calle" si el proveedor de ruteo respondió; "recta" si es en línea recta. */
+  fuenteKm: "calle" | "recta";
+  linea: { lat: number; lng: number }[] | null;
+  sinCoordenadas: number[];
+}
+
+/** Portal: la previsualización + precios por parada (solo el dueño). */
+export interface PrevisualizacionViajePortal {
+  recorrido: PrevisualizacionViaje;
+  precios: { indice: number; precio: number | null }[] | null;
+  total: number | null;
+}
+
+export type EstadoViaje = "sin_ruta" | "planificado" | "en_curso" | "cerrado" | "cancelado";
+
+export function etiquetaEstadoViaje(e: EstadoViaje): string {
+  switch (e) {
+    case "sin_ruta":
+      return "Por planificar";
+    case "planificado":
+      return "Planificado";
+    case "en_curso":
+      return "En camino";
+    case "cerrado":
+      return "Terminado";
+    case "cancelado":
+      return "Cancelado";
+  }
+}
+
+export interface ParadaViajeDetalle {
+  orden: number;
+  pedidoId: number;
+  destinatarioNombre: string;
+  destinatarioTelefono: string;
+  calleNumero: string;
+  localidad: string | null;
+  lat: number | null;
+  lng: number | null;
+  bultos: number;
+  observaciones: string | null;
+  estado: EstadoPedido;
+  /** false = la dirección quedó fuera de la ruta propuesta (dudosa) hasta que la corrijan. */
+  enRuta: boolean;
+  precio: number | null;
+}
+
+export interface ViajeDetalle {
+  id: number;
+  clienteId: number;
+  clienteRazonSocial: string;
+  fechaEntrega: string;
+  tipoVehiculo: TipoVehiculo | null;
+  estado: EstadoViaje;
+  rutaId: number | null;
+  rutaEstado: string | null;
+  kmEstimados: number | null;
+  creadoPor: string;
+  creadoEn: string;
+  observaciones: string | null;
+  origen: OrigenViaje;
+  paradas: ParadaViajeDetalle[];
+  entregadas: number;
+  fallidas: number;
+  total: number | null;
+  linea: { lat: number; lng: number }[] | null;
+}
+
+export interface ViajeResumen {
+  id: number;
+  clienteId: number;
+  clienteRazonSocial: string;
+  fechaEntrega: string;
+  estado: EstadoViaje;
+  paradas: number;
+  entregadas: number;
+  fallidas: number;
+  kmEstimados: number | null;
+  creadoPor: string;
+  creadoEn: string;
 }

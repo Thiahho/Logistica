@@ -446,6 +446,13 @@ namespace Logistica.Migrations
                         .HasColumnType("text")
                         .HasColumnName("password_hash");
 
+                    b.Property<string>("Rol")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("dueno")
+                        .HasColumnName("rol");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ClienteId");
@@ -453,7 +460,60 @@ namespace Logistica.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
-                    b.ToTable("clientes_usuarios", (string)null);
+                    b.ToTable("clientes_usuarios", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_clientes_usuarios_rol", "rol in ('dueno','usuario')");
+                        });
+                });
+
+            modelBuilder.Entity("Logistica.Entidades.ClienteUsuarioActividad", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Accion")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("accion");
+
+                    b.Property<int>("ClienteId")
+                        .HasColumnType("integer")
+                        .HasColumnName("cliente_id");
+
+                    b.Property<Guid>("ClienteUsuarioId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("cliente_usuario_id");
+
+                    b.Property<string>("Detalle")
+                        .HasColumnType("text")
+                        .HasColumnName("detalle");
+
+                    b.Property<string>("EntidadId")
+                        .HasColumnType("text")
+                        .HasColumnName("entidad_id");
+
+                    b.Property<string>("EntidadTipo")
+                        .HasColumnType("text")
+                        .HasColumnName("entidad_tipo");
+
+                    b.Property<DateTimeOffset>("OcurridoEn")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ocurrido_en")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClienteUsuarioId");
+
+                    b.HasIndex("ClienteId", "OcurridoEn")
+                        .IsDescending(false, true);
+
+                    b.ToTable("clientes_usuarios_actividad", (string)null);
                 });
 
             modelBuilder.Entity("Logistica.Entidades.CostoFijo", b =>
@@ -1055,6 +1115,100 @@ namespace Logistica.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Logistica.Entidades.PagoInformado", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("ClienteId")
+                        .HasColumnType("integer")
+                        .HasColumnName("cliente_id");
+
+                    b.Property<Guid>("ClienteUsuarioId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("cliente_usuario_id");
+
+                    b.Property<string>("ComprobantePath")
+                        .HasColumnType("text")
+                        .HasColumnName("comprobante_path");
+
+                    b.Property<DateTimeOffset>("CreadoEn")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("creado_en")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Estado")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("pendiente")
+                        .HasColumnName("estado");
+
+                    b.Property<DateOnly>("FechaPago")
+                        .HasColumnType("date")
+                        .HasColumnName("fecha_pago");
+
+                    b.Property<string>("Medio")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("medio");
+
+                    b.Property<decimal>("Monto")
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("monto");
+
+                    b.Property<string>("MotivoRechazo")
+                        .HasColumnType("text")
+                        .HasColumnName("motivo_rechazo");
+
+                    b.Property<string>("Nota")
+                        .HasColumnType("text")
+                        .HasColumnName("nota");
+
+                    b.Property<long?>("PagoId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("pago_id");
+
+                    b.Property<DateTimeOffset?>("RevisadoEn")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revisado_en");
+
+                    b.Property<Guid?>("RevisadoPor")
+                        .HasColumnType("uuid")
+                        .HasColumnName("revisado_por");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClienteUsuarioId");
+
+                    b.HasIndex("Estado");
+
+                    b.HasIndex("PagoId")
+                        .IsUnique();
+
+                    b.HasIndex("RevisadoPor");
+
+                    b.HasIndex("ClienteId", "CreadoEn");
+
+                    b.ToTable("pagos_informados", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_pagos_informados_estado", "estado in ('pendiente','confirmado','rechazado')");
+
+                            t.HasCheckConstraint("ck_pagos_informados_medio", "medio in ('transferencia','efectivo','cheque','otro')");
+
+                            t.HasCheckConstraint("ck_pagos_informados_monto", "monto > 0");
+
+                            t.HasCheckConstraint("ck_pagos_informados_pago", "(estado = 'confirmado') = (pago_id is not null)");
+
+                            t.HasCheckConstraint("ck_pagos_informados_rechazo", "estado <> 'rechazado' or (motivo_rechazo is not null and length(btrim(motivo_rechazo)) > 0)");
+                        });
+                });
+
             modelBuilder.Entity("Logistica.Entidades.ParadaPedido", b =>
                 {
                     b.Property<long>("ParadaId")
@@ -1176,6 +1330,10 @@ namespace Logistica.Migrations
                         .HasColumnName("creado_en")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<Guid?>("CreadoPorClienteUsuarioId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("creado_por_cliente_usuario_id");
+
                     b.Property<decimal>("DescuentoRango")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("numeric(12,2)")
@@ -1235,6 +1393,10 @@ namespace Logistica.Migrations
                     b.Property<string>("Observaciones")
                         .HasColumnType("text")
                         .HasColumnName("observaciones");
+
+                    b.Property<int?>("OrdenEnViaje")
+                        .HasColumnType("integer")
+                        .HasColumnName("orden_en_viaje");
 
                     b.Property<string>("OrigenCarga")
                         .IsRequired()
@@ -1328,11 +1490,17 @@ namespace Logistica.Migrations
                         .HasColumnType("numeric(12,2)")
                         .HasColumnName("valor_declarado");
 
+                    b.Property<long?>("ViajeId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("viaje_id");
+
                     b.Property<int?>("ZonaId")
                         .HasColumnType("integer")
                         .HasColumnName("zona_id");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CreadoPorClienteUsuarioId");
 
                     b.HasIndex("DestinoUbicacionId");
 
@@ -1345,6 +1513,8 @@ namespace Logistica.Migrations
                     b.HasIndex("PrecioManualPor");
 
                     b.HasIndex("RecepcionConfirmadaPor");
+
+                    b.HasIndex("ViajeId");
 
                     b.HasIndex("ZonaId");
 
@@ -2240,6 +2410,86 @@ namespace Logistica.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Logistica.Entidades.Viaje", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("ClienteId")
+                        .HasColumnType("integer")
+                        .HasColumnName("cliente_id");
+
+                    b.Property<DateTimeOffset>("CreadoEn")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("creado_en")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreadoPorClienteUsuarioId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("creado_por_cliente_usuario_id");
+
+                    b.Property<Guid?>("CreadoPorUsuarioId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("creado_por_usuario_id");
+
+                    b.Property<string>("Estado")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("activo")
+                        .HasColumnName("estado");
+
+                    b.Property<DateOnly>("FechaEntrega")
+                        .HasColumnType("date")
+                        .HasColumnName("fecha_entrega");
+
+                    b.Property<decimal?>("KmEstimados")
+                        .HasColumnType("numeric(8,2)")
+                        .HasColumnName("km_estimados");
+
+                    b.Property<string>("Observaciones")
+                        .HasColumnType("text")
+                        .HasColumnName("observaciones");
+
+                    b.Property<long>("OrigenUbicacionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("origen_ubicacion_id");
+
+                    b.Property<long?>("RutaId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("ruta_id");
+
+                    b.Property<string>("TipoVehiculo")
+                        .HasColumnType("text")
+                        .HasColumnName("tipo_vehiculo");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreadoPorClienteUsuarioId");
+
+                    b.HasIndex("CreadoPorUsuarioId");
+
+                    b.HasIndex("OrigenUbicacionId");
+
+                    b.HasIndex("RutaId");
+
+                    b.HasIndex("ClienteId", "FechaEntrega");
+
+                    b.ToTable("viajes", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_viajes_creador", "(creado_por_cliente_usuario_id is null) <> (creado_por_usuario_id is null)");
+
+                            t.HasCheckConstraint("ck_viajes_estado", "estado in ('activo','cancelado')");
+
+                            t.HasCheckConstraint("ck_viajes_tipo_vehiculo", "tipo_vehiculo is null or tipo_vehiculo in ('camioneta','moto')");
+                        });
+                });
+
             modelBuilder.Entity("Logistica.Entidades.Zona", b =>
                 {
                     b.Property<int>("Id")
@@ -2364,6 +2614,25 @@ namespace Logistica.Migrations
                         .IsRequired();
 
                     b.Navigation("Cliente");
+                });
+
+            modelBuilder.Entity("Logistica.Entidades.ClienteUsuarioActividad", b =>
+                {
+                    b.HasOne("Logistica.Entidades.Cliente", "Cliente")
+                        .WithMany()
+                        .HasForeignKey("ClienteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Logistica.Entidades.ClienteUsuario", "ClienteUsuario")
+                        .WithMany()
+                        .HasForeignKey("ClienteUsuarioId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Cliente");
+
+                    b.Navigation("ClienteUsuario");
                 });
 
             modelBuilder.Entity("Logistica.Entidades.CostoFijo", b =>
@@ -2542,6 +2811,39 @@ namespace Logistica.Migrations
                     b.Navigation("RegistradoPorUsuario");
                 });
 
+            modelBuilder.Entity("Logistica.Entidades.PagoInformado", b =>
+                {
+                    b.HasOne("Logistica.Entidades.Cliente", "Cliente")
+                        .WithMany()
+                        .HasForeignKey("ClienteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Logistica.Entidades.ClienteUsuario", "ClienteUsuario")
+                        .WithMany()
+                        .HasForeignKey("ClienteUsuarioId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Logistica.Entidades.Pago", "Pago")
+                        .WithMany()
+                        .HasForeignKey("PagoId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Logistica.Entidades.Usuario", "RevisadoPorUsuario")
+                        .WithMany()
+                        .HasForeignKey("RevisadoPor")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Cliente");
+
+                    b.Navigation("ClienteUsuario");
+
+                    b.Navigation("Pago");
+
+                    b.Navigation("RevisadoPorUsuario");
+                });
+
             modelBuilder.Entity("Logistica.Entidades.ParadaPedido", b =>
                 {
                     b.HasOne("Logistica.Entidades.RutaParada", "Parada")
@@ -2577,6 +2879,11 @@ namespace Logistica.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Logistica.Entidades.ClienteUsuario", "CreadoPorClienteUsuario")
+                        .WithMany()
+                        .HasForeignKey("CreadoPorClienteUsuarioId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Logistica.Entidades.Ubicacion", "DestinoUbicacion")
                         .WithMany()
                         .HasForeignKey("DestinoUbicacionId")
@@ -2604,12 +2911,19 @@ namespace Logistica.Migrations
                         .HasForeignKey("RecepcionConfirmadaPor")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("Logistica.Entidades.Viaje", "Viaje")
+                        .WithMany()
+                        .HasForeignKey("ViajeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Logistica.Entidades.Zona", "Zona")
                         .WithMany()
                         .HasForeignKey("ZonaId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Cliente");
+
+                    b.Navigation("CreadoPorClienteUsuario");
 
                     b.Navigation("DestinoUbicacion");
 
@@ -2620,6 +2934,8 @@ namespace Logistica.Migrations
                     b.Navigation("PedidoOrigen");
 
                     b.Navigation("RecepcionConfirmadaPorUsuario");
+
+                    b.Navigation("Viaje");
 
                     b.Navigation("Zona");
                 });
@@ -2763,6 +3079,46 @@ namespace Logistica.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Localidad");
+                });
+
+            modelBuilder.Entity("Logistica.Entidades.Viaje", b =>
+                {
+                    b.HasOne("Logistica.Entidades.Cliente", "Cliente")
+                        .WithMany()
+                        .HasForeignKey("ClienteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Logistica.Entidades.ClienteUsuario", "CreadoPorClienteUsuario")
+                        .WithMany()
+                        .HasForeignKey("CreadoPorClienteUsuarioId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Logistica.Entidades.Usuario", "CreadoPorUsuario")
+                        .WithMany()
+                        .HasForeignKey("CreadoPorUsuarioId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Logistica.Entidades.Ubicacion", "OrigenUbicacion")
+                        .WithMany()
+                        .HasForeignKey("OrigenUbicacionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Logistica.Entidades.Ruta", "Ruta")
+                        .WithMany()
+                        .HasForeignKey("RutaId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Cliente");
+
+                    b.Navigation("CreadoPorClienteUsuario");
+
+                    b.Navigation("CreadoPorUsuario");
+
+                    b.Navigation("OrigenUbicacion");
+
+                    b.Navigation("Ruta");
                 });
 
             modelBuilder.Entity("Logistica.Entidades.Factura", b =>

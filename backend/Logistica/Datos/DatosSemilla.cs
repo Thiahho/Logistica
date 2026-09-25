@@ -146,10 +146,33 @@ public static class DatosSemilla
                 ClienteId = clienteDemo.Id,
                 Nombre = "Cliente Demo",
                 Email = "cliente@logistica.local",
+                Rol = RolesCliente.Dueno,
             };
             usuarioCliente.PasswordHash = AuthService.HashearCliente(usuarioCliente, passwordDev);
 
             db.ClientesUsuarios.Add(usuarioCliente);
+            await db.SaveChangesAsync(ct);
+        }
+
+        // Empleado del cliente demo (rol "usuario"): chequeo propio, no dentro del bloque de arriba,
+        // para que también aparezca en bases de desarrollo que ya tenían al dueño.
+        if (!await db.ClientesUsuarios.AnyAsync(u => u.Email == "empleado@logistica.local", ct))
+        {
+            const string passwordDev = "Logistica123!"; // solo desarrollo local, nunca en producción
+            var clienteDemo = await db.Clientes.OrderBy(c => c.Id).FirstAsync(ct);
+            var duenoDemo = await db.ClientesUsuarios.AsNoTracking()
+                .Where(u => u.Email == "cliente@logistica.local").Select(u => (int?)u.ClienteId).SingleOrDefaultAsync(ct);
+
+            var empleado = new ClienteUsuario
+            {
+                ClienteId = duenoDemo ?? clienteDemo.Id,
+                Nombre = "Empleado Demo",
+                Email = "empleado@logistica.local",
+                Rol = RolesCliente.Usuario,
+            };
+            empleado.PasswordHash = AuthService.HashearCliente(empleado, passwordDev);
+
+            db.ClientesUsuarios.Add(empleado);
             await db.SaveChangesAsync(ct);
         }
 

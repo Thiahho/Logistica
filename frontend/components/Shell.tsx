@@ -25,6 +25,7 @@ import {
   TrendingUp,
   Truck,
   UserCog,
+  UsersRound,
   Users,
   Wallet,
   Warehouse,
@@ -32,7 +33,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import type { Rol } from "@/lib/auth/types";
+import { esClienteDueno, type Rol } from "@/lib/auth/types";
 import { cn } from "@/lib/utils";
 import { LogoBF } from "@/components/LogoBF";
 import { Button } from "@/components/ui/button";
@@ -60,6 +61,7 @@ interface ItemNav {
 
 const NAV: ItemNav[] = [
   { href: "/pedidos", label: "Pedidos", icono: Package, roles: ["administracion", "operacion"], grupo: "operacion" },
+  { href: "/viajes", label: "Viajes", icono: MapaIcono, roles: ["administracion", "operacion"], grupo: "operacion" },
   { href: "/recepcion", label: "Recepción", icono: PackageCheck, roles: ["administracion", "operacion"], grupo: "operacion" },
   { href: "/deliverys", label: "Deliverys", icono: Bike, roles: ["administracion", "operacion"], grupo: "operacion" },
   { href: "/jornada", label: "Jornada", icono: CalendarClock, roles: ["administracion", "operacion"], grupo: "operacion" },
@@ -92,16 +94,21 @@ const NAV_REPARTIDOR: { href: string; label: string; icono: LucideIcon }[] = [
   { href: "/hoy/cierre", label: "Cierre", icono: ClipboardCheck },
 ];
 
-/** Las tres pantallas del cliente: su plan del día, cargar un envío y su libreta de clientes. */
-const NAV_CLIENTE: { href: string; label: string; icono: LucideIcon }[] = [
+/** Las pantallas del cliente: su plan del día, cargar un envío y su libreta de clientes. El dueño
+ * suma "Mi negocio" (envíos, gasto, cuenta y pagos) y "Mi equipo" (sus empleados y cómo trabajan). */
+const NAV_CLIENTE: { href: string; label: string; icono: LucideIcon; soloDueno?: boolean }[] = [
   { href: "/mis-envios", label: "Mi plan", icono: ClipboardCheck },
   { href: "/mis-envios/nuevo", label: "Cargar envío", icono: PackagePlus },
   { href: "/mis-envios/contactos", label: "Mis clientes", icono: Users },
+  { href: "/mis-envios/negocio", label: "Mi negocio", icono: Wallet, soloDueno: true },
+  { href: "/mis-envios/equipo", label: "Mi equipo", icono: UsersRound, soloDueno: true },
 ];
 
 function activoCliente(pathname: string, href: string): boolean {
-  // "/mis-envios" es prefijo de las otras dos: "Mi plan" es esa pantalla y el detalle (/mis-envios/[id]).
-  if (href === "/mis-envios") return !pathname.startsWith("/mis-envios/nuevo") && !pathname.startsWith("/mis-envios/contactos");
+  // "/mis-envios" es prefijo de las demás: "Mi plan" es esa pantalla y el detalle (/mis-envios/[id]).
+  if (href === "/mis-envios") {
+    return !NAV_CLIENTE.some((item) => item.href !== "/mis-envios" && pathname.startsWith(item.href));
+  }
   return pathname.startsWith(href);
 }
 
@@ -391,7 +398,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   if (usuario.rol === "cliente") {
     return (
-      <ShellConBarra items={NAV_CLIENTE} activo={activoCliente} etiqueta="Mi cuenta" pathname={pathname}>
+      <ShellConBarra
+        items={NAV_CLIENTE.filter((item) => !item.soloDueno || esClienteDueno(usuario))}
+        activo={activoCliente}
+        etiqueta="Mi cuenta"
+        pathname={pathname}
+      >
         {children}
       </ShellConBarra>
     );

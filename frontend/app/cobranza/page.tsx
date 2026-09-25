@@ -27,6 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { PagosInformadosRevision } from "@/components/PagosInformadosRevision";
 import { useListadoPaginado } from "@/lib/hooks/useListadoPaginado";
 import { etiquetaCategoriaRiesgo, type ClienteEnRiesgo } from "@/lib/dominio/tipos";
 
@@ -94,6 +95,12 @@ function PanelCobranza() {
     <>
       <div className="p-4 md:p-8">
         <CabeceraSesion titulo="Cobranza" />
+
+        {/* Arriba de todo: un pago informado sin revisar es plata que el cliente ya dio y todavía
+         * figura como deuda (y puede estar sosteniendo un corte de servicio). */}
+        <div className="mb-6">
+          <PagosInformadosRevision ruta="/api/pagos-informados" mostrarCliente onCambio={recargar} ocultarSiVacio />
+        </div>
 
         {clientes && clientes.length > 0 && (
           <div className="grid grid-cols-3 gap-4 mb-6">

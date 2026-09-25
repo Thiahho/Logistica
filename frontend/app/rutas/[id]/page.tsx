@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
+import { AvisoViajeDeRuta } from "@/components/viajes/AvisoViajeDeRuta";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -139,6 +140,7 @@ function RutaDetalleContenido() {
             id: "origen",
             punto: { lat: bundle.origen.lat, lng: bundle.origen.lng },
             etiqueta: bundle.origen.esDeposito ? "D" : "P",
+            imagen: bundle.origen.esDeposito ? "/logo-solo.png" : undefined,
             variante: "origen" as const,
             titulo: bundle.origen.esDeposito
               ? (bundle.origen.nombreDeposito ?? "Depósito")
@@ -164,6 +166,7 @@ function RutaDetalleContenido() {
   return (
     <div className="flex max-w-5xl flex-col gap-4 p-4 md:gap-6 md:p-8">
       <CabeceraSesion titulo={`Ruta #${ruta.id} — ${ruta.fecha}`} />
+      <AvisoViajeDeRuta rutaId={ruta.id} />
       <div className="flex items-center justify-between gap-3">
         <Button variant="outline" className="h-11 md:h-8" render={<Link href="/rutas" />} nativeButton={false}>
           ← Rutas

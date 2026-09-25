@@ -8,7 +8,10 @@ public class ClienteUsuarioConfiguration : IEntityTypeConfiguration<ClienteUsuar
 {
     public void Configure(EntityTypeBuilder<ClienteUsuario> b)
     {
-        b.ToTable("clientes_usuarios");
+        b.ToTable("clientes_usuarios", t =>
+        {
+            t.HasCheckConstraint("ck_clientes_usuarios_rol", "rol in ('dueno','usuario')");
+        });
 
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
@@ -16,6 +19,7 @@ public class ClienteUsuarioConfiguration : IEntityTypeConfiguration<ClienteUsuar
         b.Property(x => x.Nombre).HasColumnName("nombre").IsRequired();
         b.Property(x => x.Email).HasColumnName("email").IsRequired();
         b.Property(x => x.PasswordHash).HasColumnName("password_hash").IsRequired();
+        b.Property(x => x.Rol).HasColumnName("rol").IsRequired().HasDefaultValue(RolesCliente.Dueno);
         b.Property(x => x.Activo).HasColumnName("activo").HasDefaultValue(true);
         b.Property(x => x.CreadoEn).HasColumnName("creado_en").HasDefaultValueSql("now()");
 

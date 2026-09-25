@@ -8,7 +8,6 @@ import { CabeceraSesion } from "@/components/CabeceraSesion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
 import { SelectorLocalidad, type LocalidadConocida } from "@/components/SelectorLocalidad";
@@ -61,7 +60,6 @@ function FormularioAlta() {
   const [pesoKg, setPesoKg] = useState("");
   const [valorDeclarado, setValorDeclarado] = useState("");
   const [fechaEntrega, setFechaEntrega] = useState(hoyISO());
-  const [urgente, setUrgente] = useState(false);
   const [peajes, setPeajes] = useState("0");
   const [observaciones, setObservaciones] = useState("");
 
@@ -196,7 +194,7 @@ function FormularioAlta() {
             clienteId,
             localidadId,
             fechaEntrega,
-            urgente,
+            urgente: false, // acta changelog 4.31: la carga ya no ofrece urgencia
             peajes: Number(peajes) || 0,
           }),
           signal: abort.signal,
@@ -218,7 +216,7 @@ function FormularioAlta() {
       clearTimeout(timeout);
       abort.abort();
     };
-  }, [listoParaCotizar, clienteId, localidadId, fechaEntrega, urgente, peajes, fetchConSesion]);
+  }, [listoParaCotizar, clienteId, localidadId, fechaEntrega, peajes, fetchConSesion]);
 
   const cotizacionVisible = listoParaCotizar ? cotizacion : null;
 
@@ -248,7 +246,7 @@ function FormularioAlta() {
           pesoKg: pesoKg ? Number(pesoKg) : null,
           valorDeclarado: valorDeclarado ? Number(valorDeclarado) : null,
           fechaEntrega,
-          urgente,
+          urgente: false,
           peajes: Number(peajes) || 0,
           observaciones: observaciones || null,
         }),
@@ -434,14 +432,6 @@ function FormularioAlta() {
                   onChange={(e) => setPeajes(e.target.value)}
                 />
               </div>
-              <div className="flex items-center gap-2 pt-6">
-                <Checkbox
-                  id="urgente"
-                  checked={urgente}
-                  onCheckedChange={(v) => setUrgente(v === true)}
-                />
-                <Label htmlFor="urgente">Urgente</Label>
-              </div>
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="observaciones">Observaciones</Label>
@@ -474,18 +464,15 @@ function FormularioAlta() {
               ) : cotizacionVisible ? (
                 <div>
                   <p className="text-lg font-semibold">
+                    {/* Acta changelog 4.31: la carga ya no ofrece moto; el estimado es en camioneta. */}
                     {cotizacionVisible.camioneta
                       ? `$${cotizacionVisible.camioneta.total.toLocaleString("es-AR")} en ${etiquetaTipoVehiculo("camioneta")}`
                       : `Sin tarifa de ${etiquetaTipoVehiculo("camioneta")}`}
-                    {" · "}
-                    {cotizacionVisible.moto
-                      ? `$${cotizacionVisible.moto.total.toLocaleString("es-AR")} en ${etiquetaTipoVehiculo("moto")}`
-                      : `sin tarifa de ${etiquetaTipoVehiculo("moto")}`}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Estimado, no es el precio final: se fija cuando se arme la ruta y se sepa qué
                     vehículo lo lleva.
-                    {(cotizacionVisible.camioneta?.descuentoRango ?? cotizacionVisible.moto?.descuentoRango ?? 0) > 0 &&
+                    {(cotizacionVisible.camioneta?.descuentoRango ?? 0) > 0 &&
                       " Incluye el descuento por rango del cliente."}
                   </p>
                 </div>

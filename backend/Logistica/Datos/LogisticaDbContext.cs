@@ -33,6 +33,7 @@ public class LogisticaDbContext(DbContextOptions<LogisticaDbContext> options) : 
     public DbSet<Tarifa> Tarifas => Set<Tarifa>();
     public DbSet<Usuario> Usuarios => Set<Usuario>();
     public DbSet<ClienteUsuario> ClientesUsuarios => Set<ClienteUsuario>();
+    public DbSet<ClienteUsuarioActividad> ClientesUsuariosActividad => Set<ClienteUsuarioActividad>();
     public DbSet<Pedido> Pedidos => Set<Pedido>();
     public DbSet<PedidoEvento> PedidoEventos => Set<PedidoEvento>();
     public DbSet<Ruta> Rutas => Set<Ruta>();
@@ -46,6 +47,8 @@ public class LogisticaDbContext(DbContextOptions<LogisticaDbContext> options) : 
     public DbSet<Factura> Facturas => Set<Factura>();
     public DbSet<FacturaItem> FacturaItems => Set<FacturaItem>();
     public DbSet<Pago> Pagos => Set<Pago>();
+    public DbSet<PagoInformado> PagosInformados => Set<PagoInformado>();
+    public DbSet<Viaje> Viajes => Set<Viaje>();
     public DbSet<Novedad> Novedades => Set<Novedad>();
     public DbSet<ClienteDestinatario> ClientesDestinatarios => Set<ClienteDestinatario>();
     public DbSet<ParametroLiquidacion> ParametrosLiquidacion => Set<ParametroLiquidacion>();

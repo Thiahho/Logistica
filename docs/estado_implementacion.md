@@ -1,6 +1,6 @@
 # Estado de implementación — relevamiento de código
 
-**Generado:** 13/09/2026, actualizado puntualmente el 15/09/2026 (monitor de jornada, changelog 4.4), el 16/09/2026 (deliverys/recargo por km, changelog 4.5), el 17/09/2026 (disponibilidad de repartidores, changelog 4.6; y en una segunda pasada del mismo día, la fase de gobernanza de changelog 4.7), el 18/09/2026 (novedades de la calle, changelog 4.8 — §3.13), el 21/09/2026 (identidad visual "BF Transportes", `construccion_v1.md` changelog 1.23 — cambio puramente visual, no suma ninguna fila a los conteos de este documento; ver nota debajo de §1), el 22/09/2026 (portal de carga y recepción, changelog 4.9 — §3.14, nueva) una segunda pasada del mismo día (detalle de envío, envío en curso y "mis clientes", changelog 4.10 — §3.15, nueva) y el 23/09/2026 (changelog 4.11 a 4.18 — §3.16 a §3.22, nuevas: zonas automáticas, ubicación por link de Maps, "Mi plan", bultos y armado rápido, detalle de ruta y Maps, flujo del repartidor con DNI, y la auditoría de validación/seguridad/carga; ninguna de estas pasadas es una repasada completa del resto) y el 24/09/2026 (preparación del despliegue en Render + Vercel, changelog 4.19 — §3.23, nueva; no mueve ningún conteo; y en las pasadas siguientes del mismo día, E2, E3, "hoy" local, seguridad, urgencias, monitoreo y CI — §3.24 a §3.29, detalle en §7) · **Rama:** `main` (desde el merge squash de `demo-d`, commit `22c6735`, 23/09/2026; `demo-d` queda como historial de trabajo). Desde el 24/09/2026 los cambios entran a `main` por PR, con CI en verde (`construccion_v1.md` 1.43) · **Fuente:** lectura directa del código (backend ASP.NET Core 8 + PostgreSQL, frontend Next.js), cruzado contra `acta_sistema.md` v4.26 y `Anexo_I_Alcance_V2.docx`.
+**Generado:** 13/09/2026, actualizado puntualmente el 15/09/2026 (monitor de jornada, changelog 4.4), el 16/09/2026 (deliverys/recargo por km, changelog 4.5), el 17/09/2026 (disponibilidad de repartidores, changelog 4.6; y en una segunda pasada del mismo día, la fase de gobernanza de changelog 4.7), el 18/09/2026 (novedades de la calle, changelog 4.8 — §3.13), el 21/09/2026 (identidad visual "BF Transportes", `construccion_v1.md` changelog 1.23 — cambio puramente visual, no suma ninguna fila a los conteos de este documento; ver nota debajo de §1), el 22/09/2026 (portal de carga y recepción, changelog 4.9 — §3.14, nueva) una segunda pasada del mismo día (detalle de envío, envío en curso y "mis clientes", changelog 4.10 — §3.15, nueva) y el 23/09/2026 (changelog 4.11 a 4.18 — §3.16 a §3.22, nuevas: zonas automáticas, ubicación por link de Maps, "Mi plan", bultos y armado rápido, detalle de ruta y Maps, flujo del repartidor con DNI, y la auditoría de validación/seguridad/carga; ninguna de estas pasadas es una repasada completa del resto) y el 24/09/2026 (preparación del despliegue en Render + Vercel, changelog 4.19 — §3.23, nueva; no mueve ningún conteo; y en las pasadas siguientes del mismo día, E2, E3, "hoy" local, seguridad, urgencias, monitoreo y CI — §3.24 a §3.29, detalle en §7) y el 25/09/2026 (portal con dueño y empleados, "Mi negocio" y pago informado, viajes de varias paradas, precio oculto en el portal y carga sin urgencia ni vehículo; changelog 4.27 a 4.31 — §3.30 a §3.34, nuevas) · **Rama:** `main` (desde el merge squash de `demo-d`, commit `22c6735`, 23/09/2026; `demo-d` queda como historial de trabajo). Desde el 24/09/2026 los cambios entran a `main` por PR, con CI en verde (`construccion_v1.md` 1.43) · **Fuente:** lectura directa del código (backend ASP.NET Core 8 + PostgreSQL, frontend Next.js), cruzado contra `acta_sistema.md` v4.31 y `Anexo_I_Alcance_V2.docx`.
 
 **Regla de este documento, explícita desde la pasada de changelog 4.7:** acá se cuenta lo que existe en el repositorio. Lo diseñado y acordado pero no escrito se nombra como tal y **no suma a ningún conteo** — para eso están `acta_sistema.md` (alcance) y `construccion_v1.md` (diseño). Es la diferencia que hace auditable este inventario.
 
@@ -12,12 +12,12 @@ Este documento no reemplaza a `acta_sistema.md` (reglas de negocio) ni a `constr
 
 | | |
 |---|---|
-| Controladores API | **25** (suman `LiquidacionesController`, E2/B4, `RangosController`, E2/B3, `RentabilidadController`, E2/B7, y `TableroController`, E3/B2 — `construccion_v1.md` 1.35 a 1.38) |
-| Endpoints | **149** acciones (suman `GET /rutas/urgencias/ventana` y `POST /rutas/{id}/urgencias`, RF-45, acta 4.26; antes, 147) `[Http*]` en `Controllers/*.cs` — conteo mecánico y reproducible: `grep -cE '^\s*\[Http(Get\|Post\|Put\|Patch\|Delete)' backend/Logistica/Controllers/*.cs`. `GET /tablero` (E3) sobre las 146 de B7. Siete de B7 (`GET /rentabilidad`, `POST`/`PUT`/`DELETE /costos-fijos[/{id}]`, `POST /costos-fijos/copiar-mes-anterior`, `GET`/`PUT /objetivos-rentabilidad`) sobre las 139 de B3. Seis de B3 (`GET`/`PUT /rangos[/{codigo}]`, `POST /rangos/recalculo/previsualizacion`, `POST /rangos/recalculo`, `GET /clientes/{id}/rango`, `PUT /clientes/{id}/rango/ajuste`) sobre las 133 de B4. Esas eran ocho más que las 125 de changelog 4.18, todas de B4: `GET /rutas/{id}/liquidacion-sugerida`, `GET` y `PUT /parametros-liquidacion[/{tipo}]`, `GET /liquidaciones/previsualizacion`, `POST /liquidaciones`, `GET /liquidaciones`, `GET /liquidaciones/{id}` y `GET /liquidaciones/{id}/csv`. Las 125 de antes eran ocho más que las 117 de changelog 4.10: `GET /localidades/con-zona`, `PUT /localidades/{id}/zona/automatica`, `POST /localidades/recalcular`, `GET /localidades/{id}/precio-sugerido` y `GET /mi-cuenta/localidades/{id}/precio-sugerido` (4.11), `POST /ubicaciones/desde-mapa` y su espejo `POST /mi-cuenta/ubicaciones/desde-mapa` (4.14) y `GET /mi-cuenta/plan-del-dia` (4.12) |
-| Pantallas frontend (`page.tsx`) | **43** (suman `/liquidaciones` y `/liquidaciones/[id]`, B4, `/clientes/rangos`, B3, `/rentabilidad`, B7, y `/tablero`, E3; recontado con `find frontend/app -name page.tsx`, no adelantado) |
-| Entidades / tablas núcleo | **28 entidades / 25 tablas núcleo** (las seis que acordó acta 4.21 para E2: `parametros_liquidacion` y `liquidaciones`, B4; `rangos` y `cliente_rangos`, B3; `costos_fijos` y `objetivos_rentabilidad`, B7 — techo alcanzado; `ls Entidades/*.cs` da 29 archivos porque incluye el enum `EstadoPedido.cs`). Antes de B4 (22/19, sin cambio desde 4.10: `localidades` suma `lat`, `lng`, `distancia_km_deposito`, `distancia_fuente` y `zona_manual` — 4.11 — y `pruebas_entrega` suma `documento_numero` y `sin_documento_motivo` — 4.17; ninguna tabla ni entidad nueva) |
-| Migraciones aplicadas | **23** (`Inicial` → `AgregarNovedadUrgencia`; la última, RF-45, solo amplía los checks de `novedades` con el tipo `urgencia`. Antes, 22, hasta `AgregarRentabilidad`; la última, B7, crea `costos_fijos` y `objetivos_rentabilidad`. La anterior, `AgregarRangos` (B3), crea `rangos` (con sus cinco filas) y `cliente_rangos`, suma el rango y su ajuste a `clientes` y `descuento_rango` a `pedidos`, y agrega esa columna a `fn_congelar_pedido`. La anterior, `AgregarLiquidacion` (B4), agrega las dos tablas, siete columnas en `rutas` y los triggers `trg_liquidaciones_inmutable` y `trg_rutas_liquidada`. Antes: suman `ZonasAutomaticas` (4.11), `AgregarDocumentoAPruebaEntrega` (4.17) e `IndiceBusquedaPedidos` (4.18, requiere la extensión `pg_trgm`)) |
-| Roles | administracion, operacion, repartidor (personal interno) + cliente (`clientes_usuarios`, tabla separada) |
+| Controladores API | **26** (suma `ViajesController`, acta 4.29, `construccion_v1.md` 1.47. Antes, 25: suman `LiquidacionesController`, E2/B4, `RangosController`, E2/B3, `RentabilidadController`, E2/B7, y `TableroController`, E3/B2 — `construccion_v1.md` 1.35 a 1.38) |
+| Endpoints | **180** acciones (25/09/2026, acta 4.27 a 4.29, recontado con el `grep` de abajo, no sumado a mano: 31 más que las 149 de 4.26. De 4.27, en `MiCuentaController`: `usuarios` GET/POST, `usuarios/{id}/activo`, `usuarios/{id}/password`, `equipo/resumen` y `equipo/actividad`. De 4.28: `negocio/resumen`, `estado-de-cuenta`, `facturas`, `facturas/{id}`, `pagos`, `pagos-informados`, `pagos-informados/{id}/comprobante`, `pedidos/{id}/cancelar` y `PUT pedidos/{id}`, más cinco en `ClientesController` para revisar los pagos informados. De 4.29: `mi-cuenta/viajes/previsualizar`, `mi-cuenta/viajes` POST/GET, `{id}` y `{id}/cancelar`, y los seis de `ViajesController`. Antes, 149: suman `GET /rutas/urgencias/ventana` y `POST /rutas/{id}/urgencias`, RF-45, acta 4.26; antes, 147) `[Http*]` en `Controllers/*.cs` — conteo mecánico y reproducible: `grep -cE '^\s*\[Http(Get\|Post\|Put\|Patch\|Delete)' backend/Logistica/Controllers/*.cs`. `GET /tablero` (E3) sobre las 146 de B7. Siete de B7 (`GET /rentabilidad`, `POST`/`PUT`/`DELETE /costos-fijos[/{id}]`, `POST /costos-fijos/copiar-mes-anterior`, `GET`/`PUT /objetivos-rentabilidad`) sobre las 139 de B3. Seis de B3 (`GET`/`PUT /rangos[/{codigo}]`, `POST /rangos/recalculo/previsualizacion`, `POST /rangos/recalculo`, `GET /clientes/{id}/rango`, `PUT /clientes/{id}/rango/ajuste`) sobre las 133 de B4. Esas eran ocho más que las 125 de changelog 4.18, todas de B4: `GET /rutas/{id}/liquidacion-sugerida`, `GET` y `PUT /parametros-liquidacion[/{tipo}]`, `GET /liquidaciones/previsualizacion`, `POST /liquidaciones`, `GET /liquidaciones`, `GET /liquidaciones/{id}` y `GET /liquidaciones/{id}/csv`. Las 125 de antes eran ocho más que las 117 de changelog 4.10: `GET /localidades/con-zona`, `PUT /localidades/{id}/zona/automatica`, `POST /localidades/recalcular`, `GET /localidades/{id}/precio-sugerido` y `GET /mi-cuenta/localidades/{id}/precio-sugerido` (4.11), `POST /ubicaciones/desde-mapa` y su espejo `POST /mi-cuenta/ubicaciones/desde-mapa` (4.14) y `GET /mi-cuenta/plan-del-dia` (4.12) |
+| Pantallas frontend (`page.tsx`) | **49** (suman `/mis-envios/equipo` (4.27), `/mis-envios/negocio` (4.28), `/mis-envios/viajes/[id]`, `/viajes`, `/viajes/nuevo` y `/viajes/[id]` (4.29); recontado con `find`. Antes, 43: suman `/liquidaciones` y `/liquidaciones/[id]`, B4, `/clientes/rangos`, B3, `/rentabilidad`, B7, y `/tablero`, E3; recontado con `find frontend/app -name page.tsx`, no adelantado) |
+| Entidades / tablas núcleo | **31 entidades / 28 tablas núcleo** (suman `clientes_usuarios_actividad` (4.27), `pagos_informados` (4.28) y `viajes` (4.29), cada una acordada en su fila del acta; `ls Entidades/*.cs` da 32 por el enum. Antes, 28/25: las seis que acordó acta 4.21 para E2: `parametros_liquidacion` y `liquidaciones`, B4; `rangos` y `cliente_rangos`, B3; `costos_fijos` y `objetivos_rentabilidad`, B7 — techo alcanzado; `ls Entidades/*.cs` da 29 archivos porque incluye el enum `EstadoPedido.cs`). Antes de B4 (22/19, sin cambio desde 4.10: `localidades` suma `lat`, `lng`, `distancia_km_deposito`, `distancia_fuente` y `zona_manual` — 4.11 — y `pruebas_entrega` suma `documento_numero` y `sin_documento_motivo` — 4.17; ninguna tabla ni entidad nueva) |
+| Migraciones aplicadas | **26** (`Inicial` → `AgregarViajes`; suman `PortalDuenoYEmpleados` (rol del login, creador del pedido y registro de actividad, con los pedidos de portal viejos recuperando su autor desde `precio_manual_por`), `AgregarPagosInformados` y `AgregarViajes` (tabla más `pedidos.viaje_id` y `orden_en_viaje`). Antes, 23: `Inicial` → `AgregarNovedadUrgencia`; la última, RF-45, solo amplía los checks de `novedades` con el tipo `urgencia`. Antes, 22, hasta `AgregarRentabilidad`; la última, B7, crea `costos_fijos` y `objetivos_rentabilidad`. La anterior, `AgregarRangos` (B3), crea `rangos` (con sus cinco filas) y `cliente_rangos`, suma el rango y su ajuste a `clientes` y `descuento_rango` a `pedidos`, y agrega esa columna a `fn_congelar_pedido`. La anterior, `AgregarLiquidacion` (B4), agrega las dos tablas, siete columnas en `rutas` y los triggers `trg_liquidaciones_inmutable` y `trg_rutas_liquidada`. Antes: suman `ZonasAutomaticas` (4.11), `AgregarDocumentoAPruebaEntrega` (4.17) e `IndiceBusquedaPedidos` (4.18, requiere la extensión `pg_trgm`)) |
+| Roles | administracion, operacion, repartidor (personal interno) + cliente (`clientes_usuarios`, tabla separada). Desde 4.27 el login de cliente es **dueño** o **empleado** (`clientes_usuarios.rol`, claim `cliente_rol`, policy `ClienteDueno`): no es un rol de autorización aparte, sigue siendo `cliente` |
 | Última etapa cerrada | **E3 — Tablero de control** (Anexo I §5: B2; changelog acta 4.24, 24/09/2026), después de **E2 — Rangos y liquidación** (B3, B4 y B7; acta 4.23) y **E1 — Cuenta corriente y facturación** (acta 4.2). Quedan E4 (lo que falta: B6 aviso de estado, B11 importación masiva) y E5 (B10, cola offline). El monitor de jornada (4.4), los deliverys/recargo por km (4.5), el panel de repartidores (4.6) y el portal de carga/recepción/"mis clientes" (4.9/4.10) son ampliaciones sobre etapas ya cerradas o adelantadas puntualmente (§9.3, D14/§10.2-N, RF-15/§9.3 y Anexo I §5/E4 respectivamente), no un cierre completo de etapa nueva del Anexo I. |
 
 **Identidad visual "BF Transportes" (`construccion_v1.md` changelog 1.23, 21/09/2026):** rediseño de marca (paleta, tipografía, logo provisorio, navegación mobile) sobre tres referencias en `docs/` — `Paleta.png`, `Logo.png`, `MobileVistaOperador.png`. No suma ni resta un solo controlador, endpoint, pantalla, entidad o migración: por eso no mueve ninguna cifra de la tabla de arriba. Detalle técnico completo en `construccion_v1.md` §1 y changelog 1.23, no repetido acá — es la diferencia de alcance entre los dos documentos (regla del encabezado).
@@ -277,7 +277,65 @@ Lo que existe en el repositorio: un `Dockerfile` de dos etapas para el backend (
 - **`/health/listo`:** da 503 si hay migraciones sin aplicar. `/health` sigue igual (liveness para Render).
 - **Monitor externo:** no está conectado; los pasos están en `construccion_v1.md` §9.
 
-## 4. Pantallas del frontend (43)
+### 3.30 Portal con dueño y empleados (`MiCuentaController`, `Dominio/EquipoCliente.cs`, `Servicios/ActividadPortal.cs`) — acta 4.27, `construccion_v1.md` 1.45
+
+- **Roles dentro del cliente:** `dueno` o `usuario` (empleado). Los logins que ya existían quedaron como dueños.
+- **El empleado:** carga y sigue los envíos de toda la empresa y usa "Mis clientes". Recibe 403 en la cuenta, en los usuarios y en "Mi equipo".
+- **El dueño, en `/mis-envios/equipo`:**
+  - alta, baja y cambio de contraseña de sus empleados; nunca de sí mismo ni de otro dueño;
+  - resumen de envíos por persona;
+  - historial de actividad: inicios de sesión, envíos, contactos, usuarios, cancelaciones, pagos informados y viajes.
+- **Quién cargó cada envío:** columna propia en `pedidos`, con filtro en "Mi plan".
+- **BackOffice:** el alta de un login elige el rol.
+- **Verificado:** por API sobre la base local (permisos por rol, carga, actividad, desactivación); los tests están en `EquipoClienteTests`.
+
+### 3.31 "Mi negocio" y pago informado (`MiCuentaController`, `ClientesController`, `Dominio/NegocioCliente.cs`) — acta 4.28, `construccion_v1.md` 1.46
+
+- **`/mis-envios/negocio`, solo el dueño:**
+  - un panel de día, semana o mes, con los envíos por estado contra el período anterior y un gráfico diario;
+  - el estado de cuenta con el saldo acumulado y el detalle de cada factura;
+  - los pagos.
+- **Pago informado:** el dueño avisa un pago con foto opcional del comprobante. Administración lo confirma (ahí se crea el `Pago`) o lo rechaza con motivo, desde `/cobranza` o desde la ficha del cliente.
+- **Envíos en Borrador:** el dueño puede cancelarlos o corregirlos mientras no estén en una ruta.
+- **Verificado:** por API. El flujo de informar → confirmar/rechazar dejó en la base de desarrollo un pago real de prueba de $1.400 al cliente demo: un pago no se borra, y `RegistrarPago` no acepta el contraasiento negativo que su propio comentario propone. Queda como deuda.
+
+### 3.32 Viajes: envío con varias paradas (`ViajesController`, `Servicios/ViajeService.cs`, `Dominio/OrdenParadas.cs`) — acta 4.29, `construccion_v1.md` 1.47
+
+- **Carga única**, en `/mis-envios/nuevo` y `/viajes/nuevo`:
+  - la fecha del viaje;
+  - cada parada con su destinatario (de "Mis clientes" o nuevo, que se guarda en la libreta), su dirección, bultos y observaciones;
+  - el "+" para sumar paradas, hasta 24;
+  - "Cerrar ruta": el servidor ordena las paradas y se ve el mapa, los km y el orden, que se puede ajustar antes de confirmar.
+- **Una sola parada** se carga como envío común.
+- **Con varias:**
+  - se crea el viaje, un pedido por parada y **la ruta propuesta en planificación**, que Operación revisa y cierra como cualquier otra (acta §2);
+  - esa ruta no admite envíos de otro cliente;
+  - las direcciones dudosas quedan fuera de la ruta hasta que las corrijan.
+- **Detalle con mapa:** `/mis-envios/viajes/[id]` y `/viajes/[id]`. "Mis viajes" aparece en "Mi plan".
+- **Precio:** provisorio, cada parada cotiza como un envío (sin definir por la Empresa).
+- **Verificado:** por API un viaje de 5 paradas:
+  - orden sugerido y consolidación RF-14;
+  - ruta propuesta;
+  - rechazo de un envío de otro cliente;
+  - cierre de planificación: EnRuta, con el precio vinculante respetado;
+  - cancelación antes y después de salir.
+  
+  Tests en `OrdenParadasTests`. Quedó en la base de desarrollo un viaje de prueba en curso (ruta #6) asignado a "Repartidor Demo".
+
+### 3.33 El portal no muestra el precio por envío (`Portal:MostrarPrecios`, `CurrentUser.VePreciosDeEnvio`) — acta 4.30, `construccion_v1.md` 1.48
+
+- **Qué:** con el interruptor apagado, que es como está, la API no le manda montos de envío a ningún login del portal. Eso cubre la carga, el detalle del envío y del viaje, y el gasto de "Mi negocio".
+- **Qué sigue visible:** saldo, estado de cuenta, facturas y pagos.
+- **Prendido:** el dueño vuelve a ver precios; el empleado nunca.
+- **Verificado:** por API en los dos modos.
+
+### 3.34 Carga sin "Urgente" ni vehículo — acta 4.31, `construccion_v1.md` 1.49
+
+- **Qué:** solo frontend. Portal, pedido y viaje del BackOffice se cargan no urgentes y en camioneta.
+- **Qué no cambia:** RF-45 (urgencias en ruta) y deliverys D14.
+- **Verificado:** por API con los cuerpos que arman las pantallas (envío, viaje y pedido del BackOffice).
+
+## 4. Pantallas del frontend (49)
 
 **El conteo pasó de 36 a 38 cuando el código existió, no antes:** `/mis-envios/[id]` y `/mis-envios/contactos` (changelog 4.10). Recontado con `find frontend/app -name page.tsx`. **Sin pantallas nuevas en 4.11–4.18**: `/mis-envios` ahora es "Mi plan" (4.12), `/rutas` suma "Preparar la ruta del día siguiente" y columna de bultos, `/rutas/[id]` se reordena para mobile y suma el botón de Maps (4.16), `/rutas/[id]/armar` suma totales y selección masiva (4.15), `/hoy`, `/hoy/retiro`, `/hoy/cierre` y `/hoy/parada/[paradaId]` cambian según el flujo del repartidor (4.17) y `/tarifas` suma la gestión de zonas automáticas (4.11). Este documento cuenta lo que existe, no lo que está acordado — y que exista no es que se haya probado en un teléfono: de las pantallas de esta ronda solo el recorrido `/hoy` → `/hoy/cierre` se abrió en un Chrome real (headless, 390 px); el resto se verificó con `tsc`, `eslint`, `next build` y la API.
 
@@ -293,6 +351,9 @@ Lo que existe en el repositorio: un `Dockerfile` de dos etapas para el backend (
 | `/hoy`, `/hoy/parada/[paradaId]` | PWA del repartidor — mapa, recorrido, avisos de operación con acuse (sondeo cada 20 s), cierre de parada con foto y salto a la siguiente, "Corregir un dato". Navegación propia del repartidor en `Shell` (barra inferior en pantalla chica, sidebar desde `md`). Sin cola offline (H2/E5 abierto) |
 | `/hoy/retiro`, `/hoy/cierre`, `/hoy/problema` | Retiro con conteo firmado (RF-35), cierre de jornada del repartidor (RF-26, declaración pendiente de revisión) y reporte de un problema (RF-36) |
 | `/mis-envios`, `/mis-envios/nuevo`, `/mis-envios/[id]` | Portal del cliente: consulta de cuenta, alta de pedido propio con precio vinculante (B5, changelog 4.9) y detalle de un envío (changelog 4.10) |
+| `/mis-envios/equipo`, `/mis-envios/negocio` | Solo el dueño: su equipo (usuarios, resumen, actividad; 4.27) y su negocio (panel por período, estado de cuenta, pagos e "Informar un pago"; 4.28) |
+| `/mis-envios/viajes/[id]` | Detalle de un viaje con mapa y paradas en orden (4.29). La carga de un viaje es `/mis-envios/nuevo`, unificada con el envío de una parada |
+| `/viajes`, `/viajes/nuevo`, `/viajes/[id]` | BackOffice: viajes de todos los clientes, alta para un cliente y detalle con enlace a su ruta (4.29) |
 | `/mis-envios/contactos` | "Mis clientes" — libreta de destinatarios que el cliente registra a mano, reutilizable al cargar un envío (RF-40, changelog 4.10) |
 | `/recepcion` | Cola de conciliación de bultos declarados por el cliente vs. cargados, para pedidos de portal (B13, changelog 4.9) |
 | `/clientes`, `/clientes/nuevo`, `/clientes/[id]` | ABM de clientes |
@@ -325,10 +386,11 @@ Lo que existe en el repositorio: un `Dockerfile` de dos etapas para el backend (
 | Liquidación al repartidor (E2/B4) | `parametros_liquidacion`, `liquidaciones` |
 | Rangos de cliente (E2/B3) | `rangos`, `cliente_rangos` |
 | Rentabilidad (E2/B7) | `costos_fijos`, `objetivos_rentabilidad` |
+| Portal del cliente (4.27 a 4.29) | `clientes_usuarios_actividad` (solo inserción), `pagos_informados`, `viajes` |
 | Usuarios | `usuarios`, `clientes_usuarios`, `refresh_tokens` |
 
 **`docs/schema_v3.sql` está desactualizado desde antes de E1** (verificado el 24/09/2026: no tiene `facturas`, `factura_items`, `pagos`, `novedades`, `clientes_destinatarios` ni ninguna columna posterior). El DDL real es el de las migraciones (`backend/Logistica/Migrations`); regenerar `schema_v3.sql` desde la base (`pg_dump --schema-only`) queda pendiente. Historial de migraciones (22, cronológico; las tres últimas son `AgregarLiquidacion` (E2/B4), `AgregarRangos` (E2/B3) y `AgregarRentabilidad` (E2/B7); antes de ellas, las tres últimas eran `ZonasAutomaticas` (4.11 — agrega las columnas de medición a `localidades` y marca como manuales las zonas ya cargadas), `AgregarDocumentoAPruebaEntrega` (4.17) e `IndiceBusquedaPedidos` (4.18 — extensión `pg_trgm` más un índice GIN sobre `pedidos.destinatario_nombre`); antes de ellas, las cuatro últimas eran `AgregarRetiroDeRuta` (4.7), `AgregarNovedades` (4.8), `AgregarRecepcionPortal` (4.9 — también elimina la FK de `pedidos.precio_manual_por`, no solo agrega columnas) y `AgregarClienteDestinatarios` (4.10)):
-`Inicial` → `ReglasDeBaseDeDatos` → `AgregarVehiculos` → `AgregarKmZonas` → `SepararUsuariosCliente` → `AgregarOrigenRuta` → `AgregarCatalogoDepositos` → `AgregarTipoVehiculo` → `AgregarPrecioManual` → `AgregarCuentaCorriente` → `AgregarTipoEventoAvisoCobranza` → `AgregarPrecioPorKm` → `AgregarRetiroDeRuta` → `AgregarNovedades` → `AgregarRecepcionPortal` → `AgregarClienteDestinatarios` → `ZonasAutomaticas` → `AgregarDocumentoAPruebaEntrega` → `IndiceBusquedaPedidos` → `AgregarLiquidacion` (E2/B4) → `AgregarRangos` (E2/B3) → `AgregarRentabilidad` (E2/B7).
+`Inicial` → `ReglasDeBaseDeDatos` → `AgregarVehiculos` → `AgregarKmZonas` → `SepararUsuariosCliente` → `AgregarOrigenRuta` → `AgregarCatalogoDepositos` → `AgregarTipoVehiculo` → `AgregarPrecioManual` → `AgregarCuentaCorriente` → `AgregarTipoEventoAvisoCobranza` → `AgregarPrecioPorKm` → `AgregarRetiroDeRuta` → `AgregarNovedades` → `AgregarRecepcionPortal` → `AgregarClienteDestinatarios` → `ZonasAutomaticas` → `AgregarDocumentoAPruebaEntrega` → `IndiceBusquedaPedidos` → `AgregarLiquidacion` (E2/B4) → `AgregarRangos` (E2/B3) → `AgregarRentabilidad` (E2/B7) → `AgregarNovedadUrgencia` (RF-45) → `PortalDuenoYEmpleados` (4.27) → `AgregarPagosInformados` (4.28) → `AgregarViajes` (4.29).
 
 Nota: `AgregarTipoEventoAvisoCobranza` (changelog 4.3, una fila de catálogo) faltaba en esta lista desde su propia versión — el conteo de "10" en §1 antes de esta pasada ya estaba desactualizado; quedó corregido acá de paso, no es parte del alcance de changelog 4.5.
 
@@ -350,7 +412,7 @@ Coincide con lo que el Anexo I declara en §4/§7 como brecha o exclusión — s
 
 ## 7. Fuentes
 
-- `docs/acta_sistema.md` v4.26 (reglas de negocio vigentes)
+- `docs/acta_sistema.md` v4.31 (reglas de negocio vigentes)
 - `docs/Anexo_I_Alcance_V2.docx` v1.0 (alcance comercial, brechas, decisiones D1-D15, definiciones §10.2)
 - `docs/construccion_v1.md` (especificación técnica, changelog detallado)
 - `docs/schema_v3.sql` (DDL)
@@ -375,3 +437,4 @@ Coincide con lo que el Anexo I declara en §4/§7 como brecha o exclusión — s
 - Novena pasada del 24/09/2026 (CI, `construccion_v1.md` 1.43): `.github/workflows/ci.yml` nuevo y, en `frontend/package.json`, `packageManager` y el script `typecheck`. Los pasos se corrieron en local y dieron limpios.
   - **Primera corrida en GitHub (PR `mejoras-24-09`):** falló `pnpm typecheck` con "Cannot find name 'LayoutProps'". Ese tipo global lo genera Next y en un checkout limpio todavía no existe; en local pasaba porque `.next` ya estaba de builds anteriores.
   - **Arreglo:** el script pasa a `next typegen && tsc --noEmit`. Verificado en local borrando `.next` antes.
+- Pasada del 25/09/2026 (acta 4.27 a 4.31, `construccion_v1.md` 1.45 a 1.49): §1, §2 (roles), §3.30 a §3.34 nuevas, §4, §5 y esta lista. Conteos recontados con los comandos de §1, no sumados a mano: 26 controladores, 180 endpoints, 49 pantallas, 31 entidades y 28 tablas, 26 migraciones. **Verificado** por API contra la base local, con un backend de prueba en otro puerto, y con `dotnet test` (100 tests, 20 nuevos: `EquipoClienteTests`, `NegocioClienteTests`, `OrdenParadasTests`) y `tsc` + eslint del frontend. No se recorrieron las pantallas en navegador en esta pasada.

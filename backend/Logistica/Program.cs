@@ -80,6 +80,7 @@ builder.Services.AddScoped<PrecioService>();
 builder.Services.AddScoped<DistanciaService>();
 builder.Services.AddScoped<UbicacionService>();
 builder.Services.AddScoped<OrigenRutaService>();
+builder.Services.AddScoped<ViajeService>();
 builder.Services.AddScoped<ZonaLocalidadService>();
 builder.Services.AddScoped<DireccionDesdeMapaService>();
 builder.Services.AddScoped<TarifaService>();
@@ -192,6 +193,9 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy("Operacion", p => p.RequireRole(Roles.Operacion))
     .AddPolicy("Repartidor", p => p.RequireRole(Roles.Repartidor))
     .AddPolicy("Cliente", p => p.RequireRole(Roles.Cliente))
+    // Dueño de la empresa cliente: cuenta corriente, precios y gestión de su equipo. Un empleado
+    // (cliente_rol=usuario) solo carga y sigue envíos.
+    .AddPolicy("ClienteDueno", p => p.RequireRole(Roles.Cliente).RequireClaim("cliente_rol", RolesCliente.Dueno))
     // Ninguna de las policies de arriba cubre "back-office O repartidor": el mapa lo consultan
     // tanto el planificador (armar ruta) como el repartidor (guía del día).
     .AddPolicy("Recorrido", p => p.RequireRole(Roles.Administracion, Roles.Operacion, Roles.Repartidor));

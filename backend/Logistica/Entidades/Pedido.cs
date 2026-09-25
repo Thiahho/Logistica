@@ -81,6 +81,18 @@ public class Pedido
     public string? Observaciones { get; set; }
     public DateTimeOffset CreadoEn { get; set; }
 
+    /// <summary>Login del portal que cargó el pedido (null si lo cargó el personal interno). Columna
+    /// propia y no precio_manual_por: ese queda null cuando la zona no tiene tarifa (B9) y
+    /// RutasController lo usa para reconocer el precio vinculante del portal.</summary>
+    public Guid? CreadoPorClienteUsuarioId { get; set; }
+    public ClienteUsuario? CreadoPorClienteUsuario { get; set; }
+
+    /// <summary>Viaje (envío de varias paradas) al que pertenece, y su lugar en el orden con que se
+    /// cargó el viaje. null para un envío suelto.</summary>
+    public long? ViajeId { get; set; }
+    public Viaje? Viaje { get; set; }
+    public int? OrdenEnViaje { get; set; }
+
     // B13 (diseño_b13_recepcion_portal.md §3): snapshot de lo que el cliente cargó en el portal.
     // Se completa una sola vez al alta, solo si OrigenCarga = "portal"; nunca se vuelve a escribir
     // desde ningún endpoint, así que no necesita un trigger de inmutabilidad como

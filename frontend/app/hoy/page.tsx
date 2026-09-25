@@ -91,6 +91,7 @@ function GuiaDeRuta() {
             id: "origen",
             punto: { lat: jornada.origen.lat, lng: jornada.origen.lng },
             etiqueta: jornada.origen.esDeposito ? "D" : "P",
+            imagen: jornada.origen.esDeposito ? "/logo-solo.png" : undefined,
             variante: "origen" as const,
             titulo: jornada.origen.esDeposito
               ? (jornada.origen.nombreDeposito ?? "Depósito")

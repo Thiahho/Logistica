@@ -1,6 +1,8 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Logistica.Auth;
+using Logistica.Opciones;
+using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -9,7 +11,7 @@ namespace Logistica.Controllers;
 
 [ApiController]
 [Route("api/auth")]
-public class AuthController(AuthService auth, IWebHostEnvironment env) : ControllerBase
+public class AuthController(AuthService auth, IWebHostEnvironment env, IOptions<OpcionesPortal> opcionesPortal) : ControllerBase
 {
     public record LoginRequest(string Email, string Password);
     public record AccessTokenResponse(string AccessToken);
@@ -65,6 +67,9 @@ public class AuthController(AuthService auth, IWebHostEnvironment env) : Control
         nombre = User.FindFirstValue("nombre"),
         rol = User.FindFirstValue(ClaimTypes.Role),
         clienteId = User.FindFirstValue("cliente_id"),
+        clienteRol = User.FindFirstValue("cliente_rol"),
+        // Acta changelog 4.30: si esta sesión ve el precio de los envíos (el frontend no lo infiere).
+        verPrecios = User.VePreciosDeEnvio(opcionesPortal.Value.MostrarPrecios),
     });
 
     private string? IpDelCliente() => HttpContext.Connection.RemoteIpAddress?.ToString();

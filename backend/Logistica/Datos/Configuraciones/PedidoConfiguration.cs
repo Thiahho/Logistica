@@ -89,5 +89,14 @@ public class PedidoConfiguration : IEntityTypeConfiguration<Pedido>
         // Sin relación EF (puede ser un usuarios.id o un clientes_usuarios.id, B5 §1) — sin la
         // FK que antes generaba este índice por convención, hay que declararlo a mano.
         b.HasIndex(x => x.PrecioManualPor);
+
+        b.Property(x => x.ViajeId).HasColumnName("viaje_id");
+        b.Property(x => x.OrdenEnViaje).HasColumnName("orden_en_viaje");
+        b.HasOne(x => x.Viaje).WithMany()
+            .HasForeignKey(x => x.ViajeId).OnDelete(DeleteBehavior.Restrict);
+
+        b.Property(x => x.CreadoPorClienteUsuarioId).HasColumnName("creado_por_cliente_usuario_id");
+        b.HasOne(x => x.CreadoPorClienteUsuario).WithMany()
+            .HasForeignKey(x => x.CreadoPorClienteUsuarioId).OnDelete(DeleteBehavior.Restrict);
     }
 }
