@@ -26,7 +26,8 @@ namespace Logistica.Controllers;
 [ApiController]
 [Route("api/clientes")]
 public class ClientesController(
-    LogisticaDbContext db, TarifaService tarifas, CuentaCorrienteService cuentaCorriente, AvisosCobranzaService avisosCobranza)
+    LogisticaDbContext db, TarifaService tarifas, CuentaCorrienteService cuentaCorriente, AvisosCobranzaService avisosCobranza,
+    AlmacenamientoFotos almacenamiento)
     : ControllerBase
 {
     public record TarifaZona(
@@ -84,8 +85,8 @@ public class ClientesController(
 
     public record CrearEventoRequest(int TipoId, decimal? ValorNum, string? Nota, long? PedidoId);
 
-    public record ClienteUsuarioResumen(Guid Id, string Nombre, string Email, bool Activo);
-    public record CrearClienteUsuarioRequest(string Nombre, string Email, string Password);
+    public record ClienteUsuarioResumen(Guid Id, string Nombre, string Email, bool Activo, string Rol);
+    public record CrearClienteUsuarioRequest(string Nombre, string Email, string Password, string? Rol = null);
     public record CambiarPasswordClienteUsuarioRequest(string Password);
 
     public record CrearClienteRequest(string RazonSocial, string? Cuit, string? Contacto, string? Telefono, string? Email);
@@ -440,7 +441,7 @@ public class ClientesController(
         Ok(await db.ClientesUsuarios.AsNoTracking()
             .Where(u => u.ClienteId == id)
             .OrderBy(u => u.Nombre)
-            .Select(u => new ClienteUsuarioResumen(u.Id, u.Nombre, u.Email, u.Activo))
+            .Select(u => new ClienteUsuarioResumen(u.Id, u.Nombre, u.Email, u.Activo, u.Rol))
             .ToListAsync(ct));
 
     [HttpPost("{id:int}/usuarios")]
@@ -449,24 +450,16 @@ public class ClientesController(
     {
         var clienteExiste = await db.Clientes.AnyAsync(c => c.Id == id, ct);
         if (!clienteExiste) return NotFound();
-        if (!Validaciones.EmailValido(req.Email)) return BadRequest("El email no es válido.");
-        if (PoliticaContrasena.Validar(req.Password, req.Email) is { } errorClave) return BadRequest(errorClave);
 
-        var usuario = new ClienteUsuario
-        {
-            Id = Guid.NewGuid(),
-            ClienteId = id,
-            Nombre = req.Nombre,
-            Email = req.Email.Trim(),
-            CreadoEn = DateTimeOffset.UtcNow,
-        };
-        usuario.PasswordHash = AuthService.HashearCliente(usuario, req.Password);
+        // Sin rol explícito, dueño: es lo que eran todos los logins antes de existir los empleados.
+        var (usuario, error) = AltaClienteUsuario.Crear(id, req.Nombre, req.Email, req.Password, req.Rol ?? RolesCliente.Dueno);
+        if (usuario is null) return BadRequest(error);
 
         db.ClientesUsuarios.Add(usuario);
         await db.SaveChangesAsync(ct);
 
         return CreatedAtAction(nameof(ListarUsuarios), new { id },
-            new ClienteUsuarioResumen(usuario.Id, usuario.Nombre, usuario.Email, usuario.Activo));
+            new ClienteUsuarioResumen(usuario.Id, usuario.Nombre, usuario.Email, usuario.Activo, usuario.Rol));
     }
 
     [HttpPut("{id:int}/usuarios/{usuarioId:guid}/activo")]
@@ -554,18 +547,101 @@ public class ClientesController(
         var clienteExiste = await db.Clientes.AnyAsync(c => c.Id == id, ct);
         if (!clienteExiste) return NotFound();
 
-        db.Pagos.Add(new Pago
-        {
-            ClienteId = id,
-            Monto = req.Monto,
-            FechaPago = req.FechaPago ?? Reloj.HoyLocal(),
-            Medio = req.Medio,
-            Nota = req.Nota,
-            RegistradoPor = User.UsuarioId(),
-            RegistradoEn = DateTimeOffset.UtcNow,
-        });
+        cuentaCorriente.AgregarPago(id, req.Monto, req.FechaPago ?? Reloj.HoyLocal(), req.Medio, req.Nota, User.UsuarioId());
         await db.SaveChangesAsync(ct);
 
+        return NoContent();
+    }
+
+    // ---- Pagos informados por el cliente desde el portal (el dueño avisa, Administración imputa) ----
+
+    public record PagoInformadoResumen(
+        long Id, int ClienteId, string ClienteRazonSocial, string InformadoPor,
+        decimal Monto, DateOnly FechaPago, string Medio, string? Nota, bool TieneComprobante,
+        string Estado, string? MotivoRechazo, string? RevisadoPor, DateTimeOffset? RevisadoEn,
+        long? PagoId, DateTimeOffset CreadoEn);
+
+    public record ConfirmarPagoInformadoRequest(
+        [Range(0.01, double.MaxValue, ErrorMessage = "El monto debe ser mayor a cero.")] decimal? Monto,
+        DateOnly? FechaPago, string? Nota);
+    public record RechazarPagoInformadoRequest(string Motivo);
+
+    // El filtro va antes de la proyección: un Where sobre el record ya proyectado no se traduce a SQL.
+    private IQueryable<PagoInformadoResumen> PagosInformadosQuery(System.Linq.Expressions.Expression<Func<PagoInformado, bool>> filtro) =>
+        db.PagosInformados.AsNoTracking().Where(filtro)
+            .OrderByDescending(p => p.CreadoEn)
+            .Select(p => new PagoInformadoResumen(
+                p.Id, p.ClienteId, p.Cliente.RazonSocial, p.ClienteUsuario.Nombre,
+                p.Monto, p.FechaPago, p.Medio, p.Nota, p.ComprobantePath != null,
+                p.Estado, p.MotivoRechazo,
+                p.RevisadoPorUsuario != null ? p.RevisadoPorUsuario.Nombre : null, p.RevisadoEn,
+                p.PagoId, p.CreadoEn));
+
+    /// <summary>Todos los pagos informados, para el panel de cobranza (por defecto, los pendientes).</summary>
+    [HttpGet("~/api/pagos-informados")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> ListarPagosInformados([FromQuery] string? estado, CancellationToken ct)
+    {
+        estado ??= EstadosPagoInformado.Pendiente;
+        return Ok(await PagosInformadosQuery(p => p.Estado == estado).Take(Paginacion.TopeSinPaginar).ToListAsync(ct));
+    }
+
+    [HttpGet("{id:int}/pagos-informados")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> ListarPagosInformadosCliente(int id, CancellationToken ct) =>
+        Ok(await PagosInformadosQuery(p => p.ClienteId == id).Take(Paginacion.TopeSinPaginar).ToListAsync(ct));
+
+    [HttpGet("~/api/pagos-informados/{informadoId:long}/comprobante")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> ComprobantePagoInformado(long informadoId, CancellationToken ct)
+    {
+        var path = await db.PagosInformados.Where(p => p.Id == informadoId).Select(p => p.ComprobantePath).SingleOrDefaultAsync(ct);
+        if (path is null) return NotFound();
+        var stream = await almacenamiento.AbrirAsync(path, ct);
+        return stream is null ? NotFound() : File(stream, "image/jpeg");
+    }
+
+    /// <summary>Imputa el pago informado: crea el Pago (con monto y fecha corregidos si hace falta) en
+    /// el mismo SaveChanges que marca el informado como confirmado. Solo desde 'pendiente'.</summary>
+    [HttpPost("~/api/pagos-informados/{informadoId:long}/confirmar")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> ConfirmarPagoInformado(long informadoId, ConfirmarPagoInformadoRequest req, CancellationToken ct)
+    {
+        var informado = await db.PagosInformados.SingleOrDefaultAsync(p => p.Id == informadoId, ct);
+        if (informado is null) return NotFound();
+        if (informado.Estado != EstadosPagoInformado.Pendiente)
+            return Conflict($"Este pago ya está {informado.Estado}.");
+
+        var nota = string.IsNullOrWhiteSpace(req.Nota) ? informado.Nota : req.Nota.Trim();
+        var pago = cuentaCorriente.AgregarPago(
+            informado.ClienteId, req.Monto ?? informado.Monto, req.FechaPago ?? informado.FechaPago,
+            informado.Medio, $"Informado por el cliente (#{informado.Id}){(nota is null ? "" : $" · {nota}")}",
+            User.UsuarioId());
+
+        informado.Estado = EstadosPagoInformado.Confirmado;
+        informado.Pago = pago;
+        informado.RevisadoPor = User.UsuarioId();
+        informado.RevisadoEn = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    }
+
+    [HttpPost("~/api/pagos-informados/{informadoId:long}/rechazar")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> RechazarPagoInformado(long informadoId, RechazarPagoInformadoRequest req, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(req.Motivo)) return BadRequest("El motivo es obligatorio.");
+
+        var informado = await db.PagosInformados.SingleOrDefaultAsync(p => p.Id == informadoId, ct);
+        if (informado is null) return NotFound();
+        if (informado.Estado != EstadosPagoInformado.Pendiente)
+            return Conflict($"Este pago ya está {informado.Estado}.");
+
+        informado.Estado = EstadosPagoInformado.Rechazado;
+        informado.MotivoRechazo = req.Motivo.Trim();
+        informado.RevisadoPor = User.UsuarioId();
+        informado.RevisadoEn = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
         return NoContent();
     }
 

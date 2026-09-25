@@ -3,13 +3,16 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "./AuthProvider";
-import type { Rol } from "./types";
+import { esClienteDueno, type Rol } from "./types";
 
 export function RequireRole({
   roles,
+  soloDueno = false,
   children,
 }: {
   roles: Rol[];
+  /** Solo el dueño de la empresa cliente (no sus empleados). */
+  soloDueno?: boolean;
   children: React.ReactNode;
 }) {
   const { usuario, cargando } = useAuth();
@@ -26,6 +29,14 @@ export function RequireRole({
     return (
       <p className="p-4 md:p-8 text-destructive">
         No autorizado: tu rol ({usuario.rol}) no puede ver esta pantalla.
+      </p>
+    );
+  }
+
+  if (soloDueno && !esClienteDueno(usuario)) {
+    return (
+      <p className="p-4 md:p-8 text-destructive">
+        No autorizado: esta pantalla es solo para el dueño de la cuenta.
       </p>
     );
   }

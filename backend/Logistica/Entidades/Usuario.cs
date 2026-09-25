@@ -16,6 +16,17 @@ public static class Roles
     public static readonly string[] Todos = [Administracion, Operacion, Repartidor];
 }
 
+/// <summary>Rol dentro de una empresa cliente (clientes_usuarios.rol, claim "cliente_rol"). No es un
+/// rol de autorización aparte: los dos siguen siendo Roles.Cliente; esto separa lo que el dueño
+/// puede ver y hacer (policy "ClienteDueno") de lo que hace un empleado.</summary>
+public static class RolesCliente
+{
+    public const string Dueno = "dueno";
+    public const string Usuario = "usuario";
+
+    public static readonly string[] Todos = [Dueno, Usuario];
+}
+
 /// <summary>Personal interno: administracion | operacion | repartidor. Los logins de cliente
 /// viven en ClienteUsuario/clientes_usuarios, tabla separada a propósito.</summary>
 public class Usuario

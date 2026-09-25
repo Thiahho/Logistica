@@ -437,6 +437,12 @@ public class RutasController(
                 .ToListAsync(ct);
             if (asignadosOtraRuta.Count > 0)
                 return Conflict($"El/los pedido(s) {string.Join(", ", asignadosOtraRuta)} ya están asignados a otra ruta.");
+
+            // La ruta propuesta de un viaje es de ese cliente: se puede reordenar o sumarle envíos
+            // suyos, nunca mezclarle los de otro (acta changelog 4.29).
+            var clienteDelViaje = await db.Viajes.Where(v => v.RutaId == id).Select(v => (int?)v.ClienteId).FirstOrDefaultAsync(ct);
+            if (clienteDelViaje is not null && pedidos.Any(p => p.ClienteId != clienteDelViaje))
+                return BadRequest("Esta ruta es el viaje de un cliente: solo admite envíos de ese cliente.");
         }
 
         // CreateExecutionStrategy().ExecuteAsync envuelve la transacción manual, exigido por

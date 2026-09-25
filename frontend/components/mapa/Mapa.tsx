@@ -12,6 +12,8 @@ export interface MarcadorMapa {
   id: number | string;
   punto: Punto;
   etiqueta: string;
+  /** URL de una imagen que reemplaza a la etiqueta (ej. el logo en el marcador del depósito). */
+  imagen?: string;
   variante: VarianteMarcador;
   titulo: string;
   seleccionado?: boolean;
@@ -40,6 +42,15 @@ const COLOR_VARIANTE: Record<VarianteMarcador, string> = {
 function icono(m: MarcadorMapa): L.DivIcon {
   const color = COLOR_VARIANTE[m.variante];
   const anillo = m.seleccionado ? "0 0 0 3px white, 0 0 0 5px " + color : "0 1px 3px rgba(0,0,0,.4)";
+  if (m.imagen) {
+    // Pastilla blanca: el logo es azul y sobre el fondo del color de la variante se perdería.
+    return L.divIcon({
+      className: "",
+      html: `<span style="display:flex;align-items:center;justify-content:center;width:48px;height:26px;padding:2px 4px;box-sizing:border-box;border-radius:9999px;background:#fff;box-shadow:${anillo};border:2px solid ${color};"><img src="${m.imagen}" alt="${m.etiqueta}" style="width:100%;height:100%;object-fit:contain;" /></span>`,
+      iconSize: [48, 26],
+      iconAnchor: [24, 13],
+    });
+  }
   return L.divIcon({
     className: "",
     html: `<span style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9999px;background:${color};color:#fff;font-size:12px;font-weight:700;box-shadow:${anillo};border:2px solid white;">${m.etiqueta}</span>`,

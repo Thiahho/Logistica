@@ -24,14 +24,19 @@ namespace Logistica.Controllers;
 public class PedidosController(
     LogisticaDbContext db, PrecioService precios, DistanciaService distancias,
     IOptions<OpcionesPruebaEntrega> opcionesPruebaEntrega,
-    OrigenRutaService origenes, CuentaCorrienteService cuentaCorriente, RangoClienteService rangos) : ControllerBase
+    OrigenRutaService origenes, CuentaCorrienteService cuentaCorriente, RangoClienteService rangos,
+    IOptions<OpcionesPortal> opcionesPortal) : ControllerBase
 {
     public record PedidoResumen(
         long Id, string DestinatarioNombre, string Estado, decimal? Total,
         DateOnly FechaEntrega, int ClienteId, string ClienteRazonSocial, bool DireccionDudosa,
         int Bultos, bool RequiereCotizacion = false,
         // B3 (acta changelog 4.21): el saldo supera el límite de crédito del rango. Solo en el alta, solo avisa.
-        string? AvisoCredito = null);
+        string? AvisoCredito = null,
+        // Portal con dueño + empleados: qué login del portal cargó el pedido (null si fue interno).
+        string? CargadoPorNombre = null,
+        // Viaje (envío de varias paradas) al que pertenece, y su lugar en el orden de carga.
+        long? ViajeId = null, int? OrdenEnViaje = null);
 
     public record PrecioManualInfo(decimal Precio, string? FijadoPor, DateTimeOffset FijadoEn);
 
@@ -102,7 +107,10 @@ public class PedidosController(
         bool DireccionDudosa, bool RequiereCotizacion, PrecioManualInfo? PrecioManual,
         int VecesReprogramado, bool Facturado, List<HistorialEvento> Historial,
         // B3, definición J (acta changelog 4.21).
-        decimal DescuentoRango = 0m);
+        decimal DescuentoRango = 0m,
+        string? CargadoPorNombre = null,
+        // Viaje (envío de varias paradas) al que pertenece, y su lugar en el orden de carga.
+        long? ViajeId = null, int? OrdenEnViaje = null);
 
     public record CambiarEstadoRequest(string EstadoNuevo, string? Motivo, DateOnly? NuevaFechaEntrega);
 
@@ -166,7 +174,8 @@ public class PedidosController(
         [FromQuery] string? orden,
         [FromQuery] int? pagina,
         [FromQuery] int? tamanioPagina,
-        CancellationToken ct)
+        CancellationToken ct,
+        [FromQuery] Guid? cargadoPor = null)
     {
         var query = db.Pedidos.AsNoTracking().AsQueryable();
 
@@ -176,6 +185,9 @@ public class PedidosController(
         var clienteIdClaim = User.ClienteId();
         if (clienteIdClaim is not null) query = query.Where(p => p.ClienteId == clienteIdClaim);
         else if (clienteId is not null) query = query.Where(p => p.ClienteId == clienteId.Value);
+
+        // Queda acotado por el filtro de cliente de arriba: un id de otra empresa no trae nada.
+        if (cargadoPor is not null) query = query.Where(p => p.CreadoPorClienteUsuarioId == cargadoPor.Value);
 
         if (fecha is not null) query = query.Where(p => p.FechaEntrega == fecha.Value);
         if (fechaDesde is not null) query = query.Where(p => p.FechaEntrega >= fechaDesde.Value);
@@ -238,8 +250,14 @@ public class PedidosController(
                 p.Bultos,
                 p.ZonaId,
                 p.PrecioManual,
+                CargadoPorNombre = p.CreadoPorClienteUsuario != null ? p.CreadoPorClienteUsuario.Nombre : null,
+                p.ViajeId,
+                p.OrdenEnViaje,
             })
             .ToListAsync(ct);
+
+        // Montos de envío: el personal interno siempre; un cliente, según Portal:MostrarPrecios (acta 4.30).
+        var ocultarPrecios = !User.VePreciosDeEnvio(opcionesPortal.Value.MostrarPrecios);
 
         // B9 (Anexo I §4): mismo criterio que CandidatosRuta — zonas activas sin ninguna tarifa
         // cargada (ni camioneta ni moto). Se calcula una sola vez por página, no por fila.
@@ -249,10 +267,11 @@ public class PedidosController(
             .ToListAsync(ct)).ToHashSet();
 
         var resultado = filas.Select(p => new PedidoResumen(
-            p.Id, p.DestinatarioNombre, p.Estado.ToString(), p.Total, p.FechaEntrega,
+            p.Id, p.DestinatarioNombre, p.Estado.ToString(), ocultarPrecios ? null : p.Total, p.FechaEntrega,
             p.ClienteId, p.ClienteRazonSocial, p.DireccionDudosa, p.Bultos,
             RequiereCotizacion: p.Estado == EstadoPedido.Borrador && p.PrecioManual is null
-                && p.ZonaId is not null && zonasSinTarifa.Contains(p.ZonaId.Value))).ToList();
+                && p.ZonaId is not null && zonasSinTarifa.Contains(p.ZonaId.Value),
+            CargadoPorNombre: p.CargadoPorNombre, ViajeId: p.ViajeId, OrdenEnViaje: p.OrdenEnViaje)).ToList();
 
         return Ok(new ListaPaginada<PedidoResumen>(resultado, total));
     }
@@ -605,7 +624,10 @@ public class PedidosController(
                 p.PrecioManual,
                 p.PrecioManualPor,
                 p.PrecioManualEn,
-                ZonaTieneTarifa = p.ZonaId != null && db.Tarifas.Any(t => t.ZonaId == p.ZonaId && t.VigenteHasta == null),
+                CargadoPorNombre = p.CreadoPorClienteUsuario != null ? p.CreadoPorClienteUsuario.Nombre : null,
+                p.ViajeId,
+                p.OrdenEnViaje,
+                ZonaTieneTarifa =p.ZonaId != null && db.Tarifas.Any(t => t.ZonaId == p.ZonaId && t.VigenteHasta == null),
             })
             .SingleOrDefaultAsync(ct);
         if (fila is null) return NotFound();
@@ -662,7 +684,7 @@ public class PedidosController(
         var vecesReprogramado = eventos.Count(e => e.EstadoNuevo.ToString() == "Reprogramado");
         var facturado = await db.FacturaItems.AnyAsync(i => i.PedidoId == id && i.Tipo == "pedido", ct);
 
-        return Ok(new PedidoDetalle(
+        var detalle = new PedidoDetalle(
             fila.Id, fila.ClienteId, fila.ClienteRazonSocial, fila.ReferenciaCliente,
             fila.Tipo, fila.PedidoOrigenId,
             fila.CalleNumero, fila.LocalidadNombre, fila.DestinoLat, fila.DestinoLng,
@@ -673,7 +695,21 @@ public class PedidosController(
             fila.RecargoUrgencia, fila.DescuentoRuta, fila.Peajes, fila.Total, fila.PrecioCongeladoEn,
             fila.Estado.ToString(), fila.OrigenCarga, fila.Observaciones, fila.CreadoEn,
             fila.DireccionDudosa, RequiereCotizacion: fila.PrecioManual is null && !fila.ZonaTieneTarifa,
-            precioManualInfo, vecesReprogramado, facturado, historial, fila.DescuentoRango));
+            precioManualInfo, vecesReprogramado, facturado, historial, fila.DescuentoRango,
+            fila.CargadoPorNombre, fila.ViajeId, fila.OrdenEnViaje);
+
+        // Montos de envío: el personal interno siempre; un cliente, según Portal:MostrarPrecios (acta 4.30).
+        if (!User.VePreciosDeEnvio(opcionesPortal.Value.MostrarPrecios))
+        {
+            detalle = detalle with
+            {
+                PrecioBase = null, RecargoKm = null, KmCobrados = null, KmFuente = null,
+                RecargoUrgencia = null, DescuentoRuta = null, Peajes = 0m, Total = null,
+                PrecioManual = null, DescuentoRango = 0m,
+            };
+        }
+
+        return Ok(detalle);
     }
 
     /// <summary>

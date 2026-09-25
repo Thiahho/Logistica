@@ -14,6 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { UsuariosClienteGestion } from "@/components/UsuariosClienteGestion";
+import { PagosInformadosRevision } from "@/components/PagosInformadosRevision";
 import {
   Select,
   SelectContent,
@@ -35,7 +37,6 @@ import {
   etiquetaEstadoFactura,
   etiquetaTipoVehiculo,
   type CicloFacturacion,
-  type ClienteUsuarioCuenta,
   type CuentaCorrienteCliente as CuentaCorrienteClienteDatos,
 } from "@/lib/dominio/tipos";
 
@@ -111,6 +112,8 @@ function DetalleCliente() {
   const [cliente, setCliente] = useState<ClienteDetalle | null>(null);
   const [tiposEvento, setTiposEvento] = useState<TipoEvento[]>([]);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  // Sube al confirmar un pago informado: remonta la cuenta corriente para que muestre el saldo nuevo.
+  const [versionCuenta, setVersionCuenta] = useState(0);
 
   const cargar = useCallback(() => {
     fetchConSesion(`/api/clientes/${id}`)
@@ -148,8 +151,23 @@ function DetalleCliente() {
       <DatosCliente cliente={cliente} fetchConSesion={fetchConSesion} onGuardado={cargar} />
       <TarifasCliente cliente={cliente} fetchConSesion={fetchConSesion} onCambio={cargar} />
       <RangoCliente clienteId={cliente.id} />
-      <CuentaCorrienteCliente clienteId={cliente.id} fetchConSesion={fetchConSesion} onAvisoEnviado={cargar} />
-      <UsuariosCliente clienteId={cliente.id} fetchConSesion={fetchConSesion} />
+      <CuentaCorrienteCliente
+        key={versionCuenta}
+        clienteId={cliente.id}
+        fetchConSesion={fetchConSesion}
+        onAvisoEnviado={cargar}
+      />
+      <PagosInformadosRevision
+        ruta={`/api/clientes/${cliente.id}/pagos-informados`}
+        onCambio={() => setVersionCuenta((v) => v + 1)}
+        ocultarSiVacio
+      />
+      <UsuariosClienteGestion
+        basePath={`/api/clientes/${cliente.id}/usuarios`}
+        titulo="Usuarios del portal"
+        elegirRol
+        textoVacio="Este cliente todavía no tiene login."
+      />
       <EventosCliente
         cliente={cliente}
         tiposEvento={tiposEvento}
@@ -812,190 +830,6 @@ function esClienteCritico(cuenta: CuentaCorrienteClienteDatos): boolean {
   if (cuenta.deudaVencida > 0) return true;
   const limite = Date.now() + 15 * 24 * 60 * 60 * 1000;
   return cuenta.facturas.some((f) => f.saldo > 0 && new Date(f.fechaVencimiento).getTime() <= limite);
-}
-
-/// Login de consulta del cliente (tabla clientes_usuarios, separada de /usuarios de personal
-/// interno a propósito — ver Entidades/ClienteUsuario.cs). Gestiona su propia lista: no es parte
-/// de ClienteDetalle porque es un recurso aparte, no un dato del cliente.
-function UsuariosCliente({
-  clienteId,
-  fetchConSesion,
-}: {
-  clienteId: number;
-  fetchConSesion: ReturnType<typeof useAuth>["fetchConSesion"];
-}) {
-  const [usuarios, setUsuarios] = useState<ClienteUsuarioCuenta[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const [nombre, setNombre] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [creando, setCreando] = useState(false);
-
-  const [cambiando, setCambiando] = useState<string | null>(null);
-  const [reseteando, setReseteando] = useState<string | null>(null);
-  const [passwords, setPasswords] = useState<Record<string, string>>({});
-
-  const cargar = useCallback(() => {
-    fetchConSesion(`/api/clientes/${clienteId}/usuarios`)
-      .then((r) => leerJson<ClienteUsuarioCuenta[]>(r))
-      .then(setUsuarios)
-      .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar los usuarios."));
-  }, [fetchConSesion, clienteId]);
-
-  useEffect(cargar, [cargar]);
-
-  async function crear(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setCreando(true);
-    try {
-      const resp = await fetchConSesion(`/api/clientes/${clienteId}/usuarios`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nombre, email, password }),
-      });
-      if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
-      setNombre("");
-      setEmail("");
-      setPassword("");
-      cargar();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo crear el usuario.");
-    } finally {
-      setCreando(false);
-    }
-  }
-
-  async function alternarActivo(u: ClienteUsuarioCuenta) {
-    setCambiando(u.id);
-    try {
-      await fetchConSesion(`/api/clientes/${clienteId}/usuarios/${u.id}/activo`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ activo: !u.activo }),
-      });
-      cargar();
-    } finally {
-      setCambiando(null);
-    }
-  }
-
-  async function resetearPassword(id: string) {
-    const nuevaPassword = passwords[id];
-    if (!nuevaPassword || nuevaPassword.length < 10) {
-      setError("La contraseña debe tener al menos 10 caracteres, con letras y números.");
-      return;
-    }
-    setError(null);
-    setReseteando(id);
-    try {
-      const resp = await fetchConSesion(`/api/clientes/${clienteId}/usuarios/${id}/password`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: nuevaPassword }),
-      });
-      if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
-      setPasswords((p) => ({ ...p, [id]: "" }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo cambiar la contraseña.");
-    } finally {
-      setReseteando(null);
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Usuarios (login)</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {error && <p className="text-sm text-destructive">{error}</p>}
-
-        {!usuarios ? (
-          error ? null : <p className="text-sm text-muted-foreground">Cargando…</p>
-        ) : usuarios.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Este cliente todavía no tiene login.</p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nombre</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Nueva contraseña</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {usuarios.map((u) => (
-                <TableRow key={u.id}>
-                  <TableCell>{u.nombre}</TableCell>
-                  <TableCell>{u.email}</TableCell>
-                  <TableCell>{u.activo ? "Activo" : "Inactivo"}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Input
-                        type="password"
-                        placeholder="mín. 10, letras y números"
-                        className="w-40"
-                        value={passwords[u.id] ?? ""}
-                        onChange={(e) => setPasswords((p) => ({ ...p, [u.id]: e.target.value }))}
-                      />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={reseteando === u.id || !passwords[u.id]}
-                        onClick={() => resetearPassword(u.id)}
-                      >
-                        Cambiar
-                      </Button>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Button size="sm" variant="outline" disabled={cambiando === u.id} onClick={() => alternarActivo(u)}>
-                      {u.activo ? "Desactivar" : "Reactivar"}
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-
-        <form onSubmit={crear} className="flex items-end gap-2 border-t pt-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="nuevo-usuario-nombre">Nombre</Label>
-            <Input id="nuevo-usuario-nombre" required value={nombre} onChange={(e) => setNombre(e.target.value)} />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="nuevo-usuario-email">Email</Label>
-            <Input
-              id="nuevo-usuario-email"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="nuevo-usuario-password">Contraseña</Label>
-            <Input
-              id="nuevo-usuario-password"
-              type="password"
-              required
-              minLength={10}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-          <Button type="submit" disabled={creando}>
-            {creando ? "Creando…" : "Agregar login"}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
-  );
 }
 
 function EventosCliente({

@@ -14,6 +14,8 @@ import { DetalleEnvioSheet } from "@/components/DetalleEnvioSheet";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { leerJson } from "@/lib/api/errores";
+import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
+import { esClienteDueno, vePrecios } from "@/lib/auth/types";
 import { useListadoPaginado } from "@/lib/hooks/useListadoPaginado";
 import { useSondeo } from "@/lib/hooks/useSondeo";
 import {
@@ -21,6 +23,10 @@ import {
   type CuentaPropia,
   type PedidoDelDia,
   type PedidoResumen,
+  type UsuarioEquipo,
+  type ListaPaginada,
+  type ViajeResumen,
+  etiquetaEstadoViaje,
 } from "@/lib/dominio/tipos";
 
 export default function MisEnviosPage() {
@@ -35,7 +41,7 @@ export default function MisEnviosPage() {
  * lo gestiona la Empresa; Anexo I §7 excluye pasarelas de pago online). Compacta a propósito: en
  * el teléfono lo importante es saldo y deuda; el detalle de facturas queda plegado. */
 function MiCuenta() {
-  const { fetchConSesion } = useAuth();
+  const { fetchConSesion, usuario } = useAuth();
   const [cuenta, setCuenta] = useState<CuentaPropia | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,14 +69,20 @@ function MiCuenta() {
             tono={cuenta.deudaVencida > 0 ? "alerta" : "normal"}
           />
         </div>
-        <p className="text-sm text-muted-foreground">
-          Próximo vencimiento: <span className="text-foreground">{cuenta.proximoVencimiento ?? "—"}</span>
+        <p className="flex flex-wrap items-baseline justify-between gap-2 text-sm text-muted-foreground">
+          <span>
+            Próximo vencimiento: <span className="text-foreground">{cuenta.proximoVencimiento ?? "—"}</span>
+          </span>
+          <Link href="/mis-envios/negocio" className="font-medium text-bf-azul underline-offset-2 hover:underline">
+            Estado de cuenta y pagos
+          </Link>
         </p>
         {/* B3 (acta RF-42): el rango y su descuento, sin los números con que se calculó (RF-33). */}
         {cuenta.rangoNombre && cuenta.rangoNombre !== "Sin rango" && (
           <p className="text-sm text-muted-foreground">
             Tu rango: <span className="font-medium text-foreground">{cuenta.rangoNombre}</span>
-            {cuenta.descuentoPct > 0 && ` · ${cuenta.descuentoPct}% de descuento sobre la tarifa general`}
+            {/* El descuento es sobre la tarifa por envío: sin precios visibles (acta 4.30) no aplica mostrarlo. */}
+            {vePrecios(usuario) && cuenta.descuentoPct > 0 && ` · ${cuenta.descuentoPct}% de descuento sobre la tarifa general`}
           </p>
         )}
 
@@ -181,15 +193,36 @@ function EnviosDeHoy({ onAbrir }: { onAbrir: (id: number) => void }) {
 // completo en cada visita. useListadoPaginado (extraído de /pedidos y /rutas, ver ese hook) le
 // da paginación real sin escribir lógica nueva.
 function MiPlan() {
+  const { usuario, fetchConSesion } = useAuth();
+  const esDueno = esClienteDueno(usuario);
   const [envioAbierto, setEnvioAbierto] = useState<number | null>(null);
+  // Solo el dueño: filtrar la lista por quién cargó cada envío.
+  const [equipo, setEquipo] = useState<UsuarioEquipo[]>([]);
+  const [cargadoPor, setCargadoPor] = useState<string | null>(null);
+  // "Ver los envíos del período" (Mi negocio) llega con ?desde=&hasta=. MiPlan monta solo en el
+  // navegador (RequireRole espera la sesión), así que leer window acá no genera un desfasaje de hidratación.
+  const [rango, setRango] = useState(() => {
+    const q = new URLSearchParams(window.location.search);
+    const desde = q.get("desde");
+    const hasta = q.get("hasta");
+    return desde && hasta ? { desde, hasta } : null;
+  });
   const {
     items: pedidos, totalRegistros, error, pagina, setPagina, tamanioPagina, setTamanioPagina, totalPaginas,
-    orden, alternarOrden,
+    orden, alternarOrden, conReinicioDePagina,
   } = useListadoPaginado<PedidoResumen>({
     ruta: "/api/pedidos",
-    filtros: {},
+    filtros: { cargadoPor: cargadoPor ?? "", fechaDesde: rango?.desde ?? "", fechaHasta: rango?.hasta ?? "" },
     ordenInicial: "-fecha",
   });
+
+  useEffect(() => {
+    if (!esDueno) return;
+    fetchConSesion("/api/mi-cuenta/usuarios")
+      .then((r) => leerJson<UsuarioEquipo[]>(r))
+      .then(setEquipo)
+      .catch(() => setEquipo([])); // sin la lista, el filtro no aparece; el resto sigue igual
+  }, [esDueno, fetchConSesion]);
 
   const nuevosPrimero = orden === "-fecha";
 
@@ -198,7 +231,8 @@ function MiPlan() {
       <CabeceraSesion titulo="Mi plan" />
 
       <EnviosDeHoy onAbrir={setEnvioAbierto} />
-      <MiCuenta />
+      <MisViajes />
+      {esDueno && <MiCuenta />}
 
       <section aria-labelledby="titulo-todos" className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
@@ -226,6 +260,35 @@ function MiPlan() {
             </Button>
           </div>
         </div>
+        {rango && (
+          <div className="flex items-center gap-2 text-sm">
+            <span className="rounded-full bg-accent px-3 py-1 text-bf-azul">
+              Entrega del {rango.desde.split("-").reverse().slice(0, 2).join("/")} al{" "}
+              {rango.hasta.split("-").reverse().slice(0, 2).join("/")}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setRango(null);
+                setPagina(1);
+                window.history.replaceState(null, "", "/mis-envios");
+              }}
+            >
+              Quitar filtro
+            </Button>
+          </div>
+        )}
+        {esDueno && equipo.length > 1 && (
+          <div className="md:max-w-xs">
+            <ComboboxBusqueda
+              items={equipo.map((u) => ({ value: u.id, label: u.nombre }))}
+              value={cargadoPor}
+              onValueChange={conReinicioDePagina(setCargadoPor)}
+              placeholder="Cargados por cualquiera"
+            />
+          </div>
+        )}
         {error ? (
           <p className="text-sm text-destructive">{error}</p>
         ) : !pedidos ? (
@@ -244,7 +307,11 @@ function MiPlan() {
                   >
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium">{p.destinatarioNombre}</p>
-                      <p className="text-sm text-muted-foreground">Entrega: {p.fechaEntrega}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Entrega: {p.fechaEntrega}
+                        {p.viajeId && ` · Viaje #${p.viajeId}, parada ${p.ordenEnViaje}`}
+                        {esDueno && p.cargadoPorNombre && ` · Cargó ${p.cargadoPorNombre}`}
+                      </p>
                     </div>
                     <EstadoPedidoBadge estado={p.estado} />
                     <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -266,5 +333,50 @@ function MiPlan() {
 
       <DetalleEnvioSheet pedidoId={envioAbierto} onCerrar={() => setEnvioAbierto(null)} />
     </div>
+  );
+}
+
+/** Los últimos viajes (envíos de varias paradas) con su avance; cada uno abre su detalle con el mapa.
+ * No se muestra si el cliente todavía no cargó ninguno. */
+function MisViajes() {
+  const { fetchConSesion } = useAuth();
+  const [viajes, setViajes] = useState<ViajeResumen[] | null>(null);
+
+  useEffect(() => {
+    fetchConSesion("/api/mi-cuenta/viajes?tamanioPagina=5")
+      .then((r) => leerJson<ListaPaginada<ViajeResumen>>(r))
+      .then((r) => setViajes(r.items))
+      .catch(() => setViajes([]));
+  }, [fetchConSesion]);
+
+  if (!viajes || viajes.length === 0) return null;
+
+  return (
+    <section aria-labelledby="titulo-viajes" className="flex flex-col gap-3">
+      <h2 id="titulo-viajes" className="text-base font-semibold">
+        Mis viajes
+      </h2>
+      <ul className="flex flex-col gap-2">
+        {viajes.map((v) => (
+          <li key={v.id}>
+            <Link
+              href={`/mis-envios/viajes/${v.id}`}
+              className="flex min-h-14 items-center gap-3 rounded-xl border bg-card p-3 text-sm transition-colors active:bg-muted/60 md:hover:bg-muted/30"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">Viaje #{v.id} · {v.paradas} paradas</p>
+                <p className="text-muted-foreground">
+                  Entrega {v.fechaEntrega.split("-").reverse().join("/")} · {etiquetaEstadoViaje(v.estado)}
+                </p>
+              </div>
+              <span className="shrink-0 tabular-nums text-muted-foreground" aria-label={`${v.entregadas} de ${v.paradas} entregadas`}>
+                {v.entregadas}/{v.paradas}
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

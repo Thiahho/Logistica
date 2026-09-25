@@ -17,12 +17,12 @@ public class TokenService(IOptions<OpcionesJwt> opciones)
     private readonly OpcionesJwt _o = opciones.Value;
 
     public string CrearAccessToken(Usuario usuario) =>
-        CrearAccessToken(usuario.Id, usuario.Nombre, usuario.Rol, clienteId: null);
+        CrearAccessToken(usuario.Id, usuario.Nombre, usuario.Rol, clienteId: null, clienteRol: null);
 
     public string CrearAccessToken(ClienteUsuario clienteUsuario) =>
-        CrearAccessToken(clienteUsuario.Id, clienteUsuario.Nombre, Roles.Cliente, clienteUsuario.ClienteId);
+        CrearAccessToken(clienteUsuario.Id, clienteUsuario.Nombre, Roles.Cliente, clienteUsuario.ClienteId, clienteUsuario.Rol);
 
-    private string CrearAccessToken(Guid id, string nombre, string rol, int? clienteId)
+    private string CrearAccessToken(Guid id, string nombre, string rol, int? clienteId, string? clienteRol)
     {
         var claims = new List<Claim>
         {
@@ -32,6 +32,8 @@ public class TokenService(IOptions<OpcionesJwt> opciones)
         };
         if (clienteId is not null)
             claims.Add(new Claim("cliente_id", clienteId.Value.ToString()));
+        if (clienteRol is not null)
+            claims.Add(new Claim("cliente_rol", clienteRol));
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_o.Key));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);

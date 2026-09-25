@@ -1,5 +1,6 @@
 using Logistica.Datos;
 using Logistica.Entidades;
+using Logistica.Servicios;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -110,6 +111,9 @@ public class AuthService(LogisticaDbContext db, TokenService tokens)
         var access = tokens.CrearAccessToken(clienteUsuario);
         var (plano, entidad) = tokens.CrearRefreshTokenCliente(clienteUsuario.Id, ip);
         db.RefreshTokens.Add(entidad);
+        // Solo el login con contraseña, no cada refresh: el dueño quiere ver cuándo entró cada
+        // empleado, no la rotación de tokens.
+        ActividadPortal.Registrar(db, clienteUsuario.ClienteId, clienteUsuario.Id, AccionesPortal.SesionIniciada);
         await db.SaveChangesAsync(ct);
         return new ResultadoLogin(access, plano, entidad.ExpiraEn);
     }

@@ -84,6 +84,24 @@ public class CuentaCorrienteService(LogisticaDbContext db)
     /// <summary>Acuña el ítem facturable de un pedido (entrega, o cancelación de un Confirmado —
     /// §10.2-I) en el momento exacto en que se vuelve facturable. Nace 'aprobado', sin pasar por
     /// el flujo de ajustes — nadie tiene que revisarlo.</summary>
+    /// <summary>Agrega (sin guardar) un pago imputado. Lo usan el alta manual de Administración y la
+    /// confirmación de un pago informado por el cliente: los dos crean exactamente lo mismo.</summary>
+    public Pago AgregarPago(int clienteId, decimal monto, DateOnly fechaPago, string medio, string? nota, Guid registradoPor)
+    {
+        var pago = new Pago
+        {
+            ClienteId = clienteId,
+            Monto = monto,
+            FechaPago = fechaPago,
+            Medio = medio,
+            Nota = nota,
+            RegistradoPor = registradoPor,
+            RegistradoEn = DateTimeOffset.UtcNow,
+        };
+        db.Pagos.Add(pago);
+        return pago;
+    }
+
     public void AgregarItemDePedido(Pedido pedido, string descripcion, decimal monto, Guid? actor) =>
         db.FacturaItems.Add(new FacturaItem
         {

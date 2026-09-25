@@ -15,6 +15,10 @@ public class ClienteUsuario
     public string Email { get; set; } = null!;
     public string PasswordHash { get; set; } = null!;
 
+    /// <summary>dueno | usuario (ver RolesCliente). El dueño ve la cuenta corriente y administra a
+    /// los usuarios (empleados) de su empresa; el usuario solo carga y sigue envíos.</summary>
+    public string Rol { get; set; } = RolesCliente.Dueno;
+
     public bool Activo { get; set; } = true;
     public DateTimeOffset CreadoEn { get; set; }
 }
