@@ -48,6 +48,12 @@ public class LogisticaDbContext(DbContextOptions<LogisticaDbContext> options) : 
     public DbSet<Pago> Pagos => Set<Pago>();
     public DbSet<Novedad> Novedades => Set<Novedad>();
     public DbSet<ClienteDestinatario> ClientesDestinatarios => Set<ClienteDestinatario>();
+    public DbSet<ParametroLiquidacion> ParametrosLiquidacion => Set<ParametroLiquidacion>();
+    public DbSet<Liquidacion> Liquidaciones => Set<Liquidacion>();
+    public DbSet<Rango> Rangos => Set<Rango>();
+    public DbSet<ClienteRango> ClienteRangos => Set<ClienteRango>();
+    public DbSet<CostoFijo> CostosFijos => Set<CostoFijo>();
+    public DbSet<ObjetivoRentabilidad> ObjetivosRentabilidad => Set<ObjetivoRentabilidad>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

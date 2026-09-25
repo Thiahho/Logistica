@@ -11,7 +11,9 @@ import {
 import { leerError } from "@/lib/api/errores";
 import type { Usuario } from "./types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL!;
+// Vacío = mismo origen: en producción el frontend reenvía /api/* al backend (proxy.ts),
+// así la cookie de sesión es del mismo sitio que la página y no hay CORS.
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 interface EstadoAuth {
   usuario: Usuario | null;
@@ -66,13 +68,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      const token = await refrescar();
-      if (token) {
-        try {
-          setUsuario(await obtenerUsuario(token));
-        } catch {
-          accessTokenRef.current = null;
-        }
+      try {
+        const token = await refrescar();
+        if (token) setUsuario(await obtenerUsuario(token));
+      } catch {
+        // Sin red, CORS o backend caído: se trata como "sin sesión" para no dejar la pantalla en blanco.
+        accessTokenRef.current = null;
       }
       setCargando(false);
     })();

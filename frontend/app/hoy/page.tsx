@@ -390,7 +390,11 @@ function Aviso({
   return (
     <div
       className={`rounded-2xl border-2 p-3 flex flex-col gap-2 ${
-        n.tipo === "cancelacion" ? "border-red-500 bg-red-50/60" : "border-bf-azul bg-bf-celeste/10"
+        n.tipo === "cancelacion"
+          ? "border-red-500 bg-red-50/60"
+          : n.tipo === "urgencia"
+            ? "border-amber-500 bg-amber-50/70"
+            : "border-bf-azul bg-bf-celeste/10"
       }`}
     >
       <span className="text-xs font-semibold uppercase tracking-wide">{titulo}</span>

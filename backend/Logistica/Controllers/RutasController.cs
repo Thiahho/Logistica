@@ -4,10 +4,12 @@ using Logistica.Auth;
 using Logistica.Datos;
 using Logistica.Dominio;
 using Logistica.Entidades;
+using Logistica.Opciones;
 using Logistica.Servicios;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Logistica.Controllers;
 
@@ -30,7 +32,8 @@ namespace Logistica.Controllers;
 [Authorize(Policy = "BackOffice")]
 public class RutasController(
     LogisticaDbContext db, OrigenRutaService origenes, PrecioService precios,
-    DistanciaService distancias, JornadaService jornada) : ControllerBase
+    DistanciaService distancias, JornadaService jornada, LiquidacionService liquidacion,
+    IOptions<OpcionesUrgencias> urgencias) : ControllerBase
 {
     public record RutaResumen(
         long Id, DateOnly Fecha, string? VehiculoPatente, string? RepartidorNombre, string Estado,
@@ -47,7 +50,10 @@ public class RutasController(
         DateTimeOffset? RetiroConfirmadoEn, int? RetiroBultosEsperados, int? RetiroBultosContados,
         string? RetiroObservaciones, int? RetiroKmInicial,
         DateTimeOffset? CierreRepartidorEn, int? CierreRepartidorKmFinal, decimal? CierreRepartidorCombustible,
-        decimal? CierreRepartidorPeajes, string? CierreRepartidorNotas, Guid? CerradaPor);
+        decimal? CierreRepartidorPeajes, string? CierreRepartidorNotas, Guid? CerradaPor,
+        // B4 (acta changelog 4.21): desglose del pago calculado al cerrar y la liquidación que lo incluyó.
+        int? LiqEntregas, int? LiqFallidasImputables, decimal? LiqPctExito, decimal? LiqPagoEntregas, decimal? LiqBono,
+        string? PagoAjusteMotivo, long? LiquidacionId);
 
     public record CerrarRutaRequest(
         [Range(0, int.MaxValue, ErrorMessage = "El km inicial no puede ser negativo.")] int KmInicial,
@@ -59,7 +65,9 @@ public class RutasController(
         string? NotasCierre,
         // M2: cerrar sin que el repartidor haya declarado su cierre (teléfono muerto, se olvidó) es posible,
         // pero hay que decir que se cierra con datos que nadie verificó en la calle.
-        bool SinDeclaracionDelRepartidor = false);
+        bool SinDeclaracionDelRepartidor = false,
+        // B4 (acta changelog 4.21): obligatorio si PagoRepartidor difiere del pago calculado.
+        string? PagoAjusteMotivo = null);
 
     /// <summary>Aprobacion (M5) se deriva en lectura comparando los dos juegos de columnas, nunca se persiste:
     /// "tal_cual" (administración cerró con los números del repartidor), "corregido" (cerró con otros),
@@ -188,7 +196,9 @@ public class RutasController(
             ruta.RetiroConfirmadoEn, ruta.RetiroBultosEsperados, ruta.RetiroBultosContados,
             ruta.RetiroObservaciones, ruta.RetiroKmInicial,
             ruta.CierreRepartidorEn, ruta.CierreRepartidorKmFinal, ruta.CierreRepartidorCombustible,
-            ruta.CierreRepartidorPeajes, ruta.CierreRepartidorNotas, ruta.CerradaPor));
+            ruta.CierreRepartidorPeajes, ruta.CierreRepartidorNotas, ruta.CerradaPor,
+            ruta.LiqEntregas, ruta.LiqFallidasImputables, ruta.LiqPctExito, ruta.LiqPagoEntregas, ruta.LiqBono,
+            ruta.PagoAjusteMotivo, ruta.LiquidacionId));
     }
 
     /// <summary>Bundle de paradas con estado/horarios/pedidos para el detalle de ruta del
@@ -496,32 +506,9 @@ public class RutasController(
         if (pedidos.Any(p => p.Estado != EstadoPedido.Borrador && p.Estado != EstadoPedido.Confirmado))
             return Conflict("Alguno de los pedidos de la ruta cambió de estado; volvé a armar la ruta.");
 
-        var tipoVehiculo = ruta.Vehiculo!.Tipo;
-        var pedidosACotizar = pedidos.Where(p => p.Estado == EstadoPedido.Borrador).ToList();
-
-        // Cotizar todo ANTES de escribir nada: si un pedido no tiene tarifa cargada para su zona
-        // en este tipo de vehículo, la ruta entera se rechaza sin tocar la base — no puede quedar
-        // una ruta a medio confirmar.
-        var desglosesPorPedido = new Dictionary<long, DesglosePrecio>();
-        foreach (var pedido in pedidosACotizar)
-        {
-            if (pedido.ZonaId is null)
-                return BadRequest($"El pedido {pedido.Id} no tiene zona resuelta; no se puede cotizar.");
-            try
-            {
-                var distancia = await distancias.ResolverAsync(
-                    pedido.OrigenUbicacion.Lat, pedido.OrigenUbicacion.Lng,
-                    pedido.DestinoUbicacion.Lat, pedido.DestinoUbicacion.Lng,
-                    pedido.KmManual, ct);
-                desglosesPorPedido[pedido.Id] = await precios.CotizarAsync(
-                    pedido.ClienteId, pedido.ZonaId.Value, pedido.FechaEntrega, pedido.Urgente,
-                    pedido.Peajes, descuentoRuta: false, tipoVehiculo, pedido.PrecioManual, distancia, ct);
-            }
-            catch (InvalidOperationException ex)
-            {
-                return BadRequest($"Pedido {pedido.Id}: {ex.Message}");
-            }
-        }
+        var borradores = pedidos.Where(p => p.Estado == EstadoPedido.Borrador).ToList();
+        var (congelamiento, errorPrecio) = await PrepararCongelamientoAsync(borradores, ruta.Vehiculo!.Tipo, ct);
+        if (errorPrecio is not null) return BadRequest(errorPrecio);
 
         // Igual que GuardarParadas: execution strategy exigido por EnableRetryOnFailure. Acá no
         // hay entidades NUEVAS (Add) dentro del delegate, solo reasignación de propiedades a
@@ -534,19 +521,7 @@ public class RutasController(
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             await db.PublicarActorAsync(User.UsuarioId(), "Cierre de planificación de ruta.", ct);
 
-            foreach (var pedido in pedidosACotizar)
-            {
-                var desglose = desglosesPorPedido[pedido.Id];
-                pedido.PrecioBase = desglose.PrecioBase;
-                pedido.RecargoKm = desglose.RecargoKm;
-                pedido.KmCobrados = desglose.KmCobrados;
-                pedido.KmFuente = desglose.KmFuente;
-                pedido.RecargoUrgencia = desglose.RecargoUrgencia;
-                pedido.DescuentoRuta = desglose.DescuentoRuta;
-                pedido.Total = desglose.Total;
-                pedido.PrecioCongeladoEn = DateTimeOffset.UtcNow;
-                pedido.Estado = EstadoPedido.Confirmado;
-            }
+            AplicarCongelamiento(congelamiento!);
             await db.SaveChangesAsync(ct);
 
             ruta.Estado = "en_curso";
@@ -560,12 +535,207 @@ public class RutasController(
         return NoContent();
     }
 
+    /// <summary>Qué hay que escribir para congelar el precio de un grupo de pedidos en Borrador: el desglose
+    /// cotizado de cada uno, o los que llevan precio vinculante del portal y no se re-cotizan.</summary>
+    private record Congelamiento(Dictionary<Pedido, DesglosePrecio> Cotizados, List<Pedido> Vinculantes);
+
+    /// <summary>
+    /// Cotiza, sin escribir nada, lo que CerrarPlanificacion (RF-17) y una urgencia (RF-45) confirman: el
+    /// precio se fija recién cuando se conoce el vehículo de la ruta (acta changelog 3.11). Todo antes de
+    /// escribir: si un pedido no tiene tarifa para su zona y ese vehículo, se rechaza el conjunto entero y no
+    /// queda nada a medio confirmar. Los pedidos necesitan OrigenUbicacion y DestinoUbicacion cargados.
+    ///
+    /// Precio vinculante del portal (B5, diseño_b5_portal_carga.md §1): lo fijó el propio cliente al cargar
+    /// y es el TOTAL que se cobra, así que no se vuelve a cotizar. Se reconoce porque precio_manual_por es un
+    /// login de cliente; un precio manual de administración (B9) sí es una base y sigue el camino normal.
+    /// </summary>
+    private async Task<(Congelamiento? Congelamiento, string? Error)> PrepararCongelamientoAsync(
+        List<Pedido> borradores, string tipoVehiculo, CancellationToken ct)
+    {
+        var idsPrecioManual = borradores.Where(p => p.PrecioManualPor != null).Select(p => p.PrecioManualPor!.Value).ToList();
+        var fijadosPorCliente = idsPrecioManual.Count == 0 ? []
+            : (await db.ClientesUsuarios.Where(cu => idsPrecioManual.Contains(cu.Id)).Select(cu => cu.Id).ToListAsync(ct)).ToHashSet();
+        var vinculantes = borradores
+            .Where(p => p.PrecioManual != null && p.PrecioManualPor != null && fijadosPorCliente.Contains(p.PrecioManualPor.Value))
+            .ToList();
+
+        var cotizados = new Dictionary<Pedido, DesglosePrecio>();
+        foreach (var pedido in borradores.Except(vinculantes))
+        {
+            if (pedido.ZonaId is null)
+                return (null, $"El pedido {pedido.Id} no tiene zona resuelta; no se puede cotizar.");
+            try
+            {
+                var distancia = await distancias.ResolverAsync(
+                    pedido.OrigenUbicacion.Lat, pedido.OrigenUbicacion.Lng,
+                    pedido.DestinoUbicacion.Lat, pedido.DestinoUbicacion.Lng,
+                    pedido.KmManual, ct);
+                cotizados[pedido] = await precios.CotizarAsync(
+                    pedido.ClienteId, pedido.ZonaId.Value, pedido.FechaEntrega, pedido.Urgente,
+                    pedido.Peajes, descuentoRuta: false, tipoVehiculo, pedido.PrecioManual, distancia, ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return (null, $"Pedido {pedido.Id}: {ex.Message}");
+            }
+        }
+        return (new Congelamiento(cotizados, vinculantes), null);
+    }
+
+    /// <summary>Escribe el precio congelado y pasa cada pedido a Confirmado. Solo asigna valores fijos: es
+    /// idempotente si la execution strategy reejecuta el delegate.</summary>
+    private static void AplicarCongelamiento(Congelamiento c)
+    {
+        foreach (var (pedido, desglose) in c.Cotizados)
+        {
+            pedido.PrecioBase = desglose.PrecioBase;
+            pedido.RecargoKm = desglose.RecargoKm;
+            pedido.KmCobrados = desglose.KmCobrados;
+            pedido.KmFuente = desglose.KmFuente;
+            pedido.RecargoUrgencia = desglose.RecargoUrgencia;
+            pedido.DescuentoRuta = desglose.DescuentoRuta;
+            pedido.DescuentoRango = desglose.DescuentoRango;
+            pedido.Total = desglose.Total;
+            pedido.PrecioCongeladoEn = DateTimeOffset.UtcNow;
+            pedido.Estado = EstadoPedido.Confirmado;
+        }
+        // El desglose del precio vinculante ya quedó guardado al cargarlo en el portal; los pedidos de
+        // portal anteriores a esa corrección no lo tienen y quedan con todo el precio como base.
+        foreach (var pedido in c.Vinculantes)
+        {
+            pedido.PrecioBase ??= pedido.PrecioManual;
+            pedido.Total = pedido.PrecioManual;
+            pedido.PrecioCongeladoEn = DateTimeOffset.UtcNow;
+            pedido.Estado = EstadoPedido.Confirmado;
+        }
+    }
+
+    public record InsertarUrgenciaRequest(long PedidoId, long? AntesDeParadaId);
+    public record VentanaUrgencias(TimeOnly Desde, TimeOnly Hasta, bool Abierta, int MaxParadasDesplazadas);
+    public record UrgenciaInsertada(long ParadaId, int Orden, int Desplazadas, bool Consolidada, decimal? Total);
+
+    /// <summary>RF-45: la ventana de urgencias de hoy, para que la pantalla habilite o explique el botón.</summary>
+    [HttpGet("urgencias/ventana")]
+    public IActionResult Ventana()
+    {
+        var o = urgencias.Value;
+        return Ok(new VentanaUrgencias(o.VentanaDesde, o.VentanaDesde.AddMinutes(o.VentanaMinutos),
+            Urgencias.VentanaAbierta(Reloj.HoraLocal(), o.VentanaDesde, o.VentanaMinutos), o.MaxParadasDesplazadas));
+    }
+
+    /// <summary>
+    /// RF-45 (acta §7, changelog 4.26): inserta un pedido urgente en una ruta en curso. Solo dentro de la
+    /// ventana, solo si desplaza como mucho MaxParadasDesplazadas pendientes, siempre con recargo. Precio
+    /// congelado igual que en CerrarPlanificacion; Borrador → Confirmado → EnRuta en la misma transacción
+    /// y con el mismo actor, así el historial (RF-28) registra las dos transiciones. La parada nueva queda
+    /// anclada (RutaParada.Anclada: "urgentes: no se reordenan") y el repartidor recibe una novedad.
+    /// </summary>
+    [HttpPost("{id:long}/urgencias")]
+    public async Task<IActionResult> InsertarUrgencia(long id, InsertarUrgenciaRequest req, CancellationToken ct)
+    {
+        var ruta = await db.Rutas.Include(r => r.Vehiculo).SingleOrDefaultAsync(r => r.Id == id, ct);
+        if (ruta is null) return NotFound();
+        if (ruta.Estado != "en_curso") return Conflict("Una urgencia solo se agrega a una ruta en curso.");
+
+        var o = urgencias.Value;
+        if (!Urgencias.VentanaAbierta(Reloj.HoraLocal(), o.VentanaDesde, o.VentanaMinutos))
+            return Conflict($"Las urgencias entran solo en la ventana de reagrupamiento, de {o.VentanaDesde:HH\\:mm} a " +
+                            $"{o.VentanaDesde.AddMinutes(o.VentanaMinutos):HH\\:mm} (acta §7).");
+
+        var pedido = await db.Pedidos
+            .Include(p => p.OrigenUbicacion)
+            .Include(p => p.DestinoUbicacion)
+            .SingleOrDefaultAsync(p => p.Id == req.PedidoId, ct);
+        if (pedido is null) return NotFound("El pedido no existe.");
+        if (pedido.Estado != EstadoPedido.Borrador || pedido.FechaEntrega != ruta.Fecha)
+            return BadRequest("El pedido tiene que estar en borrador (sin rutear) y ser de la fecha de la ruta.");
+        if (await db.ParadaPedidos.AnyAsync(pp => pp.PedidoId == pedido.Id, ct))
+            return Conflict($"El pedido {pedido.Id} ya está asignado a una ruta.");
+
+        var pendientes = await db.RutaParadas.Where(p => p.RutaId == id && p.Estado == "pendiente")
+            .OrderBy(p => p.Orden).ToListAsync(ct);
+        var ultimoOrden = await db.RutaParadas.Where(p => p.RutaId == id).MaxAsync(p => (int?)p.Orden, ct) ?? 0;
+        var insercion = Urgencias.Resolver(
+            pendientes.Select(p => new ParadaPendiente(p.Id, p.UbicacionId, p.Orden)).ToList(),
+            pedido.DestinoUbicacionId, req.AntesDeParadaId, ultimoOrden);
+        if (insercion is null) return BadRequest("La parada indicada no es una parada pendiente de esta ruta.");
+        if (insercion.Desplazadas > o.MaxParadasDesplazadas)
+            return Conflict($"La urgencia desplazaría {insercion.Desplazadas} paradas pendientes; el máximo es " +
+                            $"{o.MaxParadasDesplazadas} (acta §7). Agregala más adelante en la ruta.");
+
+        // Siempre con recargo (acta §7): se marca antes de cotizar.
+        pedido.Urgente = true;
+        var (congelamiento, errorPrecio) = await PrepararCongelamientoAsync([pedido], ruta.Vehiculo!.Tipo, ct);
+        if (errorPrecio is not null) return BadRequest(errorPrecio);
+
+        RutaParada? parada = null;
+        var estrategia = db.Database.CreateExecutionStrategy();
+        await estrategia.ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            await db.PublicarActorAsync(User.UsuarioId(), "Urgencia agregada a una ruta en curso (ventana de reagrupamiento).", ct);
+
+            AplicarCongelamiento(congelamiento!);
+            await db.SaveChangesAsync(ct);
+
+            if (insercion.ParadaConsolidadaId is { } consolidada)
+                parada = pendientes.Single(p => p.Id == consolidada);
+            else
+            {
+                // El unique (ruta_id, orden) es deferrable: correr las pendientes y meter la nueva en el mismo
+                // SaveChanges no choca a mitad del UPDATE (migración ReglasDeBaseDeDatos).
+                foreach (var p in pendientes.Where(p => p.Orden >= insercion.Orden)) p.Orden += 1;
+                parada = new RutaParada
+                {
+                    RutaId = id, UbicacionId = pedido.DestinoUbicacionId, Tipo = "entrega",
+                    Orden = insercion.Orden, Anclada = true,
+                };
+                db.RutaParadas.Add(parada);
+                await db.SaveChangesAsync(ct);
+            }
+
+            // Acá frena trg_bloquear_direccion_dudosa si la dirección no es apta (409).
+            db.ParadaPedidos.Add(new ParadaPedido { ParadaId = parada.Id, PedidoId = pedido.Id });
+            pedido.Estado = EstadoPedido.EnRuta;
+            db.Novedades.Add(new Novedad
+            {
+                RutaId = id,
+                ParadaId = parada.Id,
+                PedidoId = pedido.Id,
+                Tipo = "urgencia",
+                Origen = "operacion",
+                Descripcion = insercion.ParadaConsolidadaId is not null
+                    ? $"Urgencia: el pedido #{pedido.Id} ({pedido.DestinatarioNombre}) se suma a una parada que ya tenías, en {pedido.DestinoUbicacion.CalleNumero}."
+                    : $"Urgencia: parada nueva en {pedido.DestinoUbicacion.CalleNumero} ({pedido.DestinatarioNombre}), en el lugar {parada.Orden} de la ruta.",
+                CreadaPor = User.UsuarioId(),
+                CreadaEn = DateTimeOffset.UtcNow,
+            });
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        });
+
+        return Ok(new UrgenciaInsertada(parada!.Id, parada.Orden, insercion.Desplazadas,
+            insercion.ParadaConsolidadaId is not null, pedido.Total));
+    }
+
     [HttpGet("{id:long}/resultado")]
     [Authorize(Policy = "Administracion")]
     public async Task<IActionResult> Resultado(long id, CancellationToken ct)
     {
         if (!await db.Rutas.AnyAsync(r => r.Id == id, ct)) return NotFound();
         return Ok(await CalcularResultadoAsync(id, ct));
+    }
+
+    /// <summary>B4 (acta RF-41): el pago al repartidor que corresponde por esta ruta, para precargar la
+    /// pantalla de cierre. 204 si no se puede calcular (sin vehículo o sin parámetros vigentes): el pago
+    /// se tipea a mano, como antes.</summary>
+    [HttpGet("{id:long}/liquidacion-sugerida")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> LiquidacionSugerida(long id, CancellationToken ct)
+    {
+        if (!await db.Rutas.AnyAsync(r => r.Id == id, ct)) return NotFound();
+        var desglose = await liquidacion.SugerirAsync(id, ct);
+        return desglose is null ? NoContent() : Ok(desglose);
     }
 
     /// <summary>RF-26/27: costos reales de la jornada y resultado económico disponible el mismo
@@ -610,6 +780,21 @@ public class RutasController(
             if (diferencias.Count > 0)
                 return BadRequest("Corregís lo que declaró el repartidor: hace falta una nota con el motivo. " + string.Join("; ", diferencias) + ".");
         }
+
+        // B4 (acta RF-41): con parámetros vigentes, el pago se calcula y se congela su desglose. Pagar otro
+        // monto se puede, pero no en silencio: mismo criterio que M3 con la declaración del repartidor.
+        var desglose = await liquidacion.SugerirAsync(id, ct);
+        var motivoAjuste = string.IsNullOrWhiteSpace(req.PagoAjusteMotivo) ? null : req.PagoAjusteMotivo.Trim();
+        if (desglose is not null && req.PagoRepartidor != desglose.Total && motivoAjuste is null)
+            return BadRequest($"El pago calculado para esta ruta es {desglose.Total} ({desglose.Entregas} entregas" +
+                              (desglose.Bono > 0 ? " más el bono" : "") + $"); pagás {req.PagoRepartidor}: hace falta el motivo del ajuste.");
+
+        ruta.LiqEntregas = desglose?.Entregas;
+        ruta.LiqFallidasImputables = desglose?.FallidasImputables;
+        ruta.LiqPctExito = desglose?.PctExito;
+        ruta.LiqPagoEntregas = desglose?.PagoEntregas;
+        ruta.LiqBono = desglose?.Bono;
+        ruta.PagoAjusteMotivo = desglose is not null && req.PagoRepartidor != desglose.Total ? motivoAjuste : null;
 
         ruta.KmInicial = req.KmInicial;
         ruta.KmFinal = req.KmFinal;

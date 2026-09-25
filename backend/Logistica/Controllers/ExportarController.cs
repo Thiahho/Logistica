@@ -1,7 +1,6 @@
-using System.Globalization;
-using System.Text;
 using Logistica.Datos;
 using Logistica.Entidades;
+using Logistica.Web;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -30,12 +29,12 @@ public class ExportarController(LogisticaDbContext db) : ControllerBase
             })
             .ToListAsync(ct);
 
-        var csv = EscribirCsv(
+        var csv = Csv.Escribir(
             ["id", "cliente", "destinatario", "fecha_entrega", "estado", "tipo", "bultos",
              "precio_base", "recargo_urgencia", "descuento_ruta", "peajes", "total", "origen_carga"],
             filas);
 
-        return Csv(csv, "pedidos");
+        return Csv.Archivo(csv, "pedidos");
     }
 
     [HttpGet("rutas")]
@@ -53,12 +52,12 @@ public class ExportarController(LogisticaDbContext db) : ControllerBase
             })
             .ToListAsync(ct);
 
-        var csv = EscribirCsv(
+        var csv = Csv.Escribir(
             ["id", "fecha", "vehiculo", "repartidor", "estado", "km_inicial", "km_final",
              "combustible", "peajes", "otros_costos", "pago_repartidor", "cerrada_en"],
             filas);
 
-        return Csv(csv, "rutas");
+        return Csv.Archivo(csv, "rutas");
     }
 
     [HttpGet("resultados")]
@@ -87,8 +86,8 @@ public class ExportarController(LogisticaDbContext db) : ControllerBase
             filas.Add([r.Id, r.Fecha, ingresos, costos, ingresos - costos]);
         }
 
-        var csv = EscribirCsv(["ruta_id", "fecha", "ingresos", "costos", "margen"], filas);
-        return Csv(csv, "resultados");
+        var csv = Csv.Escribir(["ruta_id", "fecha", "ingresos", "costos", "margen"], filas);
+        return Csv.Archivo(csv, "resultados");
     }
 
     /// <summary>Un export arma todo el CSV en memoria: sin tope, un rango de décadas (o vacío al revés)
@@ -97,45 +96,4 @@ public class ExportarController(LogisticaDbContext db) : ControllerBase
 
     private static bool RangoInvalido(DateOnly desde, DateOnly hasta) =>
         hasta < desde || hasta.DayNumber - desde.DayNumber > MaxDiasRango;
-
-    private static FileContentResult Csv(string contenido, string nombre)
-    {
-        // BOM UTF-8: sin esto Excel en Windows interpreta acentos como caracteres sueltos.
-        var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(contenido)).ToArray();
-        return new FileContentResult(bytes, "text/csv") { FileDownloadName = $"{nombre}.csv" };
-    }
-
-    // Escritor propio, sin dependencia nueva (~20 líneas): separador ';' (planilla en es-AR) y
-    // comillas dobles escapadas duplicándolas, solo cuando el valor las necesita.
-    private static string EscribirCsv(string[] encabezados, IEnumerable<object?[]> filas)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine(string.Join(';', encabezados));
-        foreach (var fila in filas)
-            sb.AppendLine(string.Join(';', fila.Select(EscaparCampo)));
-        return sb.ToString();
-    }
-
-    // Campos de texto libre (destinatario, razón social) terminan en un CSV que un admin abre en
-    // Excel/Sheets: si empiezan con =, +, -, @ el programa los interpreta como fórmula (CSV
-    // injection). Anteponer un apóstrofo neutraliza esa interpretación sin alterar el dato.
-    private static readonly char[] PrefijosFormula = ['=', '+', '-', '@'];
-
-    private static string EscaparCampo(object? valor)
-    {
-        var texto = valor switch
-        {
-            null => "",
-            DateOnly d => d.ToString("yyyy-MM-dd"),
-            DateTimeOffset dt => dt.ToString("O"),
-            decimal dec => dec.ToString(CultureInfo.InvariantCulture),
-            _ => valor.ToString() ?? "",
-        };
-        if (texto.Length > 0 && PrefijosFormula.Contains(texto[0]))
-            texto = "'" + texto;
-
-        return texto.Contains(';') || texto.Contains('"') || texto.Contains('\n')
-            ? $"\"{texto.Replace("\"", "\"\"")}\""
-            : texto;
-    }
 }

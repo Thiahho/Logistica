@@ -12,7 +12,9 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TarjetaMetrica } from "@/components/TarjetaMetrica";
 import { leerError, leerJson } from "@/lib/api/errores";
-import type { ResultadoRuta, RutaDetalle } from "@/lib/dominio/tipos";
+import type { DesgloseLiquidacion, ResultadoRuta, RutaDetalle } from "@/lib/dominio/tipos";
+
+const pesos = (n: number) => `$${n.toLocaleString("es-AR")}`;
 
 export default function CierreRutaPage() {
   return (
@@ -37,6 +39,9 @@ function CierreRuta() {
   const [pagoRepartidor, setPagoRepartidor] = useState("");
   const [notas, setNotas] = useState("");
   const [sinDeclaracion, setSinDeclaracion] = useState(false);
+  // B4 (acta RF-41): pago calculado con los parámetros vigentes; null = no hay, se tipea a mano.
+  const [sugerido, setSugerido] = useState<DesgloseLiquidacion | null>(null);
+  const [motivoAjuste, setMotivoAjuste] = useState("");
 
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +67,22 @@ function CierreRuta() {
   }, [fetchConSesion, id]);
 
   useEffect(cargar, [cargar]);
+
+  const abierta = ruta !== null && ruta.estado !== "cerrada";
+  useEffect(() => {
+    if (!abierta) return;
+    fetchConSesion(`/api/rutas/${id}/liquidacion-sugerida`)
+      .then(async (r) => (r.status === 204 ? null : leerJson<DesgloseLiquidacion>(r)))
+      .then((d) => {
+        setSugerido(d);
+        // Arranca con el pago calculado, igual que km y costos arrancan con lo declarado (M1): pagar
+        // eso es no tocar nada; pagar otro monto es cambiarlo a propósito, con motivo.
+        if (d) setPagoRepartidor((v) => v || String(d.total));
+      })
+      .catch(() => setSugerido(null));
+  }, [abierta, fetchConSesion, id]);
+
+  const pagoDifiere = sugerido !== null && pagoRepartidor !== "" && Number(pagoRepartidor) !== sugerido.total;
 
   useEffect(() => {
     if (ruta?.estado === "cerrada") {
@@ -89,6 +110,7 @@ function CierreRuta() {
           pagoRepartidor: Number(pagoRepartidor) || 0,
           notasCierre: notas || null,
           sinDeclaracionDelRepartidor: sinDeclaracion,
+          pagoAjusteMotivo: pagoDifiere ? motivoAjuste : null,
         }),
       });
       if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
@@ -192,6 +214,38 @@ function CierreRuta() {
                   onChange={(e) => setPagoRepartidor(e.target.value)}
                 />
               </div>
+              {sugerido ? (
+                <div className="col-span-2">
+                  <DesglosePago
+                    entregas={sugerido.entregas}
+                    pagoEntregas={sugerido.pagoEntregas}
+                    pctExito={sugerido.pctExito}
+                    bono={sugerido.bono}
+                    total={sugerido.total}
+                    detalle={`${sugerido.entregas} × ${pesos(sugerido.pagoPorEntrega)} (${sugerido.tipoVehiculo}); bono con ${sugerido.pctMinimoExitosas}% de éxito o más. ${
+                      sugerido.fallidasNoImputables > 0
+                        ? `${sugerido.fallidasNoImputables} fallida(s) que no dependen del repartidor no cuentan.`
+                        : ""
+                    }`}
+                  />
+                </div>
+              ) : (
+                <p className="col-span-2 text-xs text-muted-foreground">
+                  Sin parámetros de liquidación vigentes para este vehículo: el pago se carga a mano.
+                </p>
+              )}
+              {pagoDifiere && (
+                <div className="col-span-2 flex flex-col gap-2">
+                  <Label htmlFor="motivo-ajuste">Motivo del ajuste del pago</Label>
+                  <Input
+                    id="motivo-ajuste"
+                    required
+                    value={motivoAjuste}
+                    onChange={(e) => setMotivoAjuste(e.target.value)}
+                    placeholder={`El calculado es ${pesos(sugerido!.total)}`}
+                  />
+                </div>
+              )}
               <div className="col-span-2 flex flex-col gap-2">
                 <Label htmlFor="notas">Notas de cierre (opcional)</Label>
                 <Input id="notas" value={notas} onChange={(e) => setNotas(e.target.value)} />
@@ -228,6 +282,22 @@ function CierreRuta() {
             <Fila etiqueta="Peajes" valor={`$${(ruta.peajesMonto ?? 0).toLocaleString("es-AR")}`} />
             <Fila etiqueta="Otros costos" valor={`$${(ruta.otrosCostos ?? 0).toLocaleString("es-AR")}`} />
             <Fila etiqueta="Pago al repartidor" valor={`$${(ruta.pagoRepartidor ?? 0).toLocaleString("es-AR")}`} />
+            {ruta.liqPagoEntregas !== null && (
+              <DesglosePago
+                entregas={ruta.liqEntregas ?? 0}
+                pagoEntregas={ruta.liqPagoEntregas}
+                pctExito={ruta.liqPctExito ?? 0}
+                bono={ruta.liqBono ?? 0}
+                total={ruta.liqPagoEntregas + (ruta.liqBono ?? 0)}
+                detalle={ruta.pagoAjusteMotivo ? `Se pagó otro monto: "${ruta.pagoAjusteMotivo}"` : undefined}
+              />
+            )}
+            {ruta.liquidacionId !== null && (
+              <Fila
+                etiqueta="Liquidación"
+                valor={<Link className="underline" href={`/liquidaciones/${ruta.liquidacionId}`}>#{ruta.liquidacionId}</Link>}
+              />
+            )}
             {ruta.notasCierre && <Fila etiqueta="Notas" valor={ruta.notasCierre} />}
           </CardContent>
         </Card>
@@ -266,6 +336,41 @@ function CierreRuta() {
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+/** B4 (acta RF-41): cómo se llegó al pago calculado — entregas por valor, % de éxito y bono. */
+function DesglosePago({
+  entregas,
+  pagoEntregas,
+  pctExito,
+  bono,
+  total,
+  detalle,
+}: {
+  entregas: number;
+  pagoEntregas: number;
+  pctExito: number;
+  bono: number;
+  total: number;
+  detalle?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1 rounded-lg bg-muted/60 p-3 text-xs">
+      <div className="flex justify-between gap-4">
+        <span>{entregas} entrega(s)</span>
+        <span>{pesos(pagoEntregas)}</span>
+      </div>
+      <div className="flex justify-between gap-4">
+        <span>Bono ({pctExito}% de éxito)</span>
+        <span>{bono > 0 ? pesos(bono) : "no corresponde"}</span>
+      </div>
+      <div className="flex justify-between gap-4 border-t pt-1 font-medium">
+        <span>Calculado</span>
+        <span>{pesos(total)}</span>
+      </div>
+      {detalle && <p className="text-muted-foreground">{detalle}</p>}
     </div>
   );
 }

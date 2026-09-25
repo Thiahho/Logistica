@@ -41,6 +41,24 @@ public class Ruta
 
     public DateTimeOffset CreadaEn { get; set; }
 
+    // ── Liquidación al repartidor (B4, acta RF-41, changelog 4.21). Desglose del cálculo congelado
+    // al cerrar la ruta (RutasController.Cerrar). null = no había parámetros vigentes para el tipo de
+    // vehículo y el pago se tipeó a mano, como antes.
+    public int? LiqEntregas { get; set; }
+    public int? LiqFallidasImputables { get; set; }
+    public decimal? LiqPctExito { get; set; }
+    public decimal? LiqPagoEntregas { get; set; }
+    public decimal? LiqBono { get; set; }
+
+    /// <summary>Obligatorio cuando PagoRepartidor difiere del calculado (LiqPagoEntregas + LiqBono):
+    /// el número calculado y el pagado quedan uno al lado del otro, mismo criterio que NotasCierre
+    /// frente a la declaración del repartidor.</summary>
+    public string? PagoAjusteMotivo { get; set; }
+
+    /// <summary>La liquidación que incluyó esta ruta. Una vez puesta, no cambia (trg_rutas_liquidada).</summary>
+    public long? LiquidacionId { get; set; }
+    public Liquidacion? Liquidacion { get; set; }
+
     // ── Retiro con conteo firmado (RF-35, acta §7). Lo escribe SOLO
     // MiJornadaController.Retiro, y trg_congelar_declaracion_repartidor lo vuelve inmutable
     // una vez sellado RetiroConfirmadoEn.

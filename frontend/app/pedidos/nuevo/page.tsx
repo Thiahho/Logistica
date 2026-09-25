@@ -15,7 +15,13 @@ import { SelectorLocalidad, type LocalidadConocida } from "@/components/Selector
 import { SugerenciaDestinatario } from "@/components/SugerenciaDestinatario";
 import { leerError, leerJson } from "@/lib/api/errores";
 import { CampoLinkMapa } from "@/components/CampoLinkMapa";
-import { etiquetaTipoVehiculo, type ClienteSeleccion, type CotizacionEstimada, type DestinatarioFrecuente } from "@/lib/dominio/tipos";
+import {
+  etiquetaTipoVehiculo,
+  type ClienteSeleccion,
+  type CotizacionEstimada,
+  type DestinatarioFrecuente,
+  type PedidoResumen,
+} from "@/lib/dominio/tipos";
 
 interface UbicacionResuelta {
   id: number;
@@ -80,6 +86,7 @@ function FormularioAlta() {
 
   const [enviando, setEnviando] = useState(false);
   const [errorAlta, setErrorAlta] = useState<string | null>(null);
+  const [avisoCredito, setAvisoCredito] = useState<string | null>(null);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
   useEffect(() => {
@@ -247,7 +254,11 @@ function FormularioAlta() {
         }),
       });
       if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
-      router.push("/pedidos");
+      // B3 (acta changelog 4.21): si el saldo supera el límite de crédito del rango, se avisa antes de
+      // volver al listado. El pedido ya está creado: el límite solo avisa.
+      const creado: PedidoResumen = await resp.json();
+      if (creado.avisoCredito) setAvisoCredito(creado.avisoCredito);
+      else router.push("/pedidos");
     } catch (err) {
       setErrorAlta(err instanceof Error ? err.message : "No se pudo crear el pedido.");
     } finally {
@@ -474,6 +485,8 @@ function FormularioAlta() {
                   <p className="text-xs text-muted-foreground">
                     Estimado, no es el precio final: se fija cuando se arme la ruta y se sepa qué
                     vehículo lo lleva.
+                    {(cotizacionVisible.camioneta?.descuentoRango ?? cotizacionVisible.moto?.descuentoRango ?? 0) > 0 &&
+                      " Incluye el descuento por rango del cliente."}
                   </p>
                 </div>
               ) : (
@@ -487,6 +500,16 @@ function FormularioAlta() {
         </Card>
 
         {errorAlta && <p className="text-sm text-destructive">{errorAlta}</p>}
+        {avisoCredito && (
+          <div className="flex flex-col gap-3 rounded-lg border border-amber-500 bg-amber-50/60 p-3 text-sm">
+            <p>
+              <span className="font-medium">Pedido creado.</span> {avisoCredito}
+            </p>
+            <Button type="button" variant="outline" className="self-start" onClick={() => router.push("/pedidos")}>
+              Ir a pedidos
+            </Button>
+          </div>
+        )}
       </form>
     </div>
   );

@@ -24,12 +24,14 @@ namespace Logistica.Controllers;
 public class PedidosController(
     LogisticaDbContext db, PrecioService precios, DistanciaService distancias,
     IOptions<OpcionesPruebaEntrega> opcionesPruebaEntrega,
-    OrigenRutaService origenes, CuentaCorrienteService cuentaCorriente) : ControllerBase
+    OrigenRutaService origenes, CuentaCorrienteService cuentaCorriente, RangoClienteService rangos) : ControllerBase
 {
     public record PedidoResumen(
         long Id, string DestinatarioNombre, string Estado, decimal? Total,
         DateOnly FechaEntrega, int ClienteId, string ClienteRazonSocial, bool DireccionDudosa,
-        int Bultos, bool RequiereCotizacion = false);
+        int Bultos, bool RequiereCotizacion = false,
+        // B3 (acta changelog 4.21): el saldo supera el límite de crédito del rango. Solo en el alta, solo avisa.
+        string? AvisoCredito = null);
 
     public record PrecioManualInfo(decimal Precio, string? FijadoPor, DateTimeOffset FijadoEn);
 
@@ -98,7 +100,9 @@ public class PedidosController(
         DateTimeOffset? PrecioCongeladoEn,
         string Estado, string OrigenCarga, string? Observaciones, DateTimeOffset CreadoEn,
         bool DireccionDudosa, bool RequiereCotizacion, PrecioManualInfo? PrecioManual,
-        int VecesReprogramado, bool Facturado, List<HistorialEvento> Historial);
+        int VecesReprogramado, bool Facturado, List<HistorialEvento> Historial,
+        // B3, definición J (acta changelog 4.21).
+        decimal DescuentoRango = 0m);
 
     public record CambiarEstadoRequest(string EstadoNuevo, string? Motivo, DateOnly? NuevaFechaEntrega);
 
@@ -129,7 +133,9 @@ public class PedidosController(
         long PedidoId, string ClienteRazonSocial, string DestinatarioNombre, int Bultos, bool Urgente,
         string? ZonaCodigo, long DestinoUbicacionId, string DestinoCalleNumero, string? DestinoLocalidad,
         decimal? Lat, decimal? Lng, bool DireccionApta, bool YaEnEstaRuta,
-        bool RequiereCotizacion, decimal? PrecioManual);
+        bool RequiereCotizacion, decimal? PrecioManual,
+        // B3 (acta 4.21 frente a §7): el rango del cliente ordena la lista de pendientes al armar, nunca las paradas.
+        string RangoNombre = "", int Prioridad = 0);
 
     /// <summary>Destinatario ya usado por este cliente, con la dirección que se le entregó. Los
     /// campos de ubicación tienen el mismo shape que UbicacionesController.UbicacionResuelta: el
@@ -284,6 +290,10 @@ public class PedidosController(
             .Select(p => new
             {
                 p.Id,
+                p.ClienteId,
+                p.Cliente.RangoCalculado,
+                p.Cliente.RangoAjuste,
+                p.Cliente.RangoAjusteVence,
                 ClienteRazonSocial = p.Cliente.RazonSocial,
                 p.DestinatarioNombre,
                 p.Bultos,
@@ -308,12 +318,25 @@ public class PedidosController(
             .Select(z => z.Id)
             .ToListAsync(ct)).ToHashSet();
 
-        var resultado = filas.Select(p => new CandidatoRuta(
-            p.Id, p.ClienteRazonSocial, p.DestinatarioNombre, p.Bultos, p.Urgente, p.ZonaCodigo,
-            p.DestinoUbicacionId, p.CalleNumero, p.DestinoLocalidad, p.Lat, p.Lng, p.DireccionApta,
-            idsEnEstaRuta.Contains(p.Id),
-            RequiereCotizacion: p.PrecioManual is null && p.ZonaId is not null && zonasSinTarifa.Contains(p.ZonaId.Value),
-            p.PrecioManual));
+        var listaRangos = await db.Rangos.AsNoTracking().ToListAsync(ct);
+        var hoy = Reloj.HoyLocal();
+
+        var resultado = filas
+            .Select(p =>
+            {
+                var rango = listaRangos.Single(r => r.Codigo ==
+                    RangosCliente.Efectivo(p.RangoCalculado, p.RangoAjuste, p.RangoAjusteVence, hoy, listaRangos));
+                return new CandidatoRuta(
+                    p.Id, p.ClienteRazonSocial, p.DestinatarioNombre, p.Bultos, p.Urgente, p.ZonaCodigo,
+                    p.DestinoUbicacionId, p.CalleNumero, p.DestinoLocalidad, p.Lat, p.Lng, p.DireccionApta,
+                    idsEnEstaRuta.Contains(p.Id),
+                    RequiereCotizacion: p.PrecioManual is null && p.ZonaId is not null && zonasSinTarifa.Contains(p.ZonaId.Value),
+                    p.PrecioManual, rango.Nombre, rango.Prioridad);
+            })
+            // Prioridad de asignación (acta 4.21): quién aparece primero cuando la capacidad no alcanza para
+            // todos. El orden de las paradas dentro de la ruta sigue siendo geográfico (acta §7).
+            .OrderByDescending(c => c.Prioridad).ThenBy(c => c.PedidoId)
+            .ToList();
 
         return Ok(resultado);
     }
@@ -519,13 +542,16 @@ public class PedidosController(
         // Cotizar(), acá sobre una sola zona en vez de precalcular el set completo (Listar,
         // CandidatosRuta), que no tendría sentido para un solo pedido recién creado.
         var zonaSinTarifa = !await db.Tarifas.AnyAsync(t => t.ZonaId == zonaId && t.VigenteHasta == null, ct);
+        var avisoCredito = await rangos.AvisoLimiteCreditoAsync(
+            req.ClienteId, await cuentaCorriente.SaldoAsync(req.ClienteId, ct), ct);
 
         return CreatedAtAction(nameof(Listar), new { }, new PedidoResumen(
             pedido.Id, pedido.DestinatarioNombre, pedido.Estado.ToString(), pedido.Total,
             pedido.FechaEntrega, pedido.ClienteId, cliente.RazonSocial,
             DireccionDudosa: destino.GeoConfianza is not ("alta" or "media") && !destino.Verificada,
             Bultos: pedido.Bultos,
-            RequiereCotizacion: zonaSinTarifa));
+            RequiereCotizacion: zonaSinTarifa,
+            AvisoCredito: avisoCredito));
     }
 
     /// <summary>Detalle completo + historial de pedido_eventos (RF-28, criterio de aceptación 5:
@@ -567,6 +593,7 @@ public class PedidosController(
                 p.KmFuente,
                 p.RecargoUrgencia,
                 p.DescuentoRuta,
+                p.DescuentoRango,
                 p.Peajes,
                 p.Total,
                 p.PrecioCongeladoEn,
@@ -646,7 +673,7 @@ public class PedidosController(
             fila.RecargoUrgencia, fila.DescuentoRuta, fila.Peajes, fila.Total, fila.PrecioCongeladoEn,
             fila.Estado.ToString(), fila.OrigenCarga, fila.Observaciones, fila.CreadoEn,
             fila.DireccionDudosa, RequiereCotizacion: fila.PrecioManual is null && !fila.ZonaTieneTarifa,
-            precioManualInfo, vecesReprogramado, facturado, historial));
+            precioManualInfo, vecesReprogramado, facturado, historial, fila.DescuentoRango));
     }
 
     /// <summary>
@@ -855,7 +882,7 @@ public class PedidosController(
                 DestinatarioNombre = pedido.DestinatarioNombre.Trim(),
                 DestinatarioTelefono = pedido.DestinatarioTelefono.Trim(),
                 Bultos = pedido.Bultos,
-                FechaEntrega = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(1),
+                FechaEntrega = Reloj.HoyLocal().AddDays(1),
                 ZonaId = zonaRetorno,
                 Estado = EstadoPedido.Borrador,
                 Observaciones = $"Retorno del pedido #{pedido.Id}.",

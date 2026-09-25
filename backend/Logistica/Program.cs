@@ -9,6 +9,7 @@ using Logistica.Opciones;
 using Logistica.Servicios;
 using Logistica.Web;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
@@ -52,7 +53,18 @@ builder.Services.AddDatosLogistica(builder.Configuration);
 // /health para el readiness probe del hosting gestionado — no existía ninguno. Solo chequea
 // que el DbContext puede conectar (AddDbContextCheck ejecuta un "select 1" equivalente), no
 // reglas de negocio.
-builder.Services.AddHealthChecks().AddDbContextCheck<LogisticaDbContext>();
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<LogisticaDbContext>()
+    // Solo en /health/listo: /health sigue siendo la liveness que usa el hosting (changelog 1.42).
+    .AddCheck<ChequeoMigraciones>("migraciones", tags: ["listo"]);
+
+// Fuera de desarrollo, logs en JSON (una línea por evento) para que el log de Render se pueda filtrar
+// por campo: nivel, traceId, ruta, status.
+if (!builder.Environment.IsDevelopment())
+{
+    builder.Logging.ClearProviders();
+    builder.Logging.AddJsonConsole(o => o.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffK ");
+}
 
 builder.Services.Configure<OpcionesJwt>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddSingleton<TokenService>();
@@ -63,6 +75,7 @@ builder.Services.Configure<OpcionesDeposito>(builder.Configuration.GetSection("D
 builder.Services.Configure<OpcionesPruebaEntrega>(builder.Configuration.GetSection("PruebaEntrega"));
 builder.Services.Configure<OpcionesDistancia>(builder.Configuration.GetSection("Distancia"));
 builder.Services.Configure<OpcionesPortal>(builder.Configuration.GetSection("Portal"));
+builder.Services.Configure<OpcionesUrgencias>(builder.Configuration.GetSection("Urgencias"));
 builder.Services.AddScoped<PrecioService>();
 builder.Services.AddScoped<DistanciaService>();
 builder.Services.AddScoped<UbicacionService>();
@@ -70,9 +83,29 @@ builder.Services.AddScoped<OrigenRutaService>();
 builder.Services.AddScoped<ZonaLocalidadService>();
 builder.Services.AddScoped<DireccionDesdeMapaService>();
 builder.Services.AddScoped<TarifaService>();
-builder.Services.AddScoped<AlmacenamientoFotos>();
+// Fotos y firmas: disco local en desarrollo, Cloudinary en producción (auditoria_seguridad.md hallazgo
+// 15 — el disco del contenedor de Render se borra en cada deploy). Ver Opciones/OpcionesAlmacenamiento.cs.
+builder.Services.Configure<OpcionesAlmacenamiento>(builder.Configuration.GetSection("Almacenamiento"));
+var almacenamiento = builder.Configuration.GetSection("Almacenamiento").Get<OpcionesAlmacenamiento>() ?? new OpcionesAlmacenamiento();
+switch (almacenamiento.Proveedor)
+{
+    case "local":
+        builder.Services.AddScoped<AlmacenamientoFotos, AlmacenamientoFotosLocal>();
+        break;
+    case "cloudinary":
+        if (string.IsNullOrWhiteSpace(almacenamiento.CloudinaryUrl))
+            throw new InvalidOperationException(
+                "Almacenamiento:Proveedor=cloudinary sin Almacenamiento:CloudinaryUrl. En producción: variable de entorno Almacenamiento__CloudinaryUrl.");
+        builder.Services.AddSingleton(new CloudinaryDotNet.Cloudinary(almacenamiento.CloudinaryUrl));
+        builder.Services.AddHttpClient<AlmacenamientoFotos, AlmacenamientoFotosCloudinary>(c => c.Timeout = TimeSpan.FromSeconds(15));
+        break;
+    default:
+        throw new InvalidOperationException($"Almacenamiento:Proveedor inválido: '{almacenamiento.Proveedor}' (local o cloudinary).");
+}
 builder.Services.AddScoped<CuentaCorrienteService>();
 builder.Services.AddScoped<JornadaService>();
+builder.Services.AddScoped<LiquidacionService>();
+builder.Services.AddScoped<RangoClienteService>();
 builder.Services.AddHostedService<CalentamientoService>();
 
 // RuteoService cachea recorridos en memoria (acta changelog 3.4) — sin tabla nueva.
@@ -99,14 +132,18 @@ builder.Services.AddHttpClient<EnlaceMapaService>(client =>
     client.DefaultRequestHeaders.Add("User-Agent", "Logistica/1.0 (contacto@logistica.local)");
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
-// "Ruteo:BaseUrl" es PROVISIONAL: en desarrollo apunta al demo público de OSRM
-// (router.project-osrm.org), cuya política de uso no admite producción — ahí exige un
-// contenedor propio (construccion_v1.md §1, acta changelog 3.4).
-var ruteoBaseUrl = builder.Configuration["Ruteo:BaseUrl"]
-    ?? throw new InvalidOperationException("Falta Ruteo:BaseUrl");
+// Recorrido por calles: OSRM (demo público) en desarrollo, OpenRouteService en producción — el demo
+// de OSRM no admite uso productivo (construccion_v1.md §1). Ver Opciones/OpcionesRuteo.cs.
+builder.Services.Configure<OpcionesRuteo>(builder.Configuration.GetSection("Ruteo"));
+var ruteo = builder.Configuration.GetSection("Ruteo").Get<OpcionesRuteo>() ?? new OpcionesRuteo();
+if (ruteo.Proveedor is not ("osrm" or "ors" or "ninguno"))
+    throw new InvalidOperationException($"Ruteo:Proveedor inválido: '{ruteo.Proveedor}' (osrm, ors o ninguno).");
+if (ruteo.Proveedor == "ors" && string.IsNullOrWhiteSpace(ruteo.ApiKey))
+    throw new InvalidOperationException("Ruteo:Proveedor=ors sin Ruteo:ApiKey. En producción: variable de entorno Ruteo__ApiKey.");
 builder.Services.AddHttpClient<RuteoService>(client =>
 {
-    client.BaseAddress = new Uri(ruteoBaseUrl);
+    client.BaseAddress = new Uri(ruteo.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(ruteo.TimeoutSegundos);
     client.DefaultRequestHeaders.Add("User-Agent", "Logistica/1.0 (contacto@logistica.local)");
 });
 
@@ -159,6 +196,11 @@ builder.Services.AddAuthorizationBuilder()
     // tanto el planificador (armar ruta) como el repartidor (guía del día).
     .AddPolicy("Recorrido", p => p.RequireRole(Roles.Administracion, Roles.Operacion, Roles.Repartidor));
 
+var proxy = builder.Configuration.GetSection("Proxy").Get<OpcionesProxy>() ?? new OpcionesProxy();
+if (proxy.Habilitado && string.IsNullOrWhiteSpace(proxy.Secreto))
+    throw new InvalidOperationException(
+        "Proxy:Habilitado sin Proxy:Secreto. En producción: variable de entorno Proxy__Secreto, igual a PROXY_SECRETO del frontend.");
+
 var frontendOrigin = builder.Configuration["Frontend:Origin"]
     ?? throw new InvalidOperationException("Falta Frontend:Origin");
 
@@ -204,12 +246,27 @@ builder.Services.AddRateLimiter(options =>
             AutoReplenishment = true,
             QueueLimit = 0,
         }));
+    // Envío masivo de avisos de cobranza (auditoria_seguridad.md hallazgo 6): cada llamada puede mandar
+    // hasta 100 correos. Una cuenta de administración comprometida (o un doble clic insistente) podía
+    // agotar la cuota de Resend. Por usuario, no por IP: 3 envíos seguidos y después 1 cada 10 minutos.
+    // La previsualización no se limita: no manda nada.
+    options.AddPolicy("avisos", httpContext => RateLimitPartition.GetTokenBucketLimiter(
+        partitionKey: httpContext.User.FindFirst("sub")?.Value ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "sin-ip",
+        factory: _ => new TokenBucketRateLimiterOptions
+        {
+            TokenLimit = 3,
+            TokensPerPeriod = 1,
+            ReplenishmentPeriod = TimeSpan.FromMinutes(10),
+            AutoReplenishment = true,
+            QueueLimit = 0,
+        }));
     options.OnRejected = async (contexto, ct) =>
     {
-        var esLogin = contexto.HttpContext.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName == "login";
+        var politica = contexto.HttpContext.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName;
+        var esLogin = politica == "login";
         // 12, no 60: con token bucket el próximo token llega a los 12s (ReplenishmentPeriod), no
         // hay que esperar la ventana entera como con fixed window.
-        contexto.HttpContext.Response.Headers.RetryAfter = esLogin ? "12" : "10";
+        contexto.HttpContext.Response.Headers.RetryAfter = politica switch { "login" => "12", "avisos" => "600", _ => "10" };
         var problemDetailsService = contexto.HttpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
         await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
         {
@@ -218,9 +275,12 @@ builder.Services.AddRateLimiter(options =>
             {
                 Status = StatusCodes.Status429TooManyRequests,
                 Title = esLogin ? "Demasiados intentos" : "Demasiadas solicitudes",
-                Detail = esLogin
-                    ? "Demasiados intentos de inicio de sesión. Esperá unos segundos y volvé a intentar."
-                    : "Demasiadas solicitudes seguidas. Esperá unos segundos y volvé a intentar.",
+                Detail = politica switch
+                {
+                    "login" => "Demasiados intentos de inicio de sesión. Esperá unos segundos y volvé a intentar.",
+                    "avisos" => "Ya se mandaron varios envíos masivos de avisos seguidos. Esperá unos minutos antes del próximo.",
+                    _ => "Demasiadas solicitudes seguidas. Esperá unos segundos y volvé a intentar.",
+                },
             },
         });
     };
@@ -279,8 +339,28 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// Antes que todo: mide el request completo, incluido el 500 que escriba el manejador de excepciones.
+app.UseRegistroSolicitudes();
+
 // Primero de todo el pipeline: tiene que envolver cualquier middleware/controller downstream.
 app.UseExceptionHandler();
+
+// Detrás de Vercel → Render (auditoria_seguridad.md hallazgo 14): antes que HSTS, HTTPS y el límite
+// de tasa, que necesitan el esquema y la IP reales. Ver Opciones/OpcionesProxy.cs.
+if (proxy.Habilitado)
+{
+    var reenvio = new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+        // Solo el último salto, el que agrega el balanceador de Render: los anteriores los puede
+        // escribir cualquiera. Las IP de Render no son fijas, por eso no hay lista de proxies conocidos.
+        ForwardLimit = 1,
+    };
+    reenvio.KnownNetworks.Clear();
+    reenvio.KnownProxies.Clear();
+    app.UseForwardedHeaders(reenvio);
+    app.UseIpClienteDesdeProxy(proxy.Secreto!);
+}
 
 // Cabeceras de seguridad en toda respuesta. La API nunca se embebe en un frame ni necesita que el
 // navegador adivine tipos de contenido; y sus respuestas (datos de clientes, DNI, facturas) no se
@@ -325,7 +405,13 @@ app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
 
-app.MapHealthChecks("/health");
+// /health: liveness (proceso + base), la que usa el hosting. /health/listo: además, sin migraciones
+// pendientes — la que conviene vigilar con un monitor externo después de cada deploy.
+app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = chequeo => !chequeo.Tags.Contains("listo"),
+});
+app.MapHealthChecks("/health/listo");
 app.MapControllers();
 
 app.Run();

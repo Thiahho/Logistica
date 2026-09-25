@@ -96,10 +96,13 @@ function FormularioAlta() {
                 id="password"
                 type="password"
                 required
-                minLength={8}
+                minLength={10}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">
+                Al menos 10 caracteres, con letras y números, sin incluir el email ni usar una contraseña común.
+              </p>
             </div>
             <div className="flex flex-col gap-2">
               <Label>Rol</Label>

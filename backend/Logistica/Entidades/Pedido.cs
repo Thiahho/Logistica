@@ -38,6 +38,10 @@ public class Pedido
     public decimal? PrecioBase { get; set; }
     public decimal? RecargoUrgencia { get; set; }
     public decimal? DescuentoRuta { get; set; }
+
+    /// <summary>B3, definición J (acta changelog 4.21): descuento del rango efectivo del cliente al
+    /// cotizar, solo sobre la tarifa general. Congelado con el resto del precio (fn_congelar_pedido).</summary>
+    public decimal DescuentoRango { get; set; }
     public decimal Peajes { get; set; }
     public decimal? Total { get; set; }
     public DateTimeOffset? PrecioCongeladoEn { get; set; }

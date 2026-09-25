@@ -21,6 +21,11 @@ public class ClienteConfiguration : IEntityTypeConfiguration<Cliente>
                 "(corte_suspendido_hasta is null and corte_suspendido_por is null) " +
                 "or (corte_suspendido_hasta is not null and corte_suspendido_por is not null " +
                 "and corte_suspendido_motivo is not null)");
+            // Definición F (acta 4.21): el ajuste manual es de un rango como máximo y, si existe, tiene
+            // motivo escrito y vencimiento.
+            t.HasCheckConstraint("ck_clientes_rango_ajuste",
+                "rango_ajuste = 0 or (rango_ajuste in (-1, 1) and rango_ajuste_motivo is not null " +
+                "and btrim(rango_ajuste_motivo) <> '' and rango_ajuste_vence is not null and rango_ajuste_por is not null)");
         });
 
         b.HasKey(x => x.Id);
@@ -44,5 +49,16 @@ public class ClienteConfiguration : IEntityTypeConfiguration<Cliente>
 
         b.HasOne(x => x.CorteSuspendidoPorUsuario).WithMany()
             .HasForeignKey(x => x.CorteSuspendidoPor).OnDelete(DeleteBehavior.Restrict);
+
+        // B3 (acta RF-42, changelog 4.21)
+        b.Property(x => x.RangoCalculado).HasColumnName("rango_calculado").HasDefaultValue("sin_rango");
+        b.Property(x => x.RangoCalculadoEn).HasColumnName("rango_calculado_en");
+        b.Property(x => x.RangoAjuste).HasColumnName("rango_ajuste").HasDefaultValue((short)0);
+        b.Property(x => x.RangoAjusteMotivo).HasColumnName("rango_ajuste_motivo");
+        b.Property(x => x.RangoAjusteVence).HasColumnName("rango_ajuste_vence");
+        b.Property(x => x.RangoAjustePor).HasColumnName("rango_ajuste_por");
+        b.Property(x => x.RangoAjusteEn).HasColumnName("rango_ajuste_en");
+        b.HasOne<Rango>().WithMany().HasForeignKey(x => x.RangoCalculado).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Usuario>().WithMany().HasForeignKey(x => x.RangoAjustePor).OnDelete(DeleteBehavior.Restrict);
     }
 }

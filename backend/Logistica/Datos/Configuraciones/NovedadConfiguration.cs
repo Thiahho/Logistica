@@ -10,14 +10,15 @@ public class NovedadConfiguration : IEntityTypeConfiguration<Novedad>
     {
         b.ToTable("novedades", t =>
         {
+            // 'urgencia' (acta RF-45, changelog 4.26): operación agregó una urgencia a la ruta en curso.
             t.HasCheckConstraint("ck_novedades_tipo",
-                "tipo in ('incidencia_ruta','problema_carga','cambio_propuesto','cambio_operacion','cancelacion')");
+                "tipo in ('incidencia_ruta','problema_carga','cambio_propuesto','cambio_operacion','cancelacion','urgencia')");
             t.HasCheckConstraint("ck_novedades_origen", "origen in ('repartidor','operacion')");
             t.HasCheckConstraint("ck_novedades_estado", "estado in ('abierta','resuelta','rechazada')");
             // El origen no es libre: cada tipo nace de un solo lado.
             t.HasCheckConstraint("ck_novedades_origen_coherente",
                 "(origen = 'repartidor' and tipo in ('incidencia_ruta','problema_carga','cambio_propuesto')) "
-                + "or (origen = 'operacion' and tipo in ('cambio_operacion','cancelacion'))");
+                + "or (origen = 'operacion' and tipo in ('cambio_operacion','cancelacion','urgencia'))");
             t.HasCheckConstraint("ck_novedades_propuesta",
                 "(tipo = 'cambio_propuesto') = (propuesta_campo is not null and propuesta_valor_nuevo is not null)");
         });

@@ -39,6 +39,9 @@ export interface PedidoResumen {
   /** B9 (Anexo I §4, "+40 km → Cotización"): true si la zona de destino no tiene ninguna tarifa
    * cargada y todavía no se le fijó un precio manual. Solo puede ser true en Borrador. */
   requiereCotizacion: boolean;
+  /** B3 (acta changelog 4.21): solo en la respuesta del alta — el saldo supera el límite de crédito
+   * del rango del cliente. Solo avisa. */
+  avisoCredito?: string | null;
 }
 
 /** Envoltorio de página (GET /api/pedidos con `pagina`/`tamanioPagina`). `total` es la cantidad
@@ -105,6 +108,8 @@ export interface PedidoDetalle {
   kmFuente: string | null;
   recargoUrgencia: number | null;
   descuentoRuta: number | null;
+  /** B3, definición J (acta changelog 4.21): descuento del rango del cliente al cotizar. */
+  descuentoRango: number;
   peajes: number;
   total: number | null;
   precioCongeladoEn: string | null;
@@ -271,6 +276,8 @@ export interface DesglosePrecio {
   kmCobrados: number | null;
   /** ruta | recta | manual — de dónde salió kmCobrados, o null si kmCobrados es null. */
   kmFuente: string | null;
+  /** B3, definición J: descuento del rango del cliente, solo sobre la tarifa general. */
+  descuentoRango: number;
 }
 
 /** Estimado informativo de POST /api/pedidos/cotizar (acta changelog 3.11) — nunca es el precio
@@ -400,6 +407,85 @@ export interface RutaDetalle {
   cierreRepartidorPeajes: number | null;
   cierreRepartidorNotas: string | null;
   cerradaPor: string | null;
+  // B4 (acta changelog 4.21): desglose del pago calculado al cerrar; null si se pagó a mano.
+  liqEntregas: number | null;
+  liqFallidasImputables: number | null;
+  liqPctExito: number | null;
+  liqPagoEntregas: number | null;
+  liqBono: number | null;
+  pagoAjusteMotivo: string | null;
+  liquidacionId: number | null;
+}
+
+/** B4: pago al repartidor calculado para una ruta (GET /api/rutas/{id}/liquidacion-sugerida). */
+export interface DesgloseLiquidacion {
+  tipoVehiculo: string;
+  entregas: number;
+  fallidasImputables: number;
+  fallidasNoImputables: number;
+  pctExito: number;
+  pagoPorEntrega: number;
+  pagoEntregas: number;
+  pctMinimoExitosas: number;
+  bono: number;
+  total: number;
+}
+
+/** B4: parámetros de liquidación vigentes por tipo de vehículo (GET /api/parametros-liquidacion). */
+export interface ParametroLiquidacion {
+  id: number;
+  tipoVehiculo: string;
+  pagoPorEntrega: number;
+  bonoRuta: number;
+  pctMinimoExitosas: number;
+  motivosImputables: string[];
+  vigenteDesde: string;
+  vigenteHasta: string | null;
+}
+
+export interface ParametrosLiquidacionResponse {
+  parametros: ParametroLiquidacion[];
+  motivosFallo: string[];
+}
+
+/** B4: una ruta dentro de una liquidación (o candidata a entrar). */
+export interface RutaLiquidable {
+  id: number;
+  fecha: string;
+  vehiculoPatente: string | null;
+  entregas: number | null;
+  fallidasImputables: number | null;
+  pctExito: number | null;
+  pagoEntregas: number | null;
+  bono: number | null;
+  pagoRepartidor: number;
+  pagoAjusteMotivo: string | null;
+}
+
+export interface PrevisualizacionLiquidacion {
+  repartidorId: string;
+  repartidorNombre: string;
+  desde: string;
+  hasta: string;
+  rutas: RutaLiquidable[];
+  total: number;
+}
+
+export interface LiquidacionResumen {
+  id: number;
+  repartidorId: string;
+  repartidorNombre: string;
+  desde: string;
+  hasta: string;
+  cantidadRutas: number;
+  total: number;
+  emitidaEn: string;
+}
+
+export interface LiquidacionDetalle extends LiquidacionResumen {
+  nota: string | null;
+  emitidaPorNombre: string;
+  rutas: RutaLiquidable[];
 }
 
 /** Candidato a entrar en una ruta (GET /api/pedidos/candidatos-ruta). */
@@ -421,6 +507,9 @@ export interface CandidatoRuta {
    * — va a rechazar el cierre de planificación si entra a la ruta así. */
   requiereCotizacion: boolean;
   precioManual: number | null;
+  /** B3 (acta 4.21 frente a §7): el rango ordena la lista de pendientes al armar, nunca las paradas. */
+  rangoNombre: string;
+  prioridad: number;
 }
 
 /** Destinatario ya usado por un cliente, con su dirección ya geocodificada (GET
@@ -618,7 +707,9 @@ export type TipoNovedad =
   | "problema_carga"
   | "cambio_propuesto"
   | "cambio_operacion"
-  | "cancelacion";
+  | "cancelacion"
+  /** Acta RF-45 (changelog 4.26): operación agregó una urgencia a la ruta en curso. */
+  | "urgencia";
 
 /** Espejo de MisParadasController.NovedadDelDia. `sinVer`: el repartidor todavía no acusó recibo — un
  * aviso de operación (cambio, cancelación) o la respuesta a algo que él informó. */
@@ -680,7 +771,25 @@ export const ETIQUETA_TIPO_NOVEDAD: Record<TipoNovedad, string> = {
   cambio_propuesto: "Corrección propuesta",
   cambio_operacion: "Cambio de operación",
   cancelacion: "Pedido cancelado",
+  urgencia: "Urgencia agregada",
 };
+
+/** RF-45: GET /api/rutas/urgencias/ventana. Horas "HH:mm:ss". */
+export interface VentanaUrgencias {
+  desde: string;
+  hasta: string;
+  abierta: boolean;
+  maxParadasDesplazadas: number;
+}
+
+/** RF-45: respuesta de POST /api/rutas/{id}/urgencias. */
+export interface UrgenciaInsertada {
+  paradaId: number;
+  orden: number;
+  desplazadas: number;
+  consolidada: boolean;
+  total: number | null;
+}
 
 export const ETIQUETA_CAMPO_EDITABLE: Record<string, string> = {
   destinatario_telefono: "Teléfono",
@@ -842,6 +951,140 @@ export interface CuentaPropia {
   servicioCortado: boolean;
   proximoVencimiento: string | null;
   facturas: FacturaPropia[];
+  /** B3 (acta RF-42): el cliente ve su rango y su descuento, nunca los números con que se calculó. */
+  rangoNombre: string;
+  descuentoPct: number;
+}
+
+/** B3 (acta RF-42): configuración de un rango (GET /api/rangos). Umbrales null = no exige nada. */
+export interface RangoConfig {
+  codigo: string;
+  nombre: string;
+  orden: number;
+  minEnviosTrimestre: number | null;
+  minFacturacionTrimestre: number | null;
+  minAntiguedadMeses: number | null;
+  minSemanasActivas: number | null;
+  minPctPagosEnTermino: number | null;
+  descuentoPct: number;
+  limiteCredito: number | null;
+  prioridad: number;
+}
+
+export interface CriteriosRango {
+  envios: number;
+  facturacion: number;
+  antiguedadMeses: number;
+  semanasActivas: number;
+  pctPagosEnTermino: number;
+  facturasVencidas: number;
+}
+
+/** Lo que el recálculo trimestral haría (o hizo) con un cliente. */
+export interface RangoRecalculado {
+  clienteId: number;
+  razonSocial: string;
+  criterios: CriteriosRango;
+  calculadoAnterior: string;
+  calculadoNuevo: string;
+  efectivoAnterior: string;
+  efectivoNuevo: string;
+  ajusteVencido: boolean;
+}
+
+export interface HistorialRango {
+  rangoAnterior: string | null;
+  rangoNuevo: string;
+  origen: "recalculo" | "ajuste";
+  trimestre: string | null;
+  /** CriteriosRango serializado por el backend (claves en PascalCase). */
+  criterios: string | null;
+  motivo: string | null;
+  registradoPor: string;
+  registradoEn: string;
+}
+
+/** B7 (acta RF-43): costo fijo de un mes. */
+export interface CostoFijo {
+  id: number;
+  mes: string;
+  categoria: string;
+  descripcion: string | null;
+  monto: number;
+}
+
+/** B7: un tramo de la estructura objetivo (PUT/GET /api/objetivos-rentabilidad). */
+export interface ObjetivoRentabilidad {
+  nombre: string;
+  pctMin: number;
+  pctMax: number;
+  /** pago_repartidor | combustible | peajes | otros_costos | fijos | fijos:<categoría> | margen */
+  fuentes: string[];
+}
+
+export interface TramoEvaluado extends ObjetivoRentabilidad {
+  id: number;
+  monto: number;
+  /** null si el mes no tuvo ingresos. */
+  pct: number | null;
+  estado: "debajo" | "dentro" | "encima" | null;
+}
+
+/** GET /api/rentabilidad?mes=2026-09 — solo Administración. */
+export interface ResultadoMes {
+  mes: string;
+  ingresos: number;
+  pagoRepartidor: number;
+  combustible: number;
+  peajes: number;
+  otrosCostos: number;
+  variables: number;
+  fijos: number;
+  margen: number;
+  pctMargen: number | null;
+  rutasCerradas: number;
+  fijosPorCategoria: Record<string, number>;
+  tramos: TramoEvaluado[];
+  costosFijos: CostoFijo[];
+}
+
+/** B2/E3: tablero de indicadores (GET /api/tablero). null = sin datos para calcularlo. */
+export interface Tablero {
+  desde: string;
+  hasta: string;
+  /** false con filtro de cliente o zona: el costo de una ruta no se prorratea, los indicadores de ruta no se muestran. */
+  indicadoresDeRuta: boolean;
+  entregas: number;
+  entregasPorDia: number | null;
+  kmPorEntrega: number | null;
+  minutosPorEntrega: number | null;
+  facturacion: number;
+  facturacionPorCliente: { nombre: string; valor: number }[];
+  facturacionPorRango: { nombre: string; valor: number }[];
+  cancelados: number;
+  pctCancelaciones: number | null;
+  rutasCerradas: number;
+  costoPorEntrega: number | null;
+  costoPorRuta: number | null;
+  margenTotal: number | null;
+  margenPorRuta: number | null;
+  pctOcupacion: number | null;
+  porDia: { fecha: string; entregas: number; margen: number | null }[];
+}
+
+/** GET /api/clientes/{id}/rango — solo Administración. */
+export interface RangoDeCliente {
+  clienteId: number;
+  calculado: string;
+  efectivo: string;
+  calculadoEn: string | null;
+  ajuste: number;
+  ajusteMotivo: string | null;
+  ajusteVence: string | null;
+  ajusteVigente: boolean;
+  descuentoPct: number;
+  limiteCredito: number | null;
+  historial: HistorialRango[];
 }
 
 /** Resultado de un cierre de ciclo por cliente (GET .../cierre/previsualizacion, POST .../cierre). */

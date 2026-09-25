@@ -29,7 +29,9 @@ import type {
   ResultadoRuta,
   RutaDetalle,
   UsuarioSeleccion,
+  VentanaUrgencias,
 } from "@/lib/dominio/tipos";
+import { DialogoUrgencia } from "./DialogoUrgencia";
 
 export default function RutaDetallePage() {
   return (
@@ -106,6 +108,13 @@ function RutaDetalleContenido() {
   const [dialogoRepartidor, setDialogoRepartidor] = useState(false);
   const [dialogoOrden, setDialogoOrden] = useState(false);
   const [dialogoInterrumpir, setDialogoInterrumpir] = useState(false);
+  // RF-45: urgencias en una ruta en curso, solo dentro de la ventana de reagrupamiento.
+  const [dialogoUrgencia, setDialogoUrgencia] = useState(false);
+  const [avisoUrgencia, setAvisoUrgencia] = useState<string | null>(null);
+  const { datos: ventana } = useSondeo<VentanaUrgencias>("/api/rutas/urgencias/ventana", {
+    intervaloMs: 60_000,
+    repetir: ruta?.estado === "en_curso",
+  });
   // Con una lista larga en el teléfono el mapa se puede plegar para no obligar a scrollear hasta el final.
   const [mapaVisible, setMapaVisible] = useState(true);
 
@@ -193,6 +202,19 @@ function RutaDetalleContenido() {
             >
               Reordenar pendientes
             </Button>
+            {ruta.estado === "en_curso" && (
+              <Button
+                variant="outline"
+                className="col-span-2 h-11 sm:col-span-1 md:h-8"
+                disabled={!ventana?.abierta}
+                title={ventana && !ventana.abierta ? `Las urgencias entran de ${ventana.desde.slice(0, 5)} a ${ventana.hasta.slice(0, 5)}` : undefined}
+                onClick={() => setDialogoUrgencia(true)}
+              >
+                {ventana && !ventana.abierta
+                  ? `Urgencias: ${ventana.desde.slice(0, 5)} a ${ventana.hasta.slice(0, 5)}`
+                  : "Agregar urgencia"}
+              </Button>
+            )}
             {ruta.estado === "en_curso" && (
               <Button variant="destructive" className="col-span-2 h-11 sm:col-span-1 md:h-8" onClick={() => setDialogoInterrumpir(true)}>
                 Interrumpir ruta
@@ -310,6 +332,30 @@ function RutaDetalleContenido() {
             setDialogoRepartidor(false);
             cargarRuta();
             recargarJornada();
+          }}
+        />
+      )}
+
+      {avisoUrgencia && (
+        <p className="rounded-lg border border-amber-500 bg-amber-50/60 p-3 text-sm">{avisoUrgencia}</p>
+      )}
+
+      {dialogoUrgencia && ventana && (
+        <DialogoUrgencia
+          rutaId={ruta.id}
+          fecha={ruta.fecha}
+          ventana={ventana}
+          onCerrar={() => setDialogoUrgencia(false)}
+          onListo={(r) => {
+            setDialogoUrgencia(false);
+            setAvisoUrgencia(
+              (r.consolidada ? `Urgencia sumada a la parada ${r.orden}.` : `Urgencia agregada como parada ${r.orden}.`) +
+                (r.desplazadas > 0 ? ` Desplazó ${r.desplazadas} parada(s).` : "") +
+                (r.total !== null ? ` Precio congelado con recargo: $${r.total.toLocaleString("es-AR")}.` : "") +
+                " El repartidor recibe el aviso en su jornada.",
+            );
+            recargarJornada();
+            recargarNovedades();
           }}
         />
       )}

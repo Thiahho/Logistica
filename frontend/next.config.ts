@@ -21,6 +21,8 @@ const cabecerasDeSeguridad = [
 const nextConfig: NextConfig = {
   // No anunciar "X-Powered-By: Next.js".
   poweredByHeader: false,
+  // El reenvío de /api/* al backend en producción vive en proxy.ts, no en rewrites(): necesita agregar
+  // cabeceras al request reenviado, y un rewrite de configuración no puede.
   async headers() {
     return [{ source: "/:path*", headers: cabecerasDeSeguridad }];
   },

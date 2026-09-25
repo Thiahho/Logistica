@@ -1,4 +1,5 @@
 using Logistica.Datos;
+using Logistica.Dominio;
 using Logistica.Opciones;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -13,7 +14,9 @@ public record DesglosePrecio(
     decimal Peajes,
     decimal Total,
     decimal? KmCobrados,
-    string? KmFuente);
+    string? KmFuente,
+    // B3, definición J (acta changelog 4.21): descuento del rango efectivo del cliente.
+    decimal DescuentoRango = 0m);
 
 /// <summary>
 /// construccion_v1.md §6. Resuelve precio_base con la función tarifa_vigente ya presente en la
@@ -57,11 +60,40 @@ public class PrecioService(LogisticaDbContext db, IOptions<OpcionesPrecio> opcio
             : 0m;
         var recargoUrgencia = urgente ? precioBase.Value * factores.FactorUrgencia : 0m;
         var descuento = descuentoRuta ? precioBase.Value * factores.FactorDescuentoRuta : 0m;
-        var total = precioBase.Value + recargoKm + recargoUrgencia - descuento + peajes;
+        // Un precio manual (B9) no es tarifa general: no suma descuento por rango.
+        var descuentoRango = precioManual is null
+            ? precioBase.Value * await PctDescuentoRangoAsync(clienteId, zonaId, fecha, tipoVehiculo, ct) / 100m
+            : 0m;
+        var total = precioBase.Value + recargoKm + recargoUrgencia - descuento - descuentoRango + peajes;
 
         return new DesglosePrecio(
             precioBase.Value, recargoKm, recargoUrgencia, descuento, peajes, total,
-            distancia?.Km, distancia?.Fuente);
+            distancia?.Km, distancia?.Fuente, descuentoRango);
+    }
+
+    /// <summary>
+    /// Definición J (acta changelog 4.21; diseño_e2_rangos_liquidacion.md §3.5): el % de descuento del
+    /// rango efectivo del cliente, hoy. Solo si el precio sale de la lista general: un cliente con
+    /// tarifa propia para esa zona y vehículo ya tiene su precio negociado.
+    /// </summary>
+    private async Task<decimal> PctDescuentoRangoAsync(
+        int clienteId, int zonaId, DateOnly fecha, string tipoVehiculo, CancellationToken ct)
+    {
+        var tarifaPropia = await db.Tarifas.AnyAsync(t => t.ClienteId == clienteId && t.ZonaId == zonaId
+            && t.TipoVehiculo == tipoVehiculo && t.VigenteDesde <= fecha
+            && (t.VigenteHasta == null || t.VigenteHasta >= fecha), ct);
+        if (tarifaPropia) return 0m;
+
+        var cliente = await db.Clientes.AsNoTracking()
+            .Where(c => c.Id == clienteId)
+            .Select(c => new { c.RangoCalculado, c.RangoAjuste, c.RangoAjusteVence })
+            .SingleOrDefaultAsync(ct);
+        if (cliente is null) return 0m;
+
+        var rangos = await db.Rangos.AsNoTracking().ToListAsync(ct);
+        var efectivo = RangosCliente.Efectivo(
+            cliente.RangoCalculado, cliente.RangoAjuste, cliente.RangoAjusteVence, Reloj.HoyLocal(), rangos);
+        return rangos.SingleOrDefault(r => r.Codigo == efectivo)?.DescuentoPct ?? 0m;
     }
 
     /// <summary>Último tramo cuyo DesdeKm &lt;= km — semiabierto [DesdeKm, siguiente), mismo

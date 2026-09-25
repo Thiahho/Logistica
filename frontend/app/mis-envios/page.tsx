@@ -66,6 +66,13 @@ function MiCuenta() {
         <p className="text-sm text-muted-foreground">
           Próximo vencimiento: <span className="text-foreground">{cuenta.proximoVencimiento ?? "—"}</span>
         </p>
+        {/* B3 (acta RF-42): el rango y su descuento, sin los números con que se calculó (RF-33). */}
+        {cuenta.rangoNombre && cuenta.rangoNombre !== "Sin rango" && (
+          <p className="text-sm text-muted-foreground">
+            Tu rango: <span className="font-medium text-foreground">{cuenta.rangoNombre}</span>
+            {cuenta.descuentoPct > 0 && ` · ${cuenta.descuentoPct}% de descuento sobre la tarifa general`}
+          </p>
+        )}
 
         {cuenta.servicioCortado && (
           <p className="text-sm text-destructive">

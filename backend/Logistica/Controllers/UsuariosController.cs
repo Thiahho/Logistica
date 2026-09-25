@@ -1,5 +1,6 @@
 using Logistica.Auth;
 using Logistica.Datos;
+using Logistica.Dominio;
 using Logistica.Entidades;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -53,13 +54,14 @@ public class UsuariosController(LogisticaDbContext db) : ControllerBase
     public async Task<IActionResult> Crear(CrearUsuarioRequest req, CancellationToken ct)
     {
         if (!Roles.Todos.Contains(req.Rol)) return BadRequest("Rol inválido.");
-        if (req.Password.Length < 8) return BadRequest("La contraseña debe tener al menos 8 caracteres.");
+        if (!Validaciones.EmailValido(req.Email)) return BadRequest("El email no es válido.");
+        if (PoliticaContrasena.Validar(req.Password, req.Email) is { } errorClave) return BadRequest(errorClave);
 
         var usuario = new Usuario
         {
             Id = Guid.NewGuid(),
             Nombre = req.Nombre,
-            Email = req.Email,
+            Email = req.Email.Trim(),
             Rol = req.Rol,
             CreadoEn = DateTimeOffset.UtcNow,
         };
@@ -110,10 +112,9 @@ public class UsuariosController(LogisticaDbContext db) : ControllerBase
     [Authorize(Policy = "Administracion")]
     public async Task<IActionResult> CambiarPassword(Guid id, CambiarPasswordRequest req, CancellationToken ct)
     {
-        if (req.Password.Length < 8) return BadRequest("La contraseña debe tener al menos 8 caracteres.");
-
         var usuario = await db.Usuarios.SingleOrDefaultAsync(u => u.Id == id, ct);
         if (usuario is null) return NotFound();
+        if (PoliticaContrasena.Validar(req.Password, usuario.Email) is { } errorClave) return BadRequest(errorClave);
 
         usuario.PasswordHash = AuthService.Hashear(usuario, req.Password);
         await db.SaveChangesAsync(ct);

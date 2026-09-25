@@ -33,7 +33,7 @@ public class MiCuentaController(
     LogisticaDbContext db, CuentaCorrienteService cuentaCorriente, PrecioService precios,
     DistanciaService distancias, OrigenRutaService origenes, IOptions<OpcionesPortal> opcionesPortal,
     UbicacionService ubicaciones, GeocodificacionService geocodificador, ZonaLocalidadService zonasLocalidad,
-    DireccionDesdeMapaService desdeMapa)
+    DireccionDesdeMapaService desdeMapa, RangoClienteService rangos)
     : ControllerBase
 {
     public record FacturaPropia(
@@ -42,7 +42,9 @@ public class MiCuentaController(
 
     public record CuentaPropia(
         decimal Saldo, decimal DeudaVencida, bool ServicioCortado,
-        DateOnly? ProximoVencimiento, List<FacturaPropia> Facturas);
+        DateOnly? ProximoVencimiento, List<FacturaPropia> Facturas,
+        // B3 (acta RF-42): el cliente ve su rango y su descuento, nunca los números con que se calculó (RF-33).
+        string RangoNombre = "", decimal DescuentoPct = 0m);
 
     public record CrearPedidoPortalRequest(
         [Required(AllowEmptyStrings = false, ErrorMessage = "El nombre del destinatario es obligatorio.")] string DestinatarioNombre,
@@ -163,8 +165,10 @@ public class MiCuentaController(
             .ToList();
 
         var proximoVencimiento = facturas.Count > 0 ? facturas.Min(f => f.FechaVencimiento) : (DateOnly?)null;
+        var rango = await rangos.EfectivoAsync(clienteId.Value, ct);
 
-        return Ok(new CuentaPropia(saldo, deudaVencida, servicioCortado, proximoVencimiento, facturas));
+        return Ok(new CuentaPropia(saldo, deudaVencida, servicioCortado, proximoVencimiento, facturas,
+            rango?.Nombre ?? "", rango?.DescuentoPct ?? 0m));
     }
 
     /// <summary>Espejo de LocalidadesController.Buscar (ver comentario arriba de estos records) —
@@ -337,6 +341,15 @@ public class MiCuentaController(
                 clienteId.Value, zonaId.Value, req.FechaEntrega, req.Urgente,
                 peajes: 0m, descuentoRuta: false, req.TipoVehiculo, precioManual: null, distancia, ct);
             precioVinculante = desglose.Total;
+            // El desglose se guarda ya (el pedido sigue en Borrador, fn_congelar_pedido no actúa todavía):
+            // al cerrar la planificación el precio vinculante no se re-cotiza (RutasController.CerrarPlanificacion)
+            // y así el detalle muestra de qué está hecho, no un único número.
+            pedido.PrecioBase = desglose.PrecioBase;
+            pedido.RecargoKm = desglose.RecargoKm;
+            pedido.KmCobrados = desglose.KmCobrados;
+            pedido.KmFuente = desglose.KmFuente;
+            pedido.RecargoUrgencia = desglose.RecargoUrgencia;
+            pedido.DescuentoRango = desglose.DescuentoRango;
         }
         catch (InvalidOperationException)
         {

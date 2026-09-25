@@ -7,6 +7,7 @@ import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
 import { AvisoCobranzaDialog } from "@/components/AvisoCobranzaDialog";
+import { RangoCliente } from "./RangoCliente";
 import { TarjetaMetrica } from "@/components/TarjetaMetrica";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,6 +147,7 @@ function DetalleCliente() {
 
       <DatosCliente cliente={cliente} fetchConSesion={fetchConSesion} onGuardado={cargar} />
       <TarifasCliente cliente={cliente} fetchConSesion={fetchConSesion} onCambio={cargar} />
+      <RangoCliente clienteId={cliente.id} />
       <CuentaCorrienteCliente clienteId={cliente.id} fetchConSesion={fetchConSesion} onAvisoEnviado={cargar} />
       <UsuariosCliente clienteId={cliente.id} fetchConSesion={fetchConSesion} />
       <EventosCliente
@@ -881,8 +883,8 @@ function UsuariosCliente({
 
   async function resetearPassword(id: string) {
     const nuevaPassword = passwords[id];
-    if (!nuevaPassword || nuevaPassword.length < 8) {
-      setError("La contraseña debe tener al menos 8 caracteres.");
+    if (!nuevaPassword || nuevaPassword.length < 10) {
+      setError("La contraseña debe tener al menos 10 caracteres, con letras y números.");
       return;
     }
     setError(null);
@@ -935,7 +937,7 @@ function UsuariosCliente({
                     <div className="flex gap-2">
                       <Input
                         type="password"
-                        placeholder="mín. 8 caracteres"
+                        placeholder="mín. 10, letras y números"
                         className="w-40"
                         value={passwords[u.id] ?? ""}
                         onChange={(e) => setPasswords((p) => ({ ...p, [u.id]: e.target.value }))}
@@ -982,7 +984,7 @@ function UsuariosCliente({
               id="nuevo-usuario-password"
               type="password"
               required
-              minLength={8}
+              minLength={10}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />

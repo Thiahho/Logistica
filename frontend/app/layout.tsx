@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Inter, Montserrat } from "next/font/google";
+import { connection } from "next/server";
 import { AuthProvider } from "@/lib/auth/AuthProvider";
 import { Shell } from "@/components/Shell";
 import "./globals.css";
@@ -32,7 +33,10 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+// CSP con nonce (proxy.ts, auditoria_seguridad.md hallazgo 9): Next aplica el nonce al renderizar, así que
+// ninguna página puede quedar prerenderizada en el build — connection() fuerza el render por request.
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  await connection();
   return (
     <html
       lang="es"

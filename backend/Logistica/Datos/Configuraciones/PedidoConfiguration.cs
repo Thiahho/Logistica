@@ -43,6 +43,7 @@ public class PedidoConfiguration : IEntityTypeConfiguration<Pedido>
         b.Property(x => x.PrecioBase).HasColumnName("precio_base").HasColumnType("numeric(12,2)");
         b.Property(x => x.RecargoUrgencia).HasColumnName("recargo_urgencia").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
         b.Property(x => x.DescuentoRuta).HasColumnName("descuento_ruta").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
+        b.Property(x => x.DescuentoRango).HasColumnName("descuento_rango").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
         b.Property(x => x.Peajes).HasColumnName("peajes").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
         b.Property(x => x.Total).HasColumnName("total").HasColumnType("numeric(12,2)");
         b.Property(x => x.PrecioCongeladoEn).HasColumnName("precio_congelado_en").HasDefaultValueSql("now()");
