@@ -173,6 +173,7 @@ function NuevoEnvio() {
         basePath="/api/mi-cuenta"
         contactos={contactos}
         permitirGuardarContacto
+        observacionesEndpoint="/api/mi-cuenta/observaciones-frecuentes"
         previsualizar={previsualizar}
         confirmar={confirmar}
       />

@@ -58,7 +58,7 @@ interface SelectorDireccionProps {
    * 'cliente' no puede llegar a /api/ubicaciones ni /api/localidades (BackOffice de clase). */
   basePath?: string;
   /** Muestra el campo opcional "Link de Google Maps": el servidor toma el punto exacto del link en
-   * vez de geocodificar por calle. Apagado por defecto (depósitos, rutas). */
+   * vez de geocodificar por calle. Apagado por defecto (depósitos). */
   permitirLinkMapa?: boolean;
 }
 
@@ -285,7 +285,7 @@ export function SelectorDireccion({
       )}
       {permitirLinkMapa && porConfirmar && (
         <div role="group" aria-label="Verificar dirección" className="flex flex-col gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
-          <p className="font-medium text-amber-900">Verificá la dirección de tu link</p>
+          <p className="font-medium text-amber-900">Verificá la dirección del link</p>
           <p>
             {calleTrim || <span className="text-destructive">Sin calle: escribila arriba</span>}
             {localidadConocida?.nombre ? `, ${localidadConocida.nombre}` : ""}

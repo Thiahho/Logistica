@@ -419,6 +419,17 @@ public class PedidosController(
         return Ok(resultado);
     }
 
+    /// <summary>Observaciones ya usadas en envíos de este cliente, para sugerirlas en el alta: primero
+    /// las de ese destinatario. Capa de lectura, como destinatarios-frecuentes.</summary>
+    [HttpGet("observaciones-frecuentes")]
+    [Authorize(Policy = "BackOffice")]
+    public async Task<IActionResult> ObservacionesUsadas(
+        [FromQuery] int clienteId, [FromQuery] string? destinatario, CancellationToken ct)
+    {
+        if (clienteId <= 0) return Ok(Array.Empty<string>());
+        return Ok(await ObservacionesFrecuentes.ListarAsync(db, clienteId, destinatario, ct));
+    }
+
     /// <summary>
     /// Estimado en vivo mientras se completa el alta (construccion_v1.md §4.1) — nunca se
     /// persiste. Deja de ser "el precio": desde acta changelog 3.11 el precio real depende del
@@ -550,7 +561,9 @@ public class PedidosController(
             // CerrarPlanificacion (RutasController) los fije junto con el tipo de vehículo real.
             Peajes = req.Peajes,
             Estado = EstadoPedido.Borrador,
-            Observaciones = req.Observaciones,
+            // Trim: sin esto la misma observación con un espacio de más sale dos veces en
+            // /api/pedidos/observaciones-frecuentes.
+            Observaciones = string.IsNullOrWhiteSpace(req.Observaciones) ? null : req.Observaciones.Trim(),
             CreadoEn = DateTimeOffset.UtcNow,
         };
 

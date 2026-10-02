@@ -15,8 +15,8 @@ interface CampoLinkMapaProps {
   leyendo?: boolean;
 }
 
-/** Link de Google Maps opcional para fijar el punto exacto de la dirección de entrega. Compartido
- * entre el selector de dirección del portal y el alta interna de pedidos. */
+/** Link de Google Maps opcional para fijar el punto exacto de una dirección. Compartido entre
+ * SelectorDireccion (carga de envíos, punto de partida de una ruta) y el alta interna de pedidos. */
 export function CampoLinkMapa({ id, value, onChange, disabled, aplicado, error, leyendo }: CampoLinkMapaProps) {
   return (
     <div className="flex flex-col gap-2">

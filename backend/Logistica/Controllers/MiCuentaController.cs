@@ -297,7 +297,7 @@ public class MiCuentaController(
             ZonaId = zonaId,
             Estado = EstadoPedido.Borrador,
             OrigenCarga = "portal",
-            Observaciones = req.Observaciones,
+            Observaciones = string.IsNullOrWhiteSpace(req.Observaciones) ? null : req.Observaciones.Trim(),
             CreadoEn = DateTimeOffset.UtcNow,
             CreadoPorClienteUsuarioId = User.UsuarioId(),
         };
@@ -552,6 +552,17 @@ public class MiCuentaController(
         return Ok(destinatarios);
     }
 
+    /// <summary>Observaciones ya usadas en envíos propios, para sugerirlas en la carga: primero las de
+    /// ese destinatario. Misma lectura que /api/pedidos/observaciones-frecuentes, con el cliente del claim.</summary>
+    [HttpGet("observaciones-frecuentes")]
+    public async Task<IActionResult> ObservacionesUsadas([FromQuery] string? destinatario, CancellationToken ct)
+    {
+        var clienteId = User.ClienteId();
+        if (clienteId is null) return Forbid();
+
+        return Ok(await ObservacionesFrecuentes.ListarAsync(db, clienteId.Value, destinatario, ct));
+    }
+
     [HttpPost("destinatarios")]
     public async Task<IActionResult> CrearDestinatario(GuardarClienteDestinatarioRequest req, CancellationToken ct)
     {
@@ -561,6 +572,18 @@ public class MiCuentaController(
         var destino = await db.Ubicaciones.Include(u => u.Localidad)
             .SingleOrDefaultAsync(u => u.Id == req.DestinoUbicacionId, ct);
         if (destino is null) return BadRequest("La ubicación de destino no existe.");
+
+        // La carga de un envío guarda siempre a los clientes nuevos: el mismo nombre en la misma
+        // dirección no se duplica en la libreta, se devuelve el que ya estaba.
+        var nombre = req.Nombre.Trim();
+        var repetido = await db.ClientesDestinatarios.AsNoTracking().FirstOrDefaultAsync(
+            d => d.ClienteId == clienteId.Value && d.DestinoUbicacionId == destino.Id
+                && d.Nombre.ToLower() == nombre.ToLower(), ct);
+        if (repetido is not null)
+            return Ok(new ClienteDestinatarioResumen(
+                repetido.Id, repetido.Nombre, repetido.Telefono, destino.Id, destino.CalleNumero,
+                destino.LocalidadId ?? 0, destino.Localidad?.Nombre, destino.Lat, destino.Lng,
+                destino.GeoConfianza, repetido.Observaciones));
 
         var nuevo = new ClienteDestinatario
         {

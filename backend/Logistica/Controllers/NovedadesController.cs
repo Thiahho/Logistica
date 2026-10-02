@@ -117,7 +117,11 @@ public class NovedadesController(LogisticaDbContext db, AlmacenamientoFotos alma
                 var pedido = await db.Pedidos.SingleOrDefaultAsync(p => p.Id == novedad.PedidoId, ct);
                 if (pedido is null) return NotFound();
 
-                if (pedido.Estado is not (EstadoPedido.Confirmado or EstadoPedido.EnRuta))
+                // Un pedido ya cerrado (entregado, fallido…) no se reescribe. El teléfono y el nombre solo
+                // servían para esa entrega; las observaciones siguen valiendo para la próxima vez, así
+                // que esa corrección se acepta igual y va solo a la libreta y a las sugerencias.
+                var cerrado = pedido.Estado is not (EstadoPedido.Confirmado or EstadoPedido.EnRuta);
+                if (cerrado && novedad.PropuestaCampo != "observaciones")
                     return Conflict($"El pedido ya está {pedido.Estado}: no se le aplican correcciones.");
 
                 var actual = novedad.PropuestaCampo switch
@@ -136,7 +140,20 @@ public class NovedadesController(LogisticaDbContext db, AlmacenamientoFotos alma
                 {
                     case "destinatario_telefono": pedido.DestinatarioTelefono = novedad.PropuestaValorNuevo!; break;
                     case "destinatario_nombre": pedido.DestinatarioNombre = novedad.PropuestaValorNuevo!; break;
-                    default: pedido.Observaciones = novedad.PropuestaValorNuevo!; break;
+                    default:
+                        if (cerrado)
+                        {
+                            if (string.IsNullOrWhiteSpace(resolucion))
+                                resolucion = $"El pedido ya estaba {pedido.Estado}: la corrección queda para los próximos envíos.";
+                        }
+                        else
+                            pedido.Observaciones = novedad.PropuestaValorNuevo!;
+                        // La corrección vale también para los próximos envíos a ese destinatario: se
+                        // lleva a su observación guardada en "Mis clientes". Las sugerencias de carga
+                        // la toman solas (ObservacionesFrecuentes.ListarAsync lee esta novedad).
+                        await ObservacionesFrecuentes.CorregirGuardadaAsync(
+                            db, pedido, novedad.PropuestaValorAnterior, novedad.PropuestaValorNuevo!, ct);
+                        break;
                 }
             }
             novedad.Estado = req.Aceptar ? "resuelta" : "rechazada";

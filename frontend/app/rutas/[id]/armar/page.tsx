@@ -571,7 +571,7 @@ function ArmarRuta() {
             mensajeVacio="Sin depósitos cargados."
           />
           {origenSeleccion === OTRA_DIRECCION && (
-            <SelectorDireccion inicial={origenInicial} onCambio={setOrigenElegido} idPrefijo="origen" />
+            <SelectorDireccion inicial={origenInicial} onCambio={setOrigenElegido} idPrefijo="origen" permitirLinkMapa />
           )}
           {origenSeleccion === OTRA_DIRECCION && origenElegido && origenElegido.lat === null && (
             <p className="text-sm text-destructive">

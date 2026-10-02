@@ -193,8 +193,9 @@ function ListaTarifas() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-4xl flex flex-col gap-6">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo="Tarifas — lista general" />
+      <div className="flex max-w-6xl flex-col gap-6">
 
       <Card>
         <CardHeader>
@@ -394,6 +395,7 @@ function ListaTarifas() {
       <RangosConfig />
 
       <ParametrosLiquidacion />
+      </div>
     </div>
   );
 }

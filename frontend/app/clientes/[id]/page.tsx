@@ -142,15 +142,29 @@ function DetalleCliente() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-2xl flex flex-col gap-6">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo={cliente.razonSocial} />
-      <Button variant="outline" render={<Link href="/clientes" />} nativeButton={false} className="self-start">
+      <Button variant="outline" render={<Link href="/clientes" />} nativeButton={false} className="mb-6">
         ← Clientes
       </Button>
 
+      {/* Las tarjetas están pensadas para ~670 px (tablas de cuenta y tarifas): dos columnas recién
+          desde 1700 px, que es donde cada una conserva ese ancho; antes, una sola columna. A la
+          izquierda la ficha (datos, tarifas, rango, logins); a la derecha el movimiento (cuenta,
+          pagos, eventos). */}
+      <div className="grid max-w-3xl items-start gap-6 min-[1700px]:max-w-none min-[1700px]:grid-cols-2">
+      <div className="flex min-w-0 flex-col gap-6">
       <DatosCliente cliente={cliente} fetchConSesion={fetchConSesion} onGuardado={cargar} />
       <TarifasCliente cliente={cliente} fetchConSesion={fetchConSesion} onCambio={cargar} />
       <RangoCliente clienteId={cliente.id} />
+      <UsuariosClienteGestion
+        basePath={`/api/clientes/${cliente.id}/usuarios`}
+        titulo="Usuarios del portal"
+        elegirRol
+        textoVacio="Este cliente todavía no tiene login."
+      />
+      </div>
+      <div className="flex min-w-0 flex-col gap-6">
       <CuentaCorrienteCliente
         key={versionCuenta}
         clienteId={cliente.id}
@@ -162,12 +176,6 @@ function DetalleCliente() {
         onCambio={() => setVersionCuenta((v) => v + 1)}
         ocultarSiVacio
       />
-      <UsuariosClienteGestion
-        basePath={`/api/clientes/${cliente.id}/usuarios`}
-        titulo="Usuarios del portal"
-        elegirRol
-        textoVacio="Este cliente todavía no tiene login."
-      />
       <EventosCliente
         cliente={cliente}
         tiposEvento={tiposEvento}
@@ -175,6 +183,8 @@ function DetalleCliente() {
         onRegistrado={cargar}
       />
       <ZonaPeligro cliente={cliente} fetchConSesion={fetchConSesion} onCambio={cargar} />
+      </div>
+      </div>
     </div>
   );
 }

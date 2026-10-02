@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
 import { SelectorDireccion, type DireccionResuelta } from "@/components/SelectorDireccion";
+import { SugerenciaObservaciones } from "@/components/SugerenciaObservaciones";
 import { leerError, leerJson } from "@/lib/api/errores";
 import {
   etiquetaTipoVehiculo,
@@ -162,14 +163,18 @@ function FormularioAltaDelivery() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-2xl">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo="Nuevo delivery" />
-      <p className="text-sm text-muted-foreground mb-6">
+      <p className="mb-6 max-w-3xl text-sm text-muted-foreground">
         Servicio punto a punto ad-hoc (Anexo I D14): sin retiro programado. El precio se cotiza y
         se congela en el acto, con el tipo de vehículo elegido acá — no depende de una ruta.
       </p>
       {errorCarga && <p className="text-sm text-destructive mb-4">{errorCarga}</p>}
-      <form onSubmit={onSubmit} className="flex flex-col gap-6">
+      <form onSubmit={onSubmit} className="flex max-w-5xl flex-col gap-6">
+        {/* Una columna en teléfono; desde lg, cliente y direcciones a la izquierda y el envío a la
+            derecha. El orden del DOM (y de tabulación) es el mismo que en una sola columna. */}
+        <div className="grid items-start gap-6 lg:grid-cols-2">
+        <div className="flex flex-col gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Cliente</CardTitle>
@@ -230,6 +235,7 @@ function FormularioAltaDelivery() {
             </div>
           </CardContent>
         </Card>
+        </div>
 
         <Card>
           <CardHeader>
@@ -307,11 +313,18 @@ function FormularioAltaDelivery() {
               </div>
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="observaciones">Observaciones</Label>
-              <Input id="observaciones" value={observaciones} onChange={(e) => setObservaciones(e.target.value)} />
+              <Label htmlFor="observaciones">Observaciones (opcional)</Label>
+              <SugerenciaObservaciones
+                id="observaciones"
+                endpoint={clienteId !== null ? `/api/pedidos/observaciones-frecuentes?clienteId=${clienteId}` : null}
+                destinatario={destinatarioNombre}
+                value={observaciones}
+                onValueChange={setObservaciones}
+              />
             </div>
           </CardContent>
         </Card>
+        </div>
 
         <Card>
           <CardContent className="flex flex-col gap-4 pt-6">
@@ -333,7 +346,7 @@ function FormularioAltaDelivery() {
                 </div>
               </div>
             )}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Estimado</p>
                 {cotizando ? (
