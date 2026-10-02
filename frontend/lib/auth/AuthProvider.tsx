@@ -26,9 +26,27 @@ interface EstadoAuth {
 
 const AuthContext = createContext<EstadoAuth | null>(null);
 
+/** Id del usuario dentro del access token (claim `sub`, el mismo `id` que devuelve /api/auth/yo).
+ * Solo para comparar identidades: la firma la valida el backend, acá no se confía en nada más. */
+function idDelToken(token: string): string | null {
+  try {
+    const cuerpo = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const sub: unknown = JSON.parse(atob(cuerpo)).sub;
+    return typeof sub === "string" ? sub : null;
+  } catch {
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [usuario, setUsuario] = useState<Usuario | null>(null);
+  const [usuario, setUsuarioEstado] = useState<Usuario | null>(null);
   const [cargando, setCargando] = useState(true);
+  // De quién es la identidad que esta pestaña tiene cargada, para notar cuando la sesión cambió.
+  const usuarioIdRef = useRef<string | null>(null);
+  const setUsuario = useCallback((u: Usuario | null) => {
+    usuarioIdRef.current = u?.id ?? null;
+    setUsuarioEstado(u);
+  }, []);
   // El access token vive solo en memoria (nunca localStorage): un refresh de página lo pierde
   // a propósito y se recupera vía el refresh token en cookie httpOnly.
   const accessTokenRef = useRef<string | null>(null);
@@ -52,9 +70,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         method: "POST",
         credentials: "include",
       });
-      if (!resp.ok) return null;
+      if (!resp.ok) {
+        // La sesión se cerró desde otra pestaña (o venció): esta deja de mostrarse como logueada.
+        if (resp.status === 401 && usuarioIdRef.current) setUsuario(null);
+        return null;
+      }
       const { accessToken } = await resp.json();
       accessTokenRef.current = accessToken;
+      // La sesión es una sola por navegador (la cookie del refresh token). Si en otra pestaña entró
+      // otro usuario, el token que vuelve ya es de él: esta pestaña pasa a mostrar esa identidad en vez
+      // de seguir dibujando las pantallas del anterior con un token que la API va a rechazar.
+      const id = idDelToken(accessToken);
+      if (usuarioIdRef.current && id && id !== usuarioIdRef.current) {
+        try {
+          setUsuario(await obtenerUsuario(accessToken));
+        } catch {
+          // Sin red: queda la identidad anterior; el próximo refresh lo vuelve a intentar.
+        }
+      }
       return accessToken as string;
     })();
 
@@ -64,7 +97,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       refrescoEnCursoRef.current = null;
     }
-  }, []);
+  }, [obtenerUsuario, setUsuario]);
 
   useEffect(() => {
     (async () => {
@@ -77,7 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       setCargando(false);
     })();
-  }, [refrescar, obtenerUsuario]);
+  }, [refrescar, obtenerUsuario, setUsuario]);
 
   const login = useCallback(
     async (email: string, password: string) => {
@@ -100,7 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUsuario(u);
       return u;
     },
-    [obtenerUsuario],
+    [obtenerUsuario, setUsuario],
   );
 
   const logout = useCallback(async () => {
@@ -110,7 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     accessTokenRef.current = null;
     setUsuario(null);
-  }, []);
+  }, [setUsuario]);
 
   const fetchConSesion = useCallback(
     async (input: string, init: RequestInit = {}) => {

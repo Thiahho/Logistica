@@ -28,6 +28,17 @@ export function esClienteDueno(usuario: Usuario | null): boolean {
   return usuario?.rol === "cliente" && usuario.clienteRol === "dueno";
 }
 
+/** Si una ruta interna pertenece a la parte de la aplicación que usa ese rol: el portal
+ * (/mis-envios) es del cliente, /hoy del repartidor y el resto del BackOffice. Sirve para no mandar
+ * a alguien a una pantalla que solo le va a decir "No autorizado"; el permiso real lo siguen
+ * decidiendo <RequireRole> y el backend. */
+export function rutaEsDelRol(rol: Rol, ruta: string): boolean {
+  const esDe = (prefijo: string) => ruta === prefijo || ruta.startsWith(`${prefijo}/`);
+  if (rol === "cliente") return esDe("/mis-envios");
+  if (rol === "repartidor") return esDe("/hoy");
+  return !esDe("/mis-envios") && !esDe("/hoy");
+}
+
 export function rutaPorRol(rol: Rol): string {
   switch (rol) {
     case "administracion":

@@ -237,7 +237,7 @@ public class DeliverysController(
             KmManualPor = req.KmManual is not null ? actorId : null,
             KmManualEn = req.KmManual is not null ? ahora : null,
             Estado = EstadoPedido.Confirmado,
-            Observaciones = req.Observaciones,
+            Observaciones = string.IsNullOrWhiteSpace(req.Observaciones) ? null : req.Observaciones.Trim(),
             CreadoEn = ahora,
         };
 

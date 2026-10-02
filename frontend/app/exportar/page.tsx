@@ -56,9 +56,9 @@ function FormularioExportar() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-md">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo="Exportar" />
-      <Card>
+      <Card className="max-w-2xl">
         <CardHeader>
           <CardTitle className="text-base">Rango de fechas</CardTitle>
         </CardHeader>
@@ -73,7 +73,7 @@ function FormularioExportar() {
               <Input id="hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
             </div>
           </div>
-          <div className="flex flex-col gap-2 pt-2 border-t">
+          <div className="grid grid-cols-1 gap-2 border-t pt-2 sm:grid-cols-2">
             {REPORTES.map((r) => (
               <Button
                 key={r.clave}

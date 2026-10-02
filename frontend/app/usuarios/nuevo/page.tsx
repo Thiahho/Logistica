@@ -68,14 +68,15 @@ function FormularioAlta() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-md">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo="Nuevo usuario" />
-      <form onSubmit={onSubmit} className="flex flex-col gap-6">
+      <form onSubmit={onSubmit} className="flex max-w-4xl flex-col gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Cuenta</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-4">
+          {/* Una columna en teléfono, dos desde sm. */}
+          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
               <Label htmlFor="nombre">Nombre</Label>
               <Input id="nombre" required value={nombre} onChange={(e) => setNombre(e.target.value)} />
@@ -123,7 +124,7 @@ function FormularioAlta() {
         </Card>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
-        <Button type="submit" disabled={enviando}>
+        <Button type="submit" disabled={enviando} className="sm:self-start">
           {enviando ? "Creando…" : "Crear usuario"}
         </Button>
       </form>

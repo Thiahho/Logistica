@@ -1,5 +1,6 @@
 # CI (construccion_v1.md changelog 1.43): compila y prueba backend y frontend en cada push y PR a main.
-# No usa secretos: ni el build ni las pruebas unitarias tocan la base, Resend, ORS o Cloudinary.
+# No usa secretos: ni el build ni las pruebas tocan Resend, ORS o Cloudinary. Las pruebas de triggers
+# (Logistica.Tests/BaseDeDatos) levantan su propio Postgres en un contenedor con el Docker del runner.
 name: CI
 
 on:

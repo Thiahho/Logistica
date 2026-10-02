@@ -122,10 +122,12 @@ function CatalogoDepositos() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-lg flex flex-col gap-6">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo="Depósitos" />
-      {errorCarga && <p className="text-sm text-destructive">{errorCarga}</p>}
+      {errorCarga && <p className="mb-4 text-sm text-destructive">{errorCarga}</p>}
 
+      {/* Una columna en teléfono; desde lg el catálogo y el alta lado a lado. */}
+      <div className="grid max-w-5xl items-start gap-6 lg:grid-cols-2">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Catálogo</CardTitle>
@@ -142,11 +144,11 @@ function CatalogoDepositos() {
           {depositos.map((d) => (
             <div key={d.ubicacionId} className="flex flex-col gap-1 rounded-lg border p-3">
               {editandoId === d.ubicacionId ? (
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Input
                     value={nombreEditado}
                     onChange={(e) => setNombreEditado(e.target.value)}
-                    className="w-40"
+                    className="min-w-40 flex-1"
                   />
                   <Button size="sm" disabled={guardandoId === d.ubicacionId} onClick={() => onRenombrar(d.ubicacionId)}>
                     {guardandoId === d.ubicacionId ? "Guardando…" : "Guardar"}
@@ -156,7 +158,8 @@ function CatalogoDepositos() {
                   </Button>
                 </div>
               ) : (
-                <div className="flex items-center justify-between gap-2">
+                // flex-wrap: en teléfono los botones bajan en vez de partir el nombre en dos líneas.
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-medium">{d.nombre}</span>
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" onClick={() => empezarEdicion(d)}>
@@ -201,11 +204,12 @@ function CatalogoDepositos() {
           </div>
           <SelectorDireccion key={formularioKey} inicial={null} onCambio={setDireccionNueva} idPrefijo="deposito-nuevo" />
           {errorCreacion && <p className="text-sm text-destructive">{errorCreacion}</p>}
-          <Button disabled={!nombreNuevo.trim() || !direccionNueva || creando} onClick={onCrear} className="self-start">
+          <Button disabled={!nombreNuevo.trim() || !direccionNueva || creando} onClick={onCrear} className="sm:self-start">
             {creando ? "Creando…" : "Crear depósito"}
           </Button>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

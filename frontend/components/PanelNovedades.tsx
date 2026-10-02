@@ -173,6 +173,13 @@ function NovedadFila({
             value={resolucion}
             onChange={(e) => setResolucion(e.target.value)}
           />
+          {esCambio && n.propuestaCampo === "observaciones" && (
+            <p className="text-xs text-muted-foreground">
+              Al aceptar, la corrección también queda para los próximos envíos a este destinatario: se actualiza su
+              observación guardada y la que se sugiere al cargar. Si el pedido ya se entregó, se acepta igual y vale
+              solo para los próximos.
+            </p>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex gap-2">
             {esCambio ? (
