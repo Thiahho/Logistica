@@ -44,11 +44,14 @@ public class ClientesController(
         int Id, string RazonSocial, string? Cuit, string? Contacto, string? Telefono, string? Email, bool Activo,
         string ColorPago, string ColorTrato, string ColorOper, string CicloFacturacion,
         decimal SaldoCliente, decimal DeudaVencida,
-        List<TarifaZona> Tarifas, Dictionary<string, int> ContadorEventos, List<EventoResumen> UltimosEventos);
+        List<TarifaZona> Tarifas, Dictionary<string, int> ContadorEventos, List<EventoResumen> UltimosEventos,
+        bool AvisosEstado);
 
     public record ActualizarClienteRequest(
         string RazonSocial, string? Cuit, string? Contacto, string? Telefono, string? Email, bool Activo,
-        string ColorPago, string ColorTrato, string ColorOper, string CicloFacturacion);
+        string ColorPago, string ColorTrato, string ColorOper, string CicloFacturacion,
+        // B6: resumen diario de envíos por email (Servicios/AvisosEstadoService.cs).
+        bool AvisosEstado = false);
 
     // ---- E1: cuenta corriente ----
     public record FacturaClienteResumen(
@@ -63,9 +66,9 @@ public class ClientesController(
         string? CorteSuspendidoPorNombre, DateTimeOffset? CorteSuspendidoEn,
         decimal PendienteDeFacturar, int AjustesPendientes,
         List<FacturaClienteResumen> Facturas, List<PagoResumen> Pagos);
-    public record RegistrarPagoRequest(
-        [Range(0.01, double.MaxValue, ErrorMessage = "El monto debe ser mayor a cero.")] decimal Monto,
-        DateOnly? FechaPago, string Medio, string? Nota);
+    /// <summary>Monto negativo = corrección de un pago mal cargado; ahí la nota es obligatoria
+    /// (Dominio/PagosCliente.Validar).</summary>
+    public record RegistrarPagoRequest(decimal Monto, DateOnly? FechaPago, string Medio, string? Nota);
     public record CorteSuspendidoRequest(DateOnly? Hasta, string? Motivo);
 
     /// <summary>pendiente | parcial | pagada | vencida — mismo criterio que
@@ -305,7 +308,7 @@ public class ClientesController(
         return Ok(new ClienteDetalle(
             cliente.Id, cliente.RazonSocial, cliente.Cuit, cliente.Contacto, cliente.Telefono, cliente.Email,
             cliente.Activo, cliente.ColorPago, cliente.ColorTrato, cliente.ColorOper, cliente.CicloFacturacion,
-            saldoCliente, deudaVencida, tarifasPorZona, contador, ultimos));
+            saldoCliente, deudaVencida, tarifasPorZona, contador, ultimos, cliente.AvisosEstado));
     }
 
     [HttpPut("{id:int}")]
@@ -317,6 +320,12 @@ public class ClientesController(
 
         var (error, cuit, telefono, email) = ValidarContacto(req.Cuit, req.Telefono, req.Email);
         if (error is not null) return BadRequest(error);
+        if (req.AvisosEstado && email is null)
+            return BadRequest("Para activar el resumen diario de envíos el cliente necesita un email.");
+
+        // Al activarlo, el primer resumen cuenta desde ahora: no informa lo que pasó antes.
+        if (req.AvisosEstado && !cliente.AvisosEstado) cliente.AvisosEstadoHasta = DateTimeOffset.UtcNow;
+        cliente.AvisosEstado = req.AvisosEstado;
 
         cliente.RazonSocial = req.RazonSocial;
         cliente.Cuit = cuit;
@@ -547,7 +556,14 @@ public class ClientesController(
         var clienteExiste = await db.Clientes.AnyAsync(c => c.Id == id, ct);
         if (!clienteExiste) return NotFound();
 
-        cuentaCorriente.AgregarPago(id, req.Monto, req.FechaPago ?? Reloj.HoyLocal(), req.Medio, req.Nota, User.UsuarioId());
+        // Solo una corrección necesita saber cuánto hay pagado.
+        var pagado = req.Monto < 0
+            ? await db.Pagos.Where(p => p.ClienteId == id).SumAsync(p => (decimal?)p.Monto, ct) ?? 0m
+            : 0m;
+        if (PagosCliente.Validar(req.Monto, req.Nota, pagado) is { } error) return BadRequest(error);
+
+        var nota = string.IsNullOrWhiteSpace(req.Nota) ? null : req.Nota.Trim();
+        cuentaCorriente.AgregarPago(id, req.Monto, req.FechaPago ?? Reloj.HoyLocal(), req.Medio, nota, User.UsuarioId());
         await db.SaveChangesAsync(ct);
 
         return NoContent();

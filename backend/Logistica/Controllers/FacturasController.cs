@@ -10,8 +10,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Logistica.Controllers;
 
 /// <summary>
-/// E1 (Anexo I §5, B1). Listado y detalle de facturas, y el cierre de ciclo manual (sin
-/// scheduler en el proyecto — construccion_v1.md §1). Ninguna acción necesita público más amplio
+/// E1 (Anexo I §5, B1). Listado y detalle de facturas, y el cierre de ciclo manual (el automático
+/// es Servicios/CierreCiclosAutomatico.cs, mismo cómputo). Ninguna acción necesita público más amplio
 /// que Administracion, así que el atributo de clase es correcto acá (construccion_v1.md §3
 /// regla 8, a diferencia de ClientesController/UsuariosController).
 /// </summary>

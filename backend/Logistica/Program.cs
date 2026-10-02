@@ -76,6 +76,9 @@ builder.Services.Configure<OpcionesPruebaEntrega>(builder.Configuration.GetSecti
 builder.Services.Configure<OpcionesDistancia>(builder.Configuration.GetSection("Distancia"));
 builder.Services.Configure<OpcionesPortal>(builder.Configuration.GetSection("Portal"));
 builder.Services.Configure<OpcionesUrgencias>(builder.Configuration.GetSection("Urgencias"));
+builder.Services.Configure<OpcionesCarga>(builder.Configuration.GetSection("Carga"));
+builder.Services.Configure<OpcionesFacturacion>(builder.Configuration.GetSection("Facturacion"));
+builder.Services.Configure<OpcionesAvisosEstado>(builder.Configuration.GetSection("AvisosEstado"));
 builder.Services.AddScoped<PrecioService>();
 builder.Services.AddScoped<DistanciaService>();
 builder.Services.AddScoped<UbicacionService>();
@@ -84,6 +87,7 @@ builder.Services.AddScoped<ViajeService>();
 builder.Services.AddScoped<ZonaLocalidadService>();
 builder.Services.AddScoped<DireccionDesdeMapaService>();
 builder.Services.AddScoped<TarifaService>();
+builder.Services.AddScoped<ImportacionPedidosService>();
 // Fotos y firmas: disco local en desarrollo, Cloudinary en producción (auditoria_seguridad.md hallazgo
 // 15 — el disco del contenedor de Render se borra en cada deploy). Ver Opciones/OpcionesAlmacenamiento.cs.
 builder.Services.Configure<OpcionesAlmacenamiento>(builder.Configuration.GetSection("Almacenamiento"));
@@ -108,6 +112,7 @@ builder.Services.AddScoped<JornadaService>();
 builder.Services.AddScoped<LiquidacionService>();
 builder.Services.AddScoped<RangoClienteService>();
 builder.Services.AddHostedService<CalentamientoService>();
+builder.Services.AddHostedService<CierreCiclosAutomatico>();
 
 // RuteoService cachea recorridos en memoria (acta changelog 3.4) — sin tabla nueva.
 builder.Services.AddMemoryCache();
@@ -161,6 +166,8 @@ builder.Services.AddHttpClient<EmailService>(client =>
     client.Timeout = TimeSpan.FromSeconds(10);
 });
 builder.Services.AddScoped<AvisosCobranzaService>();
+builder.Services.AddScoped<AvisosEstadoService>();
+builder.Services.AddHostedService<AvisosEstadoAutomatico>();
 
 var jwt = builder.Configuration.GetSection("Jwt").Get<OpcionesJwt>()
     ?? throw new InvalidOperationException("Falta la sección Jwt");

@@ -125,7 +125,7 @@ public class CuentaCorrienteService(LogisticaDbContext db)
     /// no hay deshacer, así que la previsualización no es un lujo.
     /// </summary>
     public async Task<List<ResultadoCierreCliente>> CerrarCiclosAsync(
-        DateOnly fecha, int? clienteId, bool previsualizar, Guid actor, CancellationToken ct)
+        DateOnly fecha, int? clienteId, bool previsualizar, Guid? actor, CancellationToken ct)
     {
         var clientesQuery = db.Clientes.AsNoTracking().Where(c => c.Activo);
         if (clienteId is not null) clientesQuery = clientesQuery.Where(c => c.Id == clienteId);

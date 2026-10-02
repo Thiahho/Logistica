@@ -58,6 +58,9 @@ public class ClienteConfiguration : IEntityTypeConfiguration<Cliente>
         b.Property(x => x.RangoAjusteVence).HasColumnName("rango_ajuste_vence");
         b.Property(x => x.RangoAjustePor).HasColumnName("rango_ajuste_por");
         b.Property(x => x.RangoAjusteEn).HasColumnName("rango_ajuste_en");
+
+        b.Property(x => x.AvisosEstado).HasColumnName("avisos_estado").HasDefaultValue(false);
+        b.Property(x => x.AvisosEstadoHasta).HasColumnName("avisos_estado_hasta");
         b.HasOne<Rango>().WithMany().HasForeignKey(x => x.RangoCalculado).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<Usuario>().WithMany().HasForeignKey(x => x.RangoAjustePor).OnDelete(DeleteBehavior.Restrict);
     }

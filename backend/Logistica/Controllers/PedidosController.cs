@@ -25,7 +25,7 @@ public class PedidosController(
     LogisticaDbContext db, PrecioService precios, DistanciaService distancias,
     IOptions<OpcionesPruebaEntrega> opcionesPruebaEntrega,
     OrigenRutaService origenes, CuentaCorrienteService cuentaCorriente, RangoClienteService rangos,
-    IOptions<OpcionesPortal> opcionesPortal) : ControllerBase
+    IOptions<OpcionesPortal> opcionesPortal, IOptions<OpcionesCarga> opcionesCarga) : ControllerBase
 {
     public record PedidoResumen(
         long Id, string DestinatarioNombre, string Estado, decimal? Total,
@@ -516,6 +516,11 @@ public class PedidosController(
         var hoy = Reloj.HoyLocal();
         var errorFecha = ValidacionFechas.FechaEntrega(req.FechaEntrega, hoy, diasAtras: 30, diasAdelante: 365);
         if (errorFecha is not null) return BadRequest(errorFecha);
+        // RF-08: pasada la hora de corte no entran pedidos para mañana (Dominio/CorteDeCarga.cs).
+        var ahora = Reloj.HoraLocal();
+        var corteManana = opcionesCarga.Value.HoraCorteDiaSiguiente;
+        if (CorteDeCarga.Cerrada(req.FechaEntrega, hoy, ahora, corteManana))
+            return Conflict(CorteDeCarga.Mensaje(corteManana, CorteDeCarga.PrimeraFechaAbierta(hoy, ahora, corteManana)));
         var suspendido = cliente.CorteSuspendidoHasta is { } h && h >= hoy;
         if (!suspendido)
         {

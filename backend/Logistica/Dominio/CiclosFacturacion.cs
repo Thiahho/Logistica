@@ -5,9 +5,9 @@ namespace Logistica.Dominio;
 /// vez y sin tocar la base — hermano de TransicionesPedido.cs. Fechas fijas: quincenal cierra el
 /// 15 y el último día de cada mes; mensual, solo el último día.
 ///
-/// Sin scheduler en el proyecto (no hay Hangfire/Quartz/IHostedService — confirmado): el cierre
-/// se dispara a mano desde /api/facturas/cierre. Un endpoint que solo supiera "¿cierra hoy?"
-/// perdería el período entero si nadie lo corre ese día exacto (feriado, el admin no entró).
+/// El cierre lo corre solo Servicios/CierreCiclosAutomatico.cs, y también se puede disparar a mano
+/// desde /api/facturas/cierre. Una regla que solo supiera "¿cierra hoy?" perdería el período entero
+/// si no corre ese día exacto (el proceso estaba apagado, el admin no entró).
 /// CierresPendientes enumera en vez de preguntar — correr el cierre tarde se recupera solo, y
 /// re-correrlo el mismo día es inocuo (Servicios/CuentaCorrienteService.cs lo hace idempotente
 /// a nivel de base con ux_facturas_periodo).

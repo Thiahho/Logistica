@@ -32,7 +32,7 @@ namespace Logistica.Controllers;
 public class MiCuentaController(
     LogisticaDbContext db, CuentaCorrienteService cuentaCorriente, PrecioService precios,
     DistanciaService distancias, OrigenRutaService origenes, IOptions<OpcionesPortal> opcionesPortal,
-    UbicacionService ubicaciones, GeocodificacionService geocodificador, ZonaLocalidadService zonasLocalidad,
+    IOptions<OpcionesCarga> opcionesCarga, UbicacionService ubicaciones, GeocodificacionService geocodificador, ZonaLocalidadService zonasLocalidad,
     DireccionDesdeMapaService desdeMapa, RangoClienteService rangos, AlmacenamientoFotos almacenamiento,
     ViajeService viajes)
     : ControllerBase
@@ -361,13 +361,26 @@ public class MiCuentaController(
         // Ni en el pasado (antes solo se frenaba pasada la hora de corte) ni a más de 90 días.
         var errorFecha = ValidacionFechas.FechaEntrega(fechaEntrega, hoy, diasAtras: 0, diasAdelante: 90);
         if (errorFecha is not null) return BadRequest(errorFecha);
+        var ahora = Reloj.HoraLocal();
         var horaCorte = opcionesPortal.Value.HoraCorte;
-        if (fechaEntrega <= hoy && Reloj.HoraLocal() > horaCorte)
+        // RF-08: la carga de mañana cierra a su propia hora (Dominio/CorteDeCarga.cs); la fecha que se
+        // sugiere es la primera que sigue abierta.
+        var corteManana = opcionesCarga.Value.HoraCorteDiaSiguiente;
+        var primeraAbierta = CorteDeCarga.PrimeraFechaAbierta(hoy, ahora, corteManana);
+        if (fechaEntrega <= hoy && ahora > horaCorte)
         {
             return Conflict(new
             {
-                mensaje = $"La carga de hoy cerró a las {horaCorte:HH\\:mm}; esto se carga para mañana.",
-                fechaEntregaSugerida = hoy.AddDays(1),
+                mensaje = $"La carga de hoy cerró a las {horaCorte:HH\\:mm}; esto se carga a partir del {primeraAbierta:dd/MM}.",
+                fechaEntregaSugerida = primeraAbierta,
+            });
+        }
+        if (CorteDeCarga.Cerrada(fechaEntrega, hoy, ahora, corteManana))
+        {
+            return Conflict(new
+            {
+                mensaje = CorteDeCarga.Mensaje(corteManana, primeraAbierta),
+                fechaEntregaSugerida = primeraAbierta,
             });
         }
 
