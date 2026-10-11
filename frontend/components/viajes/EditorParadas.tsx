@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ArrowDown, ArrowUp, Plus, Route, Trash2 } from "lucide-react";
 import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
 import { SelectorDireccion, type DireccionResuelta } from "@/components/SelectorDireccion";
+import { SugerenciaObservaciones } from "@/components/SugerenciaObservaciones";
 import { MapaDinamico } from "@/components/mapa/MapaDinamico";
 import type { MarcadorMapa } from "@/components/mapa/Mapa";
 import { Button } from "@/components/ui/button";
@@ -24,8 +25,8 @@ interface Fila {
   telefono: string;
   bultos: number;
   observaciones: string;
-  /** Destinatario nuevo: guardarlo en "Mis clientes" al confirmar. */
-  guardarContacto: boolean;
+  /** Tilde "Cliente nuevo": no sale de la libreta, se carga a mano y se guarda en "Mis clientes" al confirmar. */
+  nuevo: boolean;
 }
 
 export interface ResultadoPrevisualizacion {
@@ -38,15 +39,22 @@ export interface ResultadoPrevisualizacion {
 let proximaClave = 1;
 const filaVacia = (): Fila => ({
   clave: proximaClave++, direccion: null, inicial: null, version: 0, contactoId: null,
-  nombre: "", telefono: "", bultos: 1, observaciones: "", guardarContacto: true,
+  nombre: "", telefono: "", bultos: 1, observaciones: "", nuevo: false,
+});
+
+/** Lo que se limpia al pasar de la libreta a un cliente nuevo (o al revés): el destinatario entero.
+ * `version` remonta SelectorDireccion, que no es controlado. Los bultos se conservan. */
+const sinDestinatario = (f: Fila): Partial<Fila> => ({
+  contactoId: null, nombre: "", telefono: "", direccion: null, inicial: null, version: f.version + 1,
 });
 
 const pesos = (n: number) => `$${n.toLocaleString("es-AR", { maximumFractionDigits: 2 })}`;
 
 /**
  * Carga de un envío con una o varias paradas, compartida por el portal y el BackOffice. Cada parada:
- * el destinatario (de "Mis clientes", que trae su dirección, o uno nuevo con su dirección de entrega),
- * bultos y observaciones. El "+" suma otra parada. "Cerrar ruta" pide al servidor el orden (vecino
+ * el destinatario, bultos y observaciones. En el portal el destinatario se elige de "Mis clientes"
+ * (trae su dirección) o, con el tilde "Cliente nuevo", se carga a mano y queda guardado en la libreta
+ * al confirmar; sin libreta (BackOffice, o portal con la libreta vacía) siempre se carga a mano. El "+" suma otra parada. "Cerrar ruta" pide al servidor el orden (vecino
  * más cercano + 2-opt, Dominio/OrdenParadas.cs), muestra el mapa, los km y el precio, deja ajustar el
  * orden y recién ahí se confirma. Las llamadas a la API las hace la página: sabe a qué puerta pegarle
  * y qué datos comunes (fecha, vehículo, cliente) mandar, y si con una sola parada es un envío común.
@@ -56,14 +64,17 @@ export function EditorParadas({
   contactos = [],
   maxParadas = 24,
   permitirGuardarContacto = false,
+  observacionesEndpoint = null,
   previsualizar,
   confirmar,
 }: {
   /** Para SelectorDireccion: "/api/mi-cuenta" en el portal, "/api" en el BackOffice. */
   basePath: string;
+  /** De dónde salen las observaciones ya usadas (ver SugerenciaObservaciones); null = sin sugerencias. */
+  observacionesEndpoint?: string | null;
   contactos?: ClienteDestinatarioResumen[];
   maxParadas?: number;
-  /** Portal: ofrece guardar en "Mis clientes" a los destinatarios nuevos. */
+  /** Portal: los destinatarios nuevos se guardan en "Mis clientes" al confirmar. */
   permitirGuardarContacto?: boolean;
   previsualizar: (paradas: ParadaViajeEntrada[]) => Promise<ResultadoPrevisualizacion>;
   /** Recibe las paradas en el orden final (el sugerido o el ajustado a mano) y, aparte, los
@@ -81,6 +92,10 @@ export function EditorParadas({
 
   const completas = filas.every((f) => f.direccion && f.nombre.trim() && f.telefono.trim() && f.bultos >= 1);
   const unaSola = filas.length === 1;
+  // Derivado, no guardado en la fila: la libreta llega después del primer render y, si está vacía,
+  // no hay de dónde elegir.
+  const hayLibreta = contactos.length > 0;
+  const esNuevo = (f: Fila) => f.nuevo || !hayLibreta;
 
   // Cualquier cambio en las paradas invalida la revisión: hay que volver a cerrar la ruta.
   function cambiarFila(clave: number, cambio: Partial<Fila>) {
@@ -88,10 +103,19 @@ export function EditorParadas({
     setPrevia(null);
   }
 
+  /** Lo que la persona escribió en observaciones: si sigue siendo la nota prellenada del contacto que
+   * tenía elegido, no es suya y se va con ese contacto. */
+  function observacionesPropias(f: Fila): string {
+    const delContacto = contactos.find((x) => x.id === f.contactoId)?.observaciones ?? "";
+    return f.observaciones === delContacto ? "" : f.observaciones;
+  }
+
   function elegirContacto(clave: number, id: string | null) {
     const c = contactos.find((x) => x.id === id);
     if (!c) {
-      cambiarFila(clave, { contactoId: null });
+      // Combo vaciado: sin contacto no queda destinatario (sus datos no se editan acá).
+      setFilas((fs) => fs.map((f) => (f.clave === clave ? { ...f, ...sinDestinatario(f), observaciones: observacionesPropias(f) } : f)));
+      setPrevia(null);
       return;
     }
     const direccion: DireccionResuelta = {
@@ -100,8 +124,13 @@ export function EditorParadas({
     };
     setFilas((fs) => fs.map((f) => f.clave === clave
       ? { ...f, contactoId: c.id, nombre: c.nombre, telefono: c.telefono, direccion, inicial: direccion, version: f.version + 1,
-          observaciones: f.observaciones || (c.observaciones ?? "") }
+          observaciones: observacionesPropias(f) || (c.observaciones ?? "") }
       : f));
+    setPrevia(null);
+  }
+
+  function marcarNuevo(clave: number, nuevo: boolean) {
+    setFilas((fs) => fs.map((f) => (f.clave === clave ? { ...f, ...sinDestinatario(f), observaciones: observacionesPropias(f), nuevo } : f)));
     setPrevia(null);
   }
 
@@ -144,8 +173,11 @@ export function EditorParadas({
 
   async function confirmarCarga() {
     const paradas = filas.map(aEntrada);
+    // Un mismo cliente nuevo cargado en dos paradas se guarda una sola vez.
     const nuevos = permitirGuardarContacto
-      ? filas.filter((f) => f.contactoId === null && f.guardarContacto).map(aEntrada)
+      ? filas.filter(esNuevo).map(aEntrada).filter((p, i, todos) =>
+          todos.findIndex((x) => x.destinoUbicacionId === p.destinoUbicacionId
+            && x.destinatarioNombre.toLowerCase() === p.destinatarioNombre.toLowerCase()) === i)
       : [];
     setError(null);
     setConfirmando(true);
@@ -195,38 +227,65 @@ export function EditorParadas({
             )}
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            {contactos.length > 0 && (
+            {hayLibreta && (
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id={`nuevo-${f.clave}`}
+                  checked={f.nuevo}
+                  onCheckedChange={(v) => marcarNuevo(f.clave, v === true)}
+                />
+                <Label htmlFor={`nuevo-${f.clave}`} className="font-normal">
+                  Cliente nuevo
+                </Label>
+              </div>
+            )}
+            {esNuevo(f) ? (
+              <>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor={`nombre-${f.clave}`}>Destinatario</Label>
+                    <Input id={`nombre-${f.clave}`} value={f.nombre} onChange={(e) => cambiarFila(f.clave, { nombre: e.target.value })} />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor={`tel-${f.clave}`}>Teléfono</Label>
+                    <Input id={`tel-${f.clave}`} value={f.telefono} onChange={(e) => cambiarFila(f.clave, { telefono: e.target.value })} />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label>Dirección de entrega</Label>
+                  <SelectorDireccion
+                    key={`${f.clave}-${f.version}`}
+                    idPrefijo={`parada-${f.clave}`}
+                    inicial={f.inicial}
+                    onCambio={(d) => cambiarFila(f.clave, { direccion: d })}
+                    basePath={basePath}
+                    permitirLinkMapa
+                  />
+                </div>
+                {permitirGuardarContacto && (
+                  <p className="text-xs text-muted-foreground">Al confirmar queda guardado en Mis clientes.</p>
+                )}
+              </>
+            ) : (
               <div className="flex flex-col gap-2">
                 <Label>Cliente de la libreta</Label>
                 <ComboboxBusqueda
                   items={contactos.map((c) => ({ value: c.id, label: c.nombre }))}
                   value={f.contactoId}
                   onValueChange={(id) => elegirContacto(f.clave, id)}
-                  placeholder="Elegir de Mis clientes, o cargar uno nuevo abajo…"
+                  placeholder="Elegir de Mis clientes…"
                 />
+                {f.contactoId !== null && f.direccion && (
+                  <div className="rounded-lg bg-muted p-3 text-sm">
+                    <p className="font-medium">{f.nombre} · {f.telefono}</p>
+                    <p className="text-muted-foreground">
+                      {f.direccion.calleNumero}
+                      {f.direccion.localidadNombre ? `, ${f.direccion.localidadNombre}` : ""}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor={`nombre-${f.clave}`}>Destinatario</Label>
-                <Input id={`nombre-${f.clave}`} value={f.nombre} onChange={(e) => cambiarFila(f.clave, { nombre: e.target.value })} />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor={`tel-${f.clave}`}>Teléfono</Label>
-                <Input id={`tel-${f.clave}`} value={f.telefono} onChange={(e) => cambiarFila(f.clave, { telefono: e.target.value })} />
-              </div>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label>Dirección de entrega</Label>
-              <SelectorDireccion
-                key={`${f.clave}-${f.version}`}
-                idPrefijo={`parada-${f.clave}`}
-                inicial={f.inicial}
-                onCambio={(d) => cambiarFila(f.clave, { direccion: d })}
-                basePath={basePath}
-                permitirLinkMapa
-              />
-            </div>
             <div className="grid grid-cols-[6rem_1fr] gap-3">
               <div className="flex flex-col gap-2">
                 <Label htmlFor={`bultos-${f.clave}`}>Bultos</Label>
@@ -241,21 +300,15 @@ export function EditorParadas({
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor={`obs-${f.clave}`}>Observaciones (opcional)</Label>
-                <Input id={`obs-${f.clave}`} value={f.observaciones} onChange={(e) => cambiarFila(f.clave, { observaciones: e.target.value })} />
+                <SugerenciaObservaciones
+                  id={`obs-${f.clave}`}
+                  endpoint={observacionesEndpoint}
+                  destinatario={f.nombre}
+                  value={f.observaciones}
+                  onValueChange={(v) => cambiarFila(f.clave, { observaciones: v })}
+                />
               </div>
             </div>
-            {permitirGuardarContacto && f.contactoId === null && (
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id={`guardar-${f.clave}`}
-                  checked={f.guardarContacto}
-                  onCheckedChange={(v) => setFilas((fs) => fs.map((x) => (x.clave === f.clave ? { ...x, guardarContacto: v === true } : x)))}
-                />
-                <Label htmlFor={`guardar-${f.clave}`} className="font-normal">
-                  Guardar este destinatario en Mis clientes
-                </Label>
-              </div>
-            )}
           </CardContent>
         </Card>
       ))}
@@ -278,7 +331,9 @@ export function EditorParadas({
         </Button>
         <span className="text-xs text-muted-foreground">
           {filas.length} {filas.length === 1 ? "parada" : "paradas"} de {maxParadas}
-          {!completas && " · completá destinatario, teléfono y dirección de cada una"}
+          {!completas && (hayLibreta
+            ? " · elegí un cliente o completá destinatario, teléfono y dirección de cada una"
+            : " · completá destinatario, teléfono y dirección de cada una")}
         </span>
       </div>
 

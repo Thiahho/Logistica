@@ -107,12 +107,14 @@ function TableroIndicadores() {
   const ruta = (v: string) => (datos?.indicadoresDeRuta ? v : "no aplica");
 
   return (
-    <div className="p-4 md:p-8 flex flex-col gap-6 max-w-6xl">
+    <div className="p-4 md:p-8 flex flex-col gap-6">
       <CabeceraSesion titulo="Tablero" />
 
-      {/* Filtros: una fila, arriba de todo lo que gobiernan. Período primero. */}
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex gap-1">
+      {/* Filtros: arriba de todo lo que gobiernan, período primero. Grilla y no flex-wrap: de a dos
+          en teléfono, de a tres en tablet y todos en una fila en escritorio (antes "Repartidor"
+          caía solo a una segunda fila). */}
+      <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-3 xl:grid-cols-[auto_repeat(6,minmax(0,1fr))]">
+        <div className="col-span-2 flex gap-1 sm:col-span-3 xl:col-span-1">
           {PRESETS.map((p) => (
             <Button
               key={p.dias}
@@ -129,11 +131,11 @@ function TableroIndicadores() {
         </div>
         <div className="flex flex-col gap-1">
           <Label htmlFor="desde" className="text-xs">Desde</Label>
-          <Input id="desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="w-40" />
+          <Input id="desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
         </div>
         <div className="flex flex-col gap-1">
           <Label htmlFor="hasta" className="text-xs">Hasta</Label>
-          <Input id="hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="w-40" />
+          <Input id="hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
         </div>
         <Filtro etiqueta="Cliente" valor={cliente} onCambio={setCliente} opciones={opciones.clientes} />
         <Filtro etiqueta="Zona" valor={zona} onCambio={setZona} opciones={opciones.zonas} />
@@ -153,7 +155,8 @@ function TableroIndicadores() {
             </p>
           )}
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {/* 5 columnas recién en xl: en lg, con el menú lateral, los valores largos se partían en dos líneas. */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
             <TarjetaMetrica valor={num(datos.entregasPorDia)} etiqueta={`Entregas por día (${datos.entregas} en total)`} />
             <TarjetaMetrica valor={ruta(num(datos.kmPorEntrega, " km"))} etiqueta="Km por entrega" />
             <TarjetaMetrica valor={ruta(num(datos.minutosPorEntrega, " min"))} etiqueta="Tiempo por entrega" />
@@ -229,14 +232,14 @@ function TableroIndicadores() {
 
 function Filtro({ etiqueta, valor, onCambio, opciones }: { etiqueta: string; valor: string; onCambio: (v: string) => void; opciones: Opcion[] }) {
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-1">
       <Label className="text-xs">{etiqueta}</Label>
       <Select
         items={[{ value: "todos", label: "Todos" }, ...opciones.map((o) => ({ value: o.valor, label: o.etiqueta }))]}
         value={valor || "todos"}
         onValueChange={(v) => onCambio(!v || v === "todos" ? "" : v)}
       >
-        <SelectTrigger className="w-40">
+        <SelectTrigger className="w-full">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

@@ -58,28 +58,29 @@ function FormularioNuevoCliente() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-lg">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo="Nuevo cliente" />
       <Button variant="outline" render={<Link href="/clientes" />} nativeButton={false} className="mb-6">
         ← Clientes
       </Button>
 
-      <Card>
+      <Card className="max-w-4xl">
         <CardHeader>
           <CardTitle className="text-base">Datos</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="razonSocial">Razón social</Label>
-              <Input
-                id="razonSocial"
-                required
-                value={razonSocial}
-                onChange={(e) => setRazonSocial(e.target.value)}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+            {/* Una columna en teléfono, dos desde sm; la razón social ocupa la fila entera. */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2 sm:col-span-2">
+                <Label htmlFor="razonSocial">Razón social</Label>
+                <Input
+                  id="razonSocial"
+                  required
+                  value={razonSocial}
+                  onChange={(e) => setRazonSocial(e.target.value)}
+                />
+              </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="cuit">CUIT</Label>
                 <Input id="cuit" value={cuit} onChange={(e) => setCuit(e.target.value)} />
@@ -103,7 +104,7 @@ function FormularioNuevoCliente() {
               desde la pantalla del cliente.
             </p>
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button type="submit" disabled={enviando} className="self-start">
+            <Button type="submit" disabled={enviando} className="sm:self-start">
               {enviando ? "Creando…" : "Crear cliente"}
             </Button>
           </form>

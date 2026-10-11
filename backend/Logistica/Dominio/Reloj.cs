@@ -20,8 +20,14 @@ public static class Reloj
 
     /// <summary>B5 (diseño_b5_portal_carga.md §6): corte horario del portal, necesita la hora del
     /// día, no solo la fecha — mismo criterio que el resto de esta clase, nunca convertir a mano.</summary>
-    public static TimeOnly HoraLocal() =>
-        TimeOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Argentina).DateTime);
+    public static TimeOnly HoraLocal() => ALaHoraLocal(DateTimeOffset.UtcNow);
+
+    public static TimeOnly ALaHoraLocal(DateTimeOffset instante) =>
+        TimeOnly.FromDateTime(TimeZoneInfo.ConvertTime(instante, Argentina).DateTime);
+
+    /// <summary>El instante en que el reloj local marca `hora` del día `dia`.</summary>
+    public static DateTimeOffset InstanteLocal(DateOnly dia, TimeOnly hora) =>
+        RangoLocalUtc(dia).Desde.Add(hora.ToTimeSpan());
 
     /// <summary>B13 (diseño_b13_recepcion_portal.md §5): límites en UTC del día local `dia`, para
     /// filtrar una columna `timestamptz` (`pedidos.creado_en`) por fecha local sin convertir cada

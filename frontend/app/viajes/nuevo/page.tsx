@@ -113,7 +113,12 @@ function NuevoViaje() {
         </CardContent>
       </Card>
 
-      <EditorParadas basePath="/api" previsualizar={previsualizar} confirmar={confirmar} />
+      <EditorParadas
+        basePath="/api"
+        observacionesEndpoint={clienteId !== null ? `/api/pedidos/observaciones-frecuentes?clienteId=${clienteId}` : null}
+        previsualizar={previsualizar}
+        confirmar={confirmar}
+      />
     </div>
   );
 }

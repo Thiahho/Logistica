@@ -164,6 +164,9 @@ function ListaPedidos() {
           )}
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" render={<Link href="/pedidos/importar" />} nativeButton={false}>
+            Importar planilla
+          </Button>
           <Button render={<Link href="/pedidos/nuevo" />} nativeButton={false}>
             Nuevo pedido
           </Button>

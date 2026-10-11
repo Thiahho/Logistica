@@ -171,6 +171,16 @@ namespace Logistica.Migrations
                         .HasDefaultValue(true)
                         .HasColumnName("activo");
 
+                    b.Property<bool>("AvisosEstado")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("avisos_estado");
+
+                    b.Property<DateTimeOffset?>("AvisosEstadoHasta")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("avisos_estado_hasta");
+
                     b.Property<string>("CicloFacturacion")
                         .IsRequired()
                         .ValueGeneratedOnAdd()

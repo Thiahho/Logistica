@@ -82,6 +82,7 @@ interface ClienteDetalle {
   tarifas: TarifaZona[];
   contadorEventos: Record<string, number>;
   ultimosEventos: EventoResumen[];
+  avisosEstado: boolean;
 }
 
 interface TipoEvento {
@@ -142,15 +143,29 @@ function DetalleCliente() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-2xl flex flex-col gap-6">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo={cliente.razonSocial} />
-      <Button variant="outline" render={<Link href="/clientes" />} nativeButton={false} className="self-start">
+      <Button variant="outline" render={<Link href="/clientes" />} nativeButton={false} className="mb-6">
         ← Clientes
       </Button>
 
+      {/* Las tarjetas están pensadas para ~670 px (tablas de cuenta y tarifas): dos columnas recién
+          desde 1700 px, que es donde cada una conserva ese ancho; antes, una sola columna. A la
+          izquierda la ficha (datos, tarifas, rango, logins); a la derecha el movimiento (cuenta,
+          pagos, eventos). */}
+      <div className="grid max-w-3xl items-start gap-6 min-[1700px]:max-w-none min-[1700px]:grid-cols-2">
+      <div className="flex min-w-0 flex-col gap-6">
       <DatosCliente cliente={cliente} fetchConSesion={fetchConSesion} onGuardado={cargar} />
       <TarifasCliente cliente={cliente} fetchConSesion={fetchConSesion} onCambio={cargar} />
       <RangoCliente clienteId={cliente.id} />
+      <UsuariosClienteGestion
+        basePath={`/api/clientes/${cliente.id}/usuarios`}
+        titulo="Usuarios del portal"
+        elegirRol
+        textoVacio="Este cliente todavía no tiene login."
+      />
+      </div>
+      <div className="flex min-w-0 flex-col gap-6">
       <CuentaCorrienteCliente
         key={versionCuenta}
         clienteId={cliente.id}
@@ -162,12 +177,6 @@ function DetalleCliente() {
         onCambio={() => setVersionCuenta((v) => v + 1)}
         ocultarSiVacio
       />
-      <UsuariosClienteGestion
-        basePath={`/api/clientes/${cliente.id}/usuarios`}
-        titulo="Usuarios del portal"
-        elegirRol
-        textoVacio="Este cliente todavía no tiene login."
-      />
       <EventosCliente
         cliente={cliente}
         tiposEvento={tiposEvento}
@@ -175,6 +184,8 @@ function DetalleCliente() {
         onRegistrado={cargar}
       />
       <ZonaPeligro cliente={cliente} fetchConSesion={fetchConSesion} onCambio={cargar} />
+      </div>
+      </div>
     </div>
   );
 }
@@ -270,12 +281,15 @@ function DatosCliente({
   const [colorTrato, setColorTrato] = useState<Color>(cliente.colorTrato);
   const [colorOper, setColorOper] = useState<Color>(cliente.colorOper);
   const [cicloFacturacion, setCicloFacturacion] = useState<CicloFacturacion>(cliente.cicloFacturacion);
+  const [avisosEstado, setAvisosEstado] = useState(cliente.avisosEstado);
   const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function guardar() {
+    setError(null);
     setGuardando(true);
     try {
-      await fetchConSesion(`/api/clientes/${cliente.id}`, {
+      const resp = await fetchConSesion(`/api/clientes/${cliente.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -289,9 +303,14 @@ function DatosCliente({
           colorTrato,
           colorOper,
           cicloFacturacion,
+          avisosEstado,
         }),
       });
+      // Antes no se miraba la respuesta: un CUIT o un email inválido se rechazaba sin que la pantalla lo dijera.
+      if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
       onGuardado();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo guardar.");
     } finally {
       setGuardando(false);
     }
@@ -329,6 +348,20 @@ function DatosCliente({
           <Checkbox id="activo" checked={activo} onCheckedChange={(v) => setActivo(v === true)} />
           <Label htmlFor="activo">Activo</Label>
         </div>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="avisosEstado"
+              checked={avisosEstado}
+              onCheckedChange={(v) => setAvisosEstado(v === true)}
+            />
+            <Label htmlFor="avisosEstado">Enviarle el resumen diario de sus envíos</Label>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Un email por día al de arriba, con lo entregado, lo que no se pudo entregar y por qué. Solo los días con
+            movimientos.
+          </p>
+        </div>
 
         <div className="flex flex-col gap-2 pt-2 border-t max-w-48">
           <Label>Ciclo de facturación</Label>
@@ -356,6 +389,7 @@ function DatosCliente({
           <SelectorColor label="Operación" value={colorOper} onChange={setColorOper} />
         </div>
 
+        {error && <p className="text-sm text-destructive">{error}</p>}
         <Button onClick={guardar} disabled={guardando} className="self-start mt-2">
           {guardando ? "Guardando…" : "Guardar"}
         </Button>
@@ -555,6 +589,9 @@ function CuentaCorrienteCliente({
   const [medio, setMedio] = useState<string>("transferencia");
   const [nota, setNota] = useState("");
   const [registrando, setRegistrando] = useState(false);
+  // Pago que se está corrigiendo. `pagos` es de solo inserción: la corrección es un pago nuevo de
+  // monto negativo con nota obligatoria, el original queda como está.
+  const [corrigiendo, setCorrigiendo] = useState<CuentaCorrienteClienteDatos["pagos"][number] | null>(null);
 
   const [suspenderHasta, setSuspenderHasta] = useState("");
   const [suspenderMotivo, setSuspenderMotivo] = useState("");
@@ -574,24 +611,54 @@ function CuentaCorrienteCliente({
       setError("Ingresá un monto mayor a cero.");
       return;
     }
+    if (corrigiendo && !nota.trim()) {
+      setError("Una corrección necesita el motivo.");
+      return;
+    }
     setError(null);
     setRegistrando(true);
     try {
       const resp = await fetchConSesion(`/api/clientes/${clienteId}/pagos`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ monto: Number(monto), fechaPago: fechaPago || null, medio, nota: nota || null }),
+        body: JSON.stringify(
+          corrigiendo
+            ? {
+                monto: -Number(monto),
+                fechaPago: fechaPago || null,
+                medio,
+                nota: `Corrige el pago del ${corrigiendo.fechaPago}: ${nota.trim()}`,
+              }
+            : { monto: Number(monto), fechaPago: fechaPago || null, medio, nota: nota || null },
+        ),
       });
       if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
       setMonto("");
       setFechaPago("");
       setNota("");
+      setCorrigiendo(null);
       cargar();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo registrar el pago.");
     } finally {
       setRegistrando(false);
     }
+  }
+
+  function empezarCorreccion(pago: CuentaCorrienteClienteDatos["pagos"][number]) {
+    setError(null);
+    setCorrigiendo(pago);
+    setMonto(String(pago.monto));
+    setMedio(pago.medio);
+    setFechaPago("");
+    setNota("");
+  }
+
+  function cancelarCorreccion() {
+    setError(null);
+    setCorrigiendo(null);
+    setMonto("");
+    setNota("");
   }
 
   async function suspenderCorte() {
@@ -716,12 +783,20 @@ function CuentaCorrienteCliente({
             )}
 
             <div className="flex flex-col gap-2 border-t pt-4">
-              <Label>Registrar pago</Label>
+              <Label>{corrigiendo ? "Corregir pago" : "Registrar pago"}</Label>
+              {corrigiendo && (
+                <p className="text-xs text-muted-foreground">
+                  Corrección del pago de ${corrigiendo.monto.toLocaleString("es-AR")} del {corrigiendo.fechaPago}. El
+                  pago original no se borra: se registra un movimiento que resta este monto. Para dejar otro importe,
+                  después cargá el pago correcto.
+                </p>
+              )}
               <div className="flex flex-wrap items-end gap-2">
                 <Input
                   type="number"
                   step="0.01"
-                  placeholder="Monto"
+                  min="0.01"
+                  placeholder={corrigiendo ? "Monto a restar" : "Monto"}
                   className="w-32"
                   value={monto}
                   onChange={(e) => setMonto(e.target.value)}
@@ -739,10 +814,24 @@ function CuentaCorrienteCliente({
                     ))}
                   </SelectContent>
                 </Select>
-                <Input placeholder="Nota (opcional)" className="w-40" value={nota} onChange={(e) => setNota(e.target.value)} />
-                <Button onClick={registrarPago} disabled={registrando || !monto}>
-                  {registrando ? "Registrando…" : "Registrar"}
+                <Input
+                  placeholder={corrigiendo ? "Motivo de la corrección" : "Nota (opcional)"}
+                  className={corrigiendo ? "w-64" : "w-40"}
+                  value={nota}
+                  onChange={(e) => setNota(e.target.value)}
+                />
+                <Button
+                  variant={corrigiendo ? "destructive" : "default"}
+                  onClick={registrarPago}
+                  disabled={registrando || !monto || (corrigiendo !== null && !nota.trim())}
+                >
+                  {registrando ? "Registrando…" : corrigiendo ? "Registrar corrección" : "Registrar"}
                 </Button>
+                {corrigiendo && (
+                  <Button variant="outline" onClick={cancelarCorreccion} disabled={registrando}>
+                    Cancelar
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -793,13 +882,22 @@ function CuentaCorrienteCliente({
                   {cuenta.pagos.map((p) => (
                     <li key={p.id} className="text-sm border-b pb-2 flex justify-between gap-4">
                       <span>
-                        {MEDIOS_PAGO.find((m) => m.value === p.medio)?.label ?? p.medio}
+                        {p.monto < 0 ? "Corrección" : (MEDIOS_PAGO.find((m) => m.value === p.medio)?.label ?? p.medio)}
                         {p.nota && <span className="text-muted-foreground"> · {p.nota}</span>}
                         <div className="text-xs text-muted-foreground">
                           {p.fechaPago} · {p.registradoPorNombre ?? "—"}
                         </div>
                       </span>
-                      <span className="shrink-0 font-medium">${p.monto.toLocaleString("es-AR")}</span>
+                      <span className="flex shrink-0 items-center gap-3">
+                        {p.monto > 0 && (
+                          <Button variant="ghost" size="sm" onClick={() => empezarCorreccion(p)}>
+                            Corregir
+                          </Button>
+                        )}
+                        <span className={p.monto < 0 ? "font-medium text-destructive" : "font-medium"}>
+                          {p.monto < 0 ? "−" : ""}${Math.abs(p.monto).toLocaleString("es-AR")}
+                        </span>
+                      </span>
                     </li>
                   ))}
                 </ul>

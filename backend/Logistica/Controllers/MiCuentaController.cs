@@ -32,7 +32,7 @@ namespace Logistica.Controllers;
 public class MiCuentaController(
     LogisticaDbContext db, CuentaCorrienteService cuentaCorriente, PrecioService precios,
     DistanciaService distancias, OrigenRutaService origenes, IOptions<OpcionesPortal> opcionesPortal,
-    UbicacionService ubicaciones, GeocodificacionService geocodificador, ZonaLocalidadService zonasLocalidad,
+    IOptions<OpcionesCarga> opcionesCarga, UbicacionService ubicaciones, GeocodificacionService geocodificador, ZonaLocalidadService zonasLocalidad,
     DireccionDesdeMapaService desdeMapa, RangoClienteService rangos, AlmacenamientoFotos almacenamiento,
     ViajeService viajes)
     : ControllerBase
@@ -297,7 +297,7 @@ public class MiCuentaController(
             ZonaId = zonaId,
             Estado = EstadoPedido.Borrador,
             OrigenCarga = "portal",
-            Observaciones = req.Observaciones,
+            Observaciones = string.IsNullOrWhiteSpace(req.Observaciones) ? null : req.Observaciones.Trim(),
             CreadoEn = DateTimeOffset.UtcNow,
             CreadoPorClienteUsuarioId = User.UsuarioId(),
         };
@@ -361,13 +361,26 @@ public class MiCuentaController(
         // Ni en el pasado (antes solo se frenaba pasada la hora de corte) ni a más de 90 días.
         var errorFecha = ValidacionFechas.FechaEntrega(fechaEntrega, hoy, diasAtras: 0, diasAdelante: 90);
         if (errorFecha is not null) return BadRequest(errorFecha);
+        var ahora = Reloj.HoraLocal();
         var horaCorte = opcionesPortal.Value.HoraCorte;
-        if (fechaEntrega <= hoy && Reloj.HoraLocal() > horaCorte)
+        // RF-08: la carga de mañana cierra a su propia hora (Dominio/CorteDeCarga.cs); la fecha que se
+        // sugiere es la primera que sigue abierta.
+        var corteManana = opcionesCarga.Value.HoraCorteDiaSiguiente;
+        var primeraAbierta = CorteDeCarga.PrimeraFechaAbierta(hoy, ahora, corteManana);
+        if (fechaEntrega <= hoy && ahora > horaCorte)
         {
             return Conflict(new
             {
-                mensaje = $"La carga de hoy cerró a las {horaCorte:HH\\:mm}; esto se carga para mañana.",
-                fechaEntregaSugerida = hoy.AddDays(1),
+                mensaje = $"La carga de hoy cerró a las {horaCorte:HH\\:mm}; esto se carga a partir del {primeraAbierta:dd/MM}.",
+                fechaEntregaSugerida = primeraAbierta,
+            });
+        }
+        if (CorteDeCarga.Cerrada(fechaEntrega, hoy, ahora, corteManana))
+        {
+            return Conflict(new
+            {
+                mensaje = CorteDeCarga.Mensaje(corteManana, primeraAbierta),
+                fechaEntregaSugerida = primeraAbierta,
             });
         }
 
@@ -552,6 +565,17 @@ public class MiCuentaController(
         return Ok(destinatarios);
     }
 
+    /// <summary>Observaciones ya usadas en envíos propios, para sugerirlas en la carga: primero las de
+    /// ese destinatario. Misma lectura que /api/pedidos/observaciones-frecuentes, con el cliente del claim.</summary>
+    [HttpGet("observaciones-frecuentes")]
+    public async Task<IActionResult> ObservacionesUsadas([FromQuery] string? destinatario, CancellationToken ct)
+    {
+        var clienteId = User.ClienteId();
+        if (clienteId is null) return Forbid();
+
+        return Ok(await ObservacionesFrecuentes.ListarAsync(db, clienteId.Value, destinatario, ct));
+    }
+
     [HttpPost("destinatarios")]
     public async Task<IActionResult> CrearDestinatario(GuardarClienteDestinatarioRequest req, CancellationToken ct)
     {
@@ -561,6 +585,18 @@ public class MiCuentaController(
         var destino = await db.Ubicaciones.Include(u => u.Localidad)
             .SingleOrDefaultAsync(u => u.Id == req.DestinoUbicacionId, ct);
         if (destino is null) return BadRequest("La ubicación de destino no existe.");
+
+        // La carga de un envío guarda siempre a los clientes nuevos: el mismo nombre en la misma
+        // dirección no se duplica en la libreta, se devuelve el que ya estaba.
+        var nombre = req.Nombre.Trim();
+        var repetido = await db.ClientesDestinatarios.AsNoTracking().FirstOrDefaultAsync(
+            d => d.ClienteId == clienteId.Value && d.DestinoUbicacionId == destino.Id
+                && d.Nombre.ToLower() == nombre.ToLower(), ct);
+        if (repetido is not null)
+            return Ok(new ClienteDestinatarioResumen(
+                repetido.Id, repetido.Nombre, repetido.Telefono, destino.Id, destino.CalleNumero,
+                destino.LocalidadId ?? 0, destino.Localidad?.Nombre, destino.Lat, destino.Lng,
+                destino.GeoConfianza, repetido.Observaciones));
 
         var nuevo = new ClienteDestinatario
         {

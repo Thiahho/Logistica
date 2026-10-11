@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
 import { SelectorLocalidad, type LocalidadConocida } from "@/components/SelectorLocalidad";
 import { SugerenciaDestinatario } from "@/components/SugerenciaDestinatario";
+import { SugerenciaObservaciones } from "@/components/SugerenciaObservaciones";
 import { leerError, leerJson } from "@/lib/api/errores";
 import { CampoLinkMapa } from "@/components/CampoLinkMapa";
 import {
@@ -265,10 +266,14 @@ function FormularioAlta() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-2xl">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo="Nuevo pedido" />
       {errorCarga && <p className="text-sm text-destructive mb-4">{errorCarga}</p>}
-      <form onSubmit={onSubmit} className="flex flex-col gap-6">
+      <form onSubmit={onSubmit} className="flex max-w-5xl flex-col gap-6">
+        {/* Una columna en teléfono; desde lg, cliente/destinatario/dirección a la izquierda y el envío
+            a la derecha. El orden del DOM (y de tabulación) es el mismo que en una sola columna. */}
+        <div className="grid items-start gap-6 lg:grid-cols-2">
+        <div className="flex flex-col gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Cliente</CardTitle>
@@ -375,6 +380,7 @@ function FormularioAlta() {
             />
           </CardContent>
         </Card>
+        </div>
 
         <Card>
           <CardHeader>
@@ -434,18 +440,21 @@ function FormularioAlta() {
               </div>
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="observaciones">Observaciones</Label>
-              <Input
+              <Label htmlFor="observaciones">Observaciones (opcional)</Label>
+              <SugerenciaObservaciones
                 id="observaciones"
+                endpoint={clienteId !== null ? `/api/pedidos/observaciones-frecuentes?clienteId=${clienteId}` : null}
+                destinatario={destinatarioNombre}
                 value={observaciones}
-                onChange={(e) => setObservaciones(e.target.value)}
+                onValueChange={setObservaciones}
               />
             </div>
           </CardContent>
         </Card>
+        </div>
 
         <Card>
-          <CardContent className="flex items-center justify-between pt-6">
+          <CardContent className="flex flex-wrap items-center justify-between gap-4 pt-6">
             <div>
               <p className="text-sm text-muted-foreground">Estimado</p>
               {cotizando ? (

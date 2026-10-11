@@ -134,6 +134,6 @@ public class UbicacionService(LogisticaDbContext db, GeocodificacionService geoc
     /// <summary>Trim + colapso de espacios repetidos a uno solo. No toca mayúsculas ni acentos:
     /// el match ya es case-insensitive vía ToLower(), y normalizar más que esto (abreviaturas,
     /// unaccent) es una mejora de otra escala, no la que este fix ataca.</summary>
-    private static string NormalizarCalle(string calleNumero) =>
+    internal static string NormalizarCalle(string calleNumero) =>
         System.Text.RegularExpressions.Regex.Replace(calleNumero.Trim(), @"\s+", " ");
 }

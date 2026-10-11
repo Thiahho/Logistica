@@ -56,14 +56,17 @@ function DetalleVehiculo() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-md flex flex-col gap-6">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo={vehiculo.patente} />
-      <Button variant="outline" render={<Link href="/vehiculos" />} nativeButton={false} className="self-start">
+      <Button variant="outline" render={<Link href="/vehiculos" />} nativeButton={false} className="mb-6">
         ← Vehículos
       </Button>
 
-      <DatosVehiculo vehiculo={vehiculo} fetchConSesion={fetchConSesion} onGuardado={cargar} />
-      <ZonaPeligro vehiculo={vehiculo} fetchConSesion={fetchConSesion} onCambio={cargar} />
+      {/* Una columna en teléfono; desde lg los datos a la izquierda y la zona de riesgo al costado. */}
+      <div className="grid max-w-5xl items-start gap-6 lg:grid-cols-[2fr_1fr]">
+        <DatosVehiculo vehiculo={vehiculo} fetchConSesion={fetchConSesion} onGuardado={cargar} />
+        <ZonaPeligro vehiculo={vehiculo} fetchConSesion={fetchConSesion} onCambio={cargar} />
+      </div>
     </div>
   );
 }
@@ -128,27 +131,29 @@ function DatosVehiculo({
         <CardTitle className="text-base">Datos</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="patente">Patente</Label>
-          <Input id="patente" value={patente} onChange={(e) => setPatente(e.target.value)} />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="patente">Patente</Label>
+            <Input id="patente" value={patente} onChange={(e) => setPatente(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="descripcion">Descripción</Label>
+            <Input id="descripcion" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="tipo">Tipo</Label>
+            <Select value={tipo} onValueChange={(v) => setTipo(v as TipoVehiculo)}>
+              <SelectTrigger id="tipo" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="camioneta">{etiquetaTipoVehiculo("camioneta")}</SelectItem>
+                <SelectItem value="moto">{etiquetaTipoVehiculo("moto")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="descripcion">Descripción</Label>
-          <Input id="descripcion" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} />
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="tipo">Tipo</Label>
-          <Select value={tipo} onValueChange={(v) => setTipo(v as TipoVehiculo)}>
-            <SelectTrigger id="tipo">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="camioneta">{etiquetaTipoVehiculo("camioneta")}</SelectItem>
-              <SelectItem value="moto">{etiquetaTipoVehiculo("moto")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 items-end gap-4 lg:grid-cols-4">
           <div className="flex flex-col gap-2">
             <Label htmlFor="marca">Marca</Label>
             <Input id="marca" value={marca} onChange={(e) => setMarca(e.target.value)} />
@@ -239,7 +244,7 @@ function ZonaPeligro({
       <CardHeader>
         <CardTitle className="text-base">Zona de riesgo</CardTitle>
       </CardHeader>
-      <CardContent className="flex items-center justify-between">
+      <CardContent className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           {vehiculo.activo
             ? "Deja de aparecer como opción al armar rutas nuevas; el historial queda intacto."

@@ -4,7 +4,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { rutaPorRol } from "@/lib/auth/types";
+import { rutaEsDelRol, rutaPorRol } from "@/lib/auth/types";
 import { Button } from "@/components/ui/button";
 import { LogoBF } from "@/components/LogoBF";
 import { Input } from "@/components/ui/input";
@@ -42,9 +42,14 @@ function FormularioLogin() {
     try {
       const usuario = await login(email, password);
       // proxy.ts agrega ?volver=<ruta> cuando redirige acá por falta de sesión; se honra solo si
-      // es una ruta interna (nunca una URL externa) para no abrir una redirección arbitraria.
+      // es una ruta interna (nunca una URL externa, tampoco "//host") para no abrir una redirección
+      // arbitraria, y solo si es de la parte de la aplicación de quien acaba de entrar: si la sesión
+      // se perdió en una pantalla del BackOffice y ahora entra un cliente, va a su inicio, no a un
+      // "No autorizado".
       const volver = searchParams.get("volver");
-      router.push(volver?.startsWith("/") ? volver : rutaPorRol(usuario.rol));
+      const volverValido =
+        volver !== null && volver.startsWith("/") && !volver.startsWith("//") && rutaEsDelRol(usuario.rol, volver);
+      router.push(volverValido ? volver : rutaPorRol(usuario.rol));
     } catch (err) {
       // AuthProvider.login ya distingue 429 (rate limiting) del resto — acá solo se propaga.
       setError(err instanceof Error ? err.message : "Email o contraseña incorrectos");

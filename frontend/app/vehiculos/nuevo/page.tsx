@@ -77,31 +77,35 @@ function FormularioAlta() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-md">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo="Nuevo vehículo" />
-      <form onSubmit={onSubmit} className="flex flex-col gap-6">
+      <form onSubmit={onSubmit} className="flex max-w-5xl flex-col gap-6">
+        {/* Una columna en teléfono; desde lg las dos tarjetas lado a lado. */}
+        <div className="grid items-start gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Identificación</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="patente">Patente</Label>
-              <Input id="patente" required value={patente} onChange={(e) => setPatente(e.target.value)} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="descripcion">Descripción</Label>
-              <Input
-                id="descripcion"
-                placeholder="Utilitario 1"
-                value={descripcion}
-                onChange={(e) => setDescripcion(e.target.value)}
-              />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="patente">Patente</Label>
+                <Input id="patente" required value={patente} onChange={(e) => setPatente(e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="descripcion">Descripción</Label>
+                <Input
+                  id="descripcion"
+                  placeholder="Utilitario 1"
+                  value={descripcion}
+                  onChange={(e) => setDescripcion(e.target.value)}
+                />
+              </div>
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="tipo">Tipo</Label>
               <Select value={tipo} onValueChange={(v) => setTipo(v as TipoVehiculo)}>
-                <SelectTrigger id="tipo">
+                <SelectTrigger id="tipo" className="w-full sm:w-1/2">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -177,9 +181,10 @@ function FormularioAlta() {
             </div>
           </CardContent>
         </Card>
+        </div>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
-        <Button type="submit" disabled={enviando}>
+        <Button type="submit" disabled={enviando} className="sm:self-start">
           {enviando ? "Creando…" : "Crear vehículo"}
         </Button>
       </form>

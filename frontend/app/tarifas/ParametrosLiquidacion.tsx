@@ -107,20 +107,22 @@ export function ParametrosLiquidacion() {
         {!datos ? (
           <p className="text-sm text-muted-foreground">{error ?? "Cargando…"}</p>
         ) : (
-          TIPOS.map(({ tipo, etiqueta }) => {
+          // Un tipo de vehículo debajo del otro en teléfono; lado a lado desde lg.
+          <div className="grid gap-6 lg:grid-cols-2">
+          {TIPOS.map(({ tipo, etiqueta }) => {
             const b = borradores[tipo];
             const vigente = datos.parametros.find((p) => p.tipoVehiculo === tipo);
             if (!b) return null;
             const completo = b.pagoPorEntrega !== "" && b.bonoRuta !== "" && b.pctMinimoExitosas !== "";
             return (
-              <fieldset key={tipo} className="flex flex-col gap-3 border-t pt-4 first:border-t-0 first:pt-0">
+              <fieldset key={tipo} className="flex min-w-0 flex-col gap-3 border-t pt-4 first:border-t-0 first:pt-0 lg:border-t-0 lg:pt-0">
                 <legend className="font-medium">
                   {etiqueta}{" "}
                   <span className="text-xs font-normal text-muted-foreground">
                     {vigente ? `vigente desde ${vigente.vigenteDesde}` : "sin cargar: el pago se tipea a mano"}
                   </span>
                 </legend>
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid items-end gap-3 sm:grid-cols-3">
                   <div className="flex flex-col gap-2">
                     <Label htmlFor={`pago-${tipo}`}>Pago por entrega</Label>
                     <Input
@@ -187,7 +189,8 @@ export function ParametrosLiquidacion() {
                 </Button>
               </fieldset>
             );
-          })
+          })}
+          </div>
         )}
         {mensaje && <p className="text-sm text-muted-foreground">{mensaje}</p>}
         {datos && error && <p className="text-sm text-destructive">{error}</p>}

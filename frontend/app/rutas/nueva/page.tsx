@@ -49,27 +49,30 @@ function FormularioNuevaRuta() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-sm">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo="Nueva ruta" />
-      <form onSubmit={onSubmit} className="flex flex-col gap-6">
+      <form onSubmit={onSubmit} className="flex max-w-xl flex-col gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Fecha</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="fecha">Fecha de la ruta</Label>
-              <Input id="fecha" type="date" required value={fecha} onChange={(e) => setFecha(e.target.value)} />
+            {/* Apilados en teléfono; desde sm, la fecha y el botón en una misma fila. */}
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+              <div className="flex flex-1 flex-col gap-2">
+                <Label htmlFor="fecha">Fecha de la ruta</Label>
+                <Input id="fecha" type="date" required value={fecha} onChange={(e) => setFecha(e.target.value)} />
+              </div>
+              <Button type="submit" disabled={enviando}>
+                {enviando ? "Creando…" : "Crear y armar"}
+              </Button>
             </div>
             <p className="text-sm text-muted-foreground">
               Vehículo, repartidor y paradas se completan en la pantalla siguiente.
             </p>
+            {error && <p className="text-sm text-destructive">{error}</p>}
           </CardContent>
         </Card>
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <Button type="submit" disabled={enviando}>
-          {enviando ? "Creando…" : "Crear y armar"}
-        </Button>
       </form>
     </div>
   );

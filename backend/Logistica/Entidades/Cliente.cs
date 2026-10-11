@@ -45,4 +45,11 @@ public class Cliente
     public DateOnly? RangoAjusteVence { get; set; }
     public Guid? RangoAjustePor { get; set; }
     public DateTimeOffset? RangoAjusteEn { get; set; }
+
+    // Resumen diario de envíos por email (B6, Servicios/AvisosEstadoService.cs). Apagado por defecto:
+    // lo activa Administración cliente por cliente. AvisosEstadoHasta es hasta qué instante ya se le
+    // informaron los cambios de estado; el próximo resumen cuenta desde ahí, así ningún cambio se
+    // informa dos veces ni se pierde si el proceso estuvo apagado.
+    public bool AvisosEstado { get; set; }
+    public DateTimeOffset? AvisosEstadoHasta { get; set; }
 }

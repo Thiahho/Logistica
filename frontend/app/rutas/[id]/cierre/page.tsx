@@ -135,12 +135,14 @@ function CierreRuta() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-xl flex flex-col gap-6">
+    <div className="p-4 md:p-8">
       <CabeceraSesion titulo={`Cierre de ruta #${ruta.id} — ${ruta.fecha}`} />
-      <Button variant="outline" render={<Link href="/rutas" />} nativeButton={false} className="self-start">
+      <Button variant="outline" render={<Link href="/rutas" />} nativeButton={false} className="mb-6">
         ← Rutas
       </Button>
 
+      {/* Una columna en teléfono; desde lg, lo que declaró el repartidor al lado de lo que se carga. */}
+      <div className="grid max-w-6xl items-start gap-6 lg:grid-cols-2">
       <DeclaracionDeLaCalle
         ruta={ruta}
         actuales={{ kmInicial, kmFinal, combustible, peajes }}
@@ -336,6 +338,7 @@ function CierreRuta() {
           </CardContent>
         </Card>
       )}
+      </div>
     </div>
   );
 }
