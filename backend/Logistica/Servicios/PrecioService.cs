@@ -52,24 +52,35 @@ public class PrecioService(LogisticaDbContext db, IOptions<OpcionesPrecio> opcio
                 $"No hay tarifa vigente para la zona {zonaId} en {tipoVehiculo}. Cargá la tarifa en /tarifas o fijá un precio manual en el pedido.");
 
         var factores = opciones.Value;
+        // Cada importe se redondea a centavos ANTES de sumar: las columnas son numeric(12,2) y
+        // Postgres redondea cada una por separado, así que un total calculado sobre los productos
+        // crudos puede quedar guardado a un centavo de la suma de sus propios componentes. Los
+        // factores se aplican sobre el precio base ya redondeado, que es el que queda guardado.
+        var basePrecio = ACentavos(precioBase.Value);
+        var peajesCobrados = ACentavos(peajes);
         // Anexo I §10.2-N lectura (ii): recargo proporcional al kilometraje recorrido, encima del
         // precio de zona vigente — no lo reemplaza. TramosKm vacío o distancia null (sin
         // coordenadas utilizables) => recargo_km = 0, fórmula idéntica a la de hoy.
         var recargoKm = distancia is not null
-            ? precioBase.Value * FactorKm(distancia.Km, factores.TramosKm)
+            ? ACentavos(basePrecio * FactorKm(distancia.Km, factores.TramosKm))
             : 0m;
-        var recargoUrgencia = urgente ? precioBase.Value * factores.FactorUrgencia : 0m;
-        var descuento = descuentoRuta ? precioBase.Value * factores.FactorDescuentoRuta : 0m;
+        var recargoUrgencia = urgente ? ACentavos(basePrecio * factores.FactorUrgencia) : 0m;
+        var descuento = descuentoRuta ? ACentavos(basePrecio * factores.FactorDescuentoRuta) : 0m;
         // Un precio manual (B9) no es tarifa general: no suma descuento por rango.
         var descuentoRango = precioManual is null
-            ? precioBase.Value * await PctDescuentoRangoAsync(clienteId, zonaId, fecha, tipoVehiculo, ct) / 100m
+            ? ACentavos(basePrecio * await PctDescuentoRangoAsync(clienteId, zonaId, fecha, tipoVehiculo, ct) / 100m)
             : 0m;
-        var total = precioBase.Value + recargoKm + recargoUrgencia - descuento - descuentoRango + peajes;
+        var total = basePrecio + recargoKm + recargoUrgencia - descuento - descuentoRango + peajesCobrados;
 
         return new DesglosePrecio(
-            precioBase.Value, recargoKm, recargoUrgencia, descuento, peajes, total,
+            basePrecio, recargoKm, recargoUrgencia, descuento, peajesCobrados, total,
             distancia?.Km, distancia?.Fuente, descuentoRango);
     }
+
+    /// <summary>Mismo redondeo que numeric(12,2) de Postgres: el medio centavo se aleja del cero. El
+    /// de decimal.Round por defecto es el bancario (al par), que no coincide con el de la base.</summary>
+    private static decimal ACentavos(decimal importe) =>
+        decimal.Round(importe, 2, MidpointRounding.AwayFromZero);
 
     /// <summary>
     /// Definición J (acta changelog 4.21; diseño_e2_rangos_liquidacion.md §3.5): el % de descuento del
