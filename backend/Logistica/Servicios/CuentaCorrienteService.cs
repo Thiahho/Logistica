@@ -128,7 +128,12 @@ public class CuentaCorrienteService(LogisticaDbContext db)
     public async Task<List<ResultadoCierreCliente>> CerrarCiclosAsync(
         DateOnly fecha, int? clienteId, bool previsualizar, Guid? actor, CancellationToken ct)
     {
-        var clientesQuery = db.Clientes.AsNoTracking().Where(c => c.Activo);
+        // Los activos, y los dados de baja que todavía tienen algo aprobado sin facturar: la baja
+        // corta el servicio, no la deuda. Un cliente inactivo sin nada pendiente no aparece (ni
+        // siquiera como "sin ítems"), para que el resultado no se llene de bajas viejas.
+        var clientesQuery = db.Clientes.AsNoTracking().Where(c => c.Activo
+            || db.FacturaItems.Any(i => i.FacturaId == null && i.Estado == "aprobado"
+                && i.Pedido != null && i.Pedido.ClienteId == c.Id));
         if (clienteId is not null) clientesQuery = clientesQuery.Where(c => c.Id == clienteId);
         var clientes = await clientesQuery
             .Select(c => new { c.Id, c.RazonSocial, c.CicloFacturacion })

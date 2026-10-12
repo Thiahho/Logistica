@@ -95,4 +95,42 @@ public class CierreDeCiclosTests(BaseDePrueba baseDatos)
         await using var db = baseDatos.CrearContexto();
         Assert.Equal(0, await db.Facturas.CountAsync(f => f.ClienteId == cliente.Id));
     }
+
+    // Dar de baja a un cliente no le perdona lo que ya se le entregó.
+    [Fact]
+    public async Task Un_cliente_dado_de_baja_con_items_aprobados_recibe_su_factura()
+    {
+        var pedido = await PedidoConItemAsync(1000m, "aprobado");
+        await DarDeBajaAsync(pedido.ClienteId);
+
+        var resultado = Assert.Single(await CerrarAsync(pedido.ClienteId));
+
+        Assert.NotNull(resultado.FacturaId);
+        Assert.Equal(1000m, resultado.Total);
+        await using var db = baseDatos.CrearContexto();
+        var factura = await db.Facturas.SingleAsync(f => f.ClienteId == pedido.ClienteId);
+        Assert.Equal(factura.Id, (await db.FacturaItems.SingleAsync(i => i.PedidoId == pedido.Id)).FacturaId);
+    }
+
+    [Fact]
+    public async Task Un_cliente_dado_de_baja_sin_nada_aprobado_no_aparece_en_el_cierre()
+    {
+        var pedido = await PedidoConItemAsync(null, "pendiente", "ajuste");
+        await DarDeBajaAsync(pedido.ClienteId);
+
+        Assert.Empty(await CerrarAsync(pedido.ClienteId));
+    }
+
+    [Fact]
+    public async Task Un_cliente_dado_de_baja_ya_facturado_no_vuelve_a_aparecer()
+    {
+        var pedido = await PedidoConItemAsync(1000m, "aprobado");
+        await DarDeBajaAsync(pedido.ClienteId);
+        await CerrarAsync(pedido.ClienteId);
+
+        Assert.Empty(await CerrarAsync(pedido.ClienteId));
+    }
+
+    private Task DarDeBajaAsync(int clienteId) =>
+        baseDatos.EjecutarAsync($"update clientes set activo = false where id = {clienteId}");
 }
