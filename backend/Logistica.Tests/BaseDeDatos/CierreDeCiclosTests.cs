@@ -133,4 +133,84 @@ public class CierreDeCiclosTests(BaseDePrueba baseDatos)
 
     private Task DarDeBajaAsync(int clienteId) =>
         baseDatos.EjecutarAsync($"update clientes set activo = false where id = {clienteId}");
+
+    // Una corrida sobre TODOS los clientes, como la automática. La base es compartida: se cierra a una
+    // fecha vieja, anterior a cualquier ítem de las demás pruebas, para no facturarles nada a ellas.
+    private static readonly DateOnly PrimeroDeFebreroDe2020 = new(2020, 2, 1);
+
+    private async Task<Pedido> PedidoConItemViejoAsync()
+    {
+        var pedido = await baseDatos.PedidoAsync();
+        await using var db = baseDatos.CrearContexto();
+        db.FacturaItems.Add(new FacturaItem
+        {
+            PedidoId = pedido.Id, Tipo = "pedido", Descripcion = "Envío de prueba", Monto = 1000m, Estado = "aprobado",
+            CreadoEn = new DateTimeOffset(2020, 1, 10, 15, 0, 0, TimeSpan.Zero),
+        });
+        await db.SaveChangesAsync();
+        return pedido;
+    }
+
+    private async Task<List<ResultadoCierreCliente>> CerrarTodosAsync()
+    {
+        await using var db = baseDatos.CrearContexto();
+        return await new CuentaCorrienteService(db).CerrarCiclosAsync(
+            PrimeroDeFebreroDe2020, clienteId: null, previsualizar: false, actor: null, CancellationToken.None);
+    }
+
+    /// <summary>Un trigger que rechaza la escritura de un solo cliente: lo que haría una fila que viola una
+    /// regla de la base. `enLaFactura` falla al insertar la factura; si no, al asignarle sus ítems, con
+    /// la factura ya insertada en la transacción. Devuelve la sentencia que lo saca.</summary>
+    private async Task<string> RomperCierreDeAsync(Pedido pedido, bool enLaFactura)
+    {
+        var nombre = $"trg_prueba_cierre_roto_{pedido.ClienteId}";
+        await baseDatos.EjecutarAsync("""
+            create or replace function fn_prueba_cierre_roto() returns trigger language plpgsql as $$
+            begin
+              raise exception 'Falla provocada por la prueba';
+            end $$
+            """);
+        await baseDatos.EjecutarAsync(enLaFactura
+            ? $"create trigger {nombre} before insert on facturas for each row when (new.cliente_id = {pedido.ClienteId}) execute function fn_prueba_cierre_roto()"
+            : $"create trigger {nombre} before update on factura_items for each row when (new.pedido_id = {pedido.Id}) execute function fn_prueba_cierre_roto()");
+        return $"drop trigger {nombre} on {(enLaFactura ? "facturas" : "factura_items")}";
+    }
+
+    // Antes, el primer cliente que fallaba abortaba la corrida entera, y como la corrida automática
+    // reintenta siempre igual, ese cliente dejaba sin facturar a todos los que venían después.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Un_cliente_que_falla_se_omite_y_los_siguientes_se_facturan_igual(bool fallaEnLaFactura)
+    {
+        var roto = await PedidoConItemViejoAsync();
+        var sano = await PedidoConItemViejoAsync();
+        Assert.True(roto.ClienteId < sano.ClienteId); // el que falla va primero en la corrida
+        var arreglar = await RomperCierreDeAsync(roto, fallaEnLaFactura);
+
+        var resultados = await CerrarTodosAsync();
+
+        var omitido = Assert.Single(resultados, r => r.ClienteId == roto.ClienteId);
+        Assert.Null(omitido.FacturaId);
+        Assert.Equal(CuentaCorrienteService.OmitidoPorError, omitido.Omitido);
+        var facturado = Assert.Single(resultados, r => r.ClienteId == sano.ClienteId);
+        Assert.NotNull(facturado.FacturaId);
+        Assert.Null(facturado.Omitido);
+        Assert.Equal(1000m, facturado.Total);
+        Assert.Equal(resultados.Select(r => r.ClienteId).Order(), resultados.Select(r => r.ClienteId));
+
+        await using (var db = baseDatos.CrearContexto())
+        {
+            Assert.Equal(0, await db.Facturas.CountAsync(f => f.ClienteId == roto.ClienteId));
+            Assert.Null((await db.FacturaItems.SingleAsync(i => i.PedidoId == roto.Id)).FacturaId);
+            var factura = await db.Facturas.SingleAsync(f => f.ClienteId == sano.ClienteId);
+            Assert.Equal(factura.Id, (await db.FacturaItems.SingleAsync(i => i.PedidoId == sano.Id)).FacturaId);
+        }
+
+        // Nada quedó a medias: resuelta la causa, la corrida siguiente le emite su factura.
+        await baseDatos.EjecutarAsync(arreglar);
+        var reintento = Assert.Single(await CerrarTodosAsync(), r => r.ClienteId == roto.ClienteId);
+        Assert.NotNull(reintento.FacturaId);
+        Assert.Equal(1000m, reintento.Total);
+    }
 }

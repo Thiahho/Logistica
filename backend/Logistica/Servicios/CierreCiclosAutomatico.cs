@@ -48,7 +48,9 @@ public class CierreCiclosAutomatico(
         }
     }
 
-    /// <summary>Una corrida. Nunca tira: un error se anota y la corrida siguiente reintenta.</summary>
+    /// <summary>Una corrida. Nunca tira: un error se anota y la corrida siguiente reintenta. Un cliente
+    /// que falla no la corta (CerrarCiclosAsync lo omite y sigue): el catch de acá es para lo que
+    /// falla antes de llegar a los clientes.</summary>
     private async Task CorrerAsync(CancellationToken ct)
     {
         try
@@ -63,6 +65,13 @@ public class CierreCiclosAutomatico(
                 log.LogInformation(
                     "Cierre automático de facturación hasta {Hasta}: {Facturas} facturas por {Total}",
                     hasta, emitidas.Count, emitidas.Sum(r => r.Total));
+
+            // El servicio ya anotó cada excepción; acá queda a quién le falta la factura de esta
+            // corrida, que nadie está mirando en una pantalla.
+            foreach (var fallido in resultados.Where(r => r.Omitido == CuentaCorrienteService.OmitidoPorError))
+                log.LogWarning(
+                    "Cierre automático de facturación hasta {Hasta}: el cliente {ClienteId} ({RazonSocial}) quedó sin facturar el período que cierra el {PeriodoHasta}; se reintenta en la próxima",
+                    hasta, fallido.ClienteId, fallido.RazonSocial, fallido.PeriodoHasta);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

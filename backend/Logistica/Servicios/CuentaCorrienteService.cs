@@ -6,7 +6,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Logistica.Servicios;
 
 /// <summary>Resultado de intentar cerrar el ciclo de un cliente en una fecha de cierre puntual.
-/// `FacturaId` null junto con `Omitido` no null = no había nada facturable (no es un error).</summary>
+/// `FacturaId` null junto con `Omitido` no null = no se emitió factura: o no había nada facturable (no
+/// es un error), o el cierre de ese cliente falló (`CuentaCorrienteService.OmitidoPorError`).</summary>
 public record ResultadoCierreCliente(
     int ClienteId, string RazonSocial, string Ciclo,
     long? FacturaId, DateOnly PeriodoDesde, DateOnly PeriodoHasta,
@@ -36,13 +37,20 @@ public record ClienteEnRiesgo(
 /// GuardarComoAsync (si la escritura además toca `pedidos`, regla §3.7 de construccion_v1.md) o
 /// SaveChangesAsync (el resto: pagos, ajustes, cierre, corte suspendido).
 /// </summary>
-public class CuentaCorrienteService(LogisticaDbContext db)
+/// <param name="log">Opcional: el contenedor lo inyecta; las pruebas arman el servicio solo con la base.</param>
+public class CuentaCorrienteService(LogisticaDbContext db, ILogger<CuentaCorrienteService>? log = null)
 {
     /// <summary>Ventana de preaviso por defecto del panel de cobranza (RiesgoAsync) cuando el
     /// caller no especifica una — compartida entre ClientesController.ListarRiesgo y
     /// AvisosCobranzaService para que las dos vías usen el mismo criterio de "próximo a
     /// vencer".</summary>
     public const int DiasPreavisoDefault = 15;
+
+    /// <summary>`Omitido` de un cliente cuyo cierre falló (CerrarCiclosAsync). Constante pública para
+    /// que quien corre el cierre lo distinga de "sin ítems", que no es un error. El detalle técnico
+    /// va al log, no a la pantalla.</summary>
+    public const string OmitidoPorError =
+        "No se pudo cerrar el ciclo de este cliente por un error: quedó sin facturar. El resto de los clientes se procesó igual.";
 
     /// <summary>Saldo total del cliente (facturado - pagado), incluye deuda todavía no vencida.
     /// Es lo que se muestra en pantalla — NUNCA lo que gatea el corte de servicio, ver
@@ -124,6 +132,11 @@ public class CuentaCorrienteService(LogisticaDbContext db)
     /// nunca por abajo, para que un ajuste aprobado tarde no quede huérfano de un período ya
     /// pasado. `previsualizar=true` hace el mismo cómputo y revierte — la factura es inmutable,
     /// no hay deshacer, así que la previsualización no es un lujo.
+    ///
+    /// Cada cliente va aislado: si su cierre tira, se revierte lo suyo, sale en el resultado con
+    /// `OmitidoPorError` y la corrida sigue. Sin eso, un solo cliente que falla deja sin facturar a
+    /// todos los que vienen después, en cada corrida (la automática reintenta siempre igual). El
+    /// orden es por id, para que una corrida y su reintento recorran lo mismo.
     /// </summary>
     public async Task<List<ResultadoCierreCliente>> CerrarCiclosAsync(
         DateOnly fecha, int? clienteId, bool previsualizar, Guid? actor, CancellationToken ct)
@@ -136,6 +149,7 @@ public class CuentaCorrienteService(LogisticaDbContext db)
                 && i.Pedido != null && i.Pedido.ClienteId == c.Id));
         if (clienteId is not null) clientesQuery = clientesQuery.Where(c => c.Id == clienteId);
         var clientes = await clientesQuery
+            .OrderBy(c => c.Id)
             .Select(c => new { c.Id, c.RazonSocial, c.CicloFacturacion })
             .ToListAsync(ct);
         var clienteIds = clientes.Select(c => c.Id).ToList();
@@ -191,7 +205,38 @@ public class CuentaCorrienteService(LogisticaDbContext db)
                 // devuelve lo que pasó; el caller (afuera, después de que ExecuteAsync ya no va a
                 // reintentar más) decide qué hacer con eso.
                 var estrategia = db.Database.CreateExecutionStrategy();
-                var (resultado, itemsFacturados) = await estrategia.ExecuteAsync(async () =>
+                ResultadoCierreCliente resultado;
+                List<FacturaItem>? itemsFacturados;
+                try
+                {
+                    (resultado, itemsFacturados) = await CerrarUnoAsync();
+                }
+                // Con el token del caller cancelado no se traga nada: el host se apaga o el request
+                // se cortó, y lo que venga (OperationCanceledException o lo que el driver tire en su
+                // lugar) tiene que propagar.
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    DescartarIntentoFallido(cliente.Id, pendientesDelCliente);
+                    log?.LogError(ex,
+                        "Cierre de ciclo: falló el cliente {ClienteId} ({RazonSocial}) en el período que cierra el {Cierre}; se omite y la corrida sigue",
+                        cliente.Id, cliente.RazonSocial, cierre);
+                    resultados.Add(new ResultadoCierreCliente(
+                        cliente.Id, cliente.RazonSocial, cliente.CicloFacturacion,
+                        null, periodoDesde, cierre, default, 0m, 0, ajustesPendientes, OmitidoPorError));
+                    // Sus cierres siguientes también se saltean: barrerían los mismos ítems y, si
+                    // llegaran a pasar, dejarían un período sin factura en el medio.
+                    break;
+                }
+
+                resultados.Add(resultado);
+                if (itemsFacturados is not null)
+                {
+                    // Recién confirmado: estos ítems ya no son candidatos para el próximo cierre
+                    // pendiente de este mismo cliente, dentro de esta misma corrida.
+                    pendientesDelCliente = pendientesDelCliente.Except(itemsFacturados).ToList();
+                }
+
+                Task<(ResultadoCierreCliente, List<FacturaItem>?)> CerrarUnoAsync() => estrategia.ExecuteAsync(async () =>
                 {
                     await using var tx = await db.Database.BeginTransactionAsync(ct);
 
@@ -245,20 +290,29 @@ public class CuentaCorrienteService(LogisticaDbContext db)
                     }
 
                     await tx.CommitAsync(ct);
-                    return (resultadoCierre, items);
+                    return (resultadoCierre, (List<FacturaItem>?)items);
                 });
-
-                resultados.Add(resultado);
-                if (itemsFacturados is not null)
-                {
-                    // Recién confirmado: estos ítems ya no son candidatos para el próximo cierre
-                    // pendiente de este mismo cliente, dentro de esta misma corrida.
-                    pendientesDelCliente = pendientesDelCliente.Except(itemsFacturados).ToList();
-                }
             }
         }
 
         return resultados;
+    }
+
+    /// <summary>
+    /// La transacción del cliente que falló ya se revirtió, pero el change tracker todavía recuerda el
+    /// intento: la factura (por insertar, o insertada y revertida) y los ítems apuntándole. Si quedan
+    /// así, el SaveChangesAsync del cliente siguiente vuelve a mandar esas mismas escrituras y falla
+    /// él también. Se deja el contexto como está la base: sin esa factura y con los ítems sin facturar.
+    /// </summary>
+    private void DescartarIntentoFallido(int clienteId, List<FacturaItem> pendientesDelCliente)
+    {
+        foreach (var item in pendientesDelCliente)
+        {
+            item.FacturaId = null;
+            db.Entry(item).State = EntityState.Unchanged;
+        }
+        foreach (var factura in db.ChangeTracker.Entries<Factura>().Where(f => f.Entity.ClienteId == clienteId).ToList())
+            factura.State = EntityState.Detached;
     }
 
     /// <summary>
