@@ -281,18 +281,23 @@ public class PedidosController(
     /// agrupables por ZonaCodigo en el cliente; RF-14, se consolidan por DestinoUbicacionId en
     /// el cliente). Ya no son "confirmados" (acta changelog 3.11): confirmar es cotizar, y eso
     /// recién pasa cuando la ruta cierra su planificación y se conoce el vehículo.
+    /// También los Reprogramado de esa fecha (D13): fallaron en otra ruta y vuelven a salir.
     /// Si rutaId viene, incluye también los ya asignados a esa ruta (para re-editar un armado
-    /// existente), marcados YaEnEstaRuta.
+    /// existente), marcados YaEnEstaRuta. `soloBorrador` deja afuera los reprogramados: es lo que
+    /// puede entrar como urgencia a una ruta en curso (RutasController.InsertarUrgencia).
     /// </summary>
     [HttpGet("candidatos-ruta")]
     [Authorize(Policy = "BackOffice")]
-    public async Task<IActionResult> CandidatosRuta([FromQuery] DateOnly fecha, [FromQuery] long? rutaId, CancellationToken ct)
+    public async Task<IActionResult> CandidatosRuta(
+        [FromQuery] DateOnly fecha, [FromQuery] long? rutaId, [FromQuery] bool soloBorrador, CancellationToken ct)
     {
         // Un pedido asignado a OTRA ruta no es candidato: nada a nivel de base lo impide todavía
         // (la PK de parada_pedidos es compuesta (parada_id, pedido_id), no hay unique sobre
         // pedido_id solo) — RutasController valida esto de nuevo al guardar (double-booking).
+        // Mismo criterio que GuardarParadas: solo cuenta otra ruta en planificación, no la fila
+        // que un reprogramado conserva en la ruta donde falló.
         var asignadosOtraRuta = db.ParadaPedidos
-            .Where(pp => rutaId == null || pp.Parada.RutaId != rutaId)
+            .Where(pp => pp.Parada.Ruta.Estado == "planificada" && (rutaId == null || pp.Parada.RutaId != rutaId))
             .Select(pp => pp.PedidoId);
 
         var idsEnEstaRuta = rutaId is null
@@ -304,7 +309,8 @@ public class PedidosController(
             // Acta changelog 3.11: el precio (y por lo tanto Confirmado) recién se fija cuando la
             // ruta cierra su planificación y se conoce el vehículo — el pool de candidatos a
             // rutear es ahora el de pedidos en Borrador, no Confirmado.
-            .Where(p => p.FechaEntrega == fecha && p.Estado == EstadoPedido.Borrador)
+            .Where(p => p.FechaEntrega == fecha
+                && (p.Estado == EstadoPedido.Borrador || (!soloBorrador && p.Estado == EstadoPedido.Reprogramado)))
             .Where(p => !asignadosOtraRuta.Contains(p.Id))
             .Select(p => new
             {
@@ -317,6 +323,7 @@ public class PedidosController(
                 p.DestinatarioNombre,
                 p.Bultos,
                 p.Urgente,
+                p.Estado,
                 p.ZonaId,
                 ZonaCodigo = p.Zona != null ? p.Zona.Codigo : null,
                 p.DestinoUbicacionId,
@@ -349,7 +356,10 @@ public class PedidosController(
                     p.Id, p.ClienteRazonSocial, p.DestinatarioNombre, p.Bultos, p.Urgente, p.ZonaCodigo,
                     p.DestinoUbicacionId, p.CalleNumero, p.DestinoLocalidad, p.Lat, p.Lng, p.DireccionApta,
                     idsEnEstaRuta.Contains(p.Id),
-                    RequiereCotizacion: p.PrecioManual is null && p.ZonaId is not null && zonasSinTarifa.Contains(p.ZonaId.Value),
+                    // Un reprogramado ya tiene precio congelado: no hay nada que cotizar aunque su zona
+                    // haya quedado sin tarifa.
+                    RequiereCotizacion: p.Estado == EstadoPedido.Borrador && p.PrecioManual is null
+                        && p.ZonaId is not null && zonasSinTarifa.Contains(p.ZonaId.Value),
                     p.PrecioManual, rango.Nombre, rango.Prioridad);
             })
             // Prioridad de asignación (acta 4.21): quién aparece primero cuando la capacidad no alcanza para
@@ -977,8 +987,12 @@ public class PedidosController(
     /// </summary>
     private async Task AvisarCancelacionAlRepartidorAsync(Pedido pedido, string? motivo, CancellationToken ct)
     {
+        // Un reprogramado puede tener dos rutas en curso a la vez: la del intento fallido, si
+        // administración todavía no la cerró, y la que lo lleva ahora (D13). El aviso es para la
+        // última — la parada de mayor id —, no para el repartidor que ya lo dio por fallido.
         var enRuta = await db.ParadaPedidos
             .Where(pp => pp.PedidoId == pedido.Id && pp.Parada.Ruta.Estado == "en_curso")
+            .OrderByDescending(pp => pp.ParadaId)
             .Select(pp => new { pp.ParadaId, pp.Parada.RutaId })
             .FirstOrDefaultAsync(ct);
         if (enRuta is null) return;
@@ -1050,8 +1064,10 @@ public class PedidosController(
         }
         if (cambios.Count == 0) return NoContent();
 
+        // La última parada, igual que AvisarCancelacionAlRepartidorAsync: la del intento vigente.
         var enRuta = await db.ParadaPedidos
             .Where(pp => pp.PedidoId == id && pp.Parada.Ruta.Estado == "en_curso")
+            .OrderByDescending(pp => pp.ParadaId)
             .Select(pp => new { pp.ParadaId, pp.Parada.RutaId })
             .FirstOrDefaultAsync(ct);
         if (enRuta is not null)

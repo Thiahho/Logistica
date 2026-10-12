@@ -50,7 +50,7 @@ export function DialogoUrgencia({
 
   useEffect(() => {
     Promise.all([
-      fetchConSesion(`/api/pedidos/candidatos-ruta?fecha=${fecha}`).then((r) => leerJson<CandidatoRuta[]>(r)),
+      fetchConSesion(`/api/pedidos/candidatos-ruta?fecha=${fecha}&soloBorrador=true`).then((r) => leerJson<CandidatoRuta[]>(r)),
       fetchConSesion(`/api/rutas/${rutaId}/paradas`).then((r) => leerJson<ParadaArmada[]>(r)),
     ])
       .then(([c, p]) => {
