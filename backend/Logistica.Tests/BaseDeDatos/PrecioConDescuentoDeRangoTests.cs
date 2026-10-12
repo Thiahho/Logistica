@@ -19,27 +19,40 @@ public class PrecioConDescuentoDeRangoTests(BaseDePrueba baseDatos)
     {
         var cliente = await baseDatos.ClienteAsync();
         var zonaId = await baseDatos.EscalarAsync<int>("select id from zonas where codigo = 'Z'");
-        await baseDatos.EjecutarAsync("update rangos set descuento_pct = 7.5 where codigo = 'bronce'");
-        await baseDatos.EjecutarAsync($"update clientes set rango_calculado = 'bronce' where id = {cliente.Id}");
-        await using var db = baseDatos.CrearContexto();
-        db.Tarifas.Add(new Tarifa
+        // El rango y la zona son filas compartidas por toda la colección (los rangos son cinco filas
+        // fijas, la zona es una sola): la prueba las deja como las encontró.
+        var descuentoAnterior = await baseDatos.EscalarAsync<decimal>("select descuento_pct from rangos where codigo = 'bronce'");
+        var tarifa = new Tarifa
         {
             ZonaId = zonaId, TipoVehiculo = "camioneta", Precio = 1000.33m,
             VigenteDesde = DiaDeLaTarifa, VigenteHasta = DiaDeLaTarifa, CreadaEn = DateTimeOffset.UtcNow,
-        });
-        await db.SaveChangesAsync();
-        var servicio = new PrecioService(db, Options.Create(new OpcionesPrecio { FactorUrgencia = 0.20m }));
+        };
+        try
+        {
+            await baseDatos.EjecutarAsync("update rangos set descuento_pct = 7.5 where codigo = 'bronce'");
+            await baseDatos.EjecutarAsync($"update clientes set rango_calculado = 'bronce' where id = {cliente.Id}");
+            await using var db = baseDatos.CrearContexto();
+            db.Tarifas.Add(tarifa);
+            await db.SaveChangesAsync();
+            var servicio = new PrecioService(db, Options.Create(new OpcionesPrecio { FactorUrgencia = 0.20m }));
 
-        var desglose = await servicio.CotizarAsync(
-            cliente.Id, zonaId, DiaDeLaTarifa, urgente: true, peajes: 0m, descuentoRuta: false, "camioneta");
+            var desglose = await servicio.CotizarAsync(
+                cliente.Id, zonaId, DiaDeLaTarifa, urgente: true, peajes: 0m, descuentoRuta: false, "camioneta");
 
-        // Sin redondear: 1000,33 + 200,066 − 75,02475 = 1125,37125, que la base guardaría como 1125,37
-        // al lado de componentes que suman 1125,38.
-        Assert.Equal(1000.33m, desglose.PrecioBase);
-        Assert.Equal(200.07m, desglose.RecargoUrgencia);
-        Assert.Equal(75.02m, desglose.DescuentoRango);
-        Assert.Equal(1125.38m, desglose.Total);
-        Assert.Equal(
-            desglose.PrecioBase + desglose.RecargoUrgencia - desglose.DescuentoRango, desglose.Total);
+            // Sin redondear: 1000,33 + 200,066 − 75,02475 = 1125,37125, que la base guardaría como 1125,37
+            // al lado de componentes que suman 1125,38.
+            Assert.Equal(1000.33m, desglose.PrecioBase);
+            Assert.Equal(200.07m, desglose.RecargoUrgencia);
+            Assert.Equal(75.02m, desglose.DescuentoRango);
+            Assert.Equal(1125.38m, desglose.Total);
+            Assert.Equal(
+                desglose.PrecioBase + desglose.RecargoUrgencia - desglose.DescuentoRango, desglose.Total);
+        }
+        finally
+        {
+            await baseDatos.EjecutarAsync(FormattableString.Invariant(
+                $"update rangos set descuento_pct = {descuentoAnterior} where codigo = 'bronce'"));
+            if (tarifa.Id != 0) await baseDatos.EjecutarAsync($"delete from tarifas where id = {tarifa.Id}");
+        }
     }
 }

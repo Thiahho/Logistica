@@ -2,6 +2,7 @@ using Logistica.Datos;
 using Logistica.Dominio;
 using Logistica.Entidades;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Logistica.Servicios;
 
@@ -133,8 +134,9 @@ public class CuentaCorrienteService(LogisticaDbContext db, ILogger<CuentaCorrien
     /// pasado. `previsualizar=true` hace el mismo cómputo y revierte — la factura es inmutable,
     /// no hay deshacer, así que la previsualización no es un lujo.
     ///
-    /// Cada cliente va aislado: si su cierre tira, se revierte lo suyo, sale en el resultado con
-    /// `OmitidoPorError` y la corrida sigue. Sin eso, un solo cliente que falla deja sin facturar a
+    /// Cada cliente va aislado: si su cierre falla por sus datos (EsFallaDeLosDatos), se revierte lo
+    /// suyo, sale en el resultado con `OmitidoPorError` y la corrida sigue. Una falla de la base
+    /// (conexión, timeout) no es de ningún cliente y corta la corrida, como antes. Sin eso, un solo cliente que falla deja sin facturar a
     /// todos los que vienen después, en cada corrida (la automática reintenta siempre igual). El
     /// orden es por id, para que una corrida y su reintento recorran lo mismo.
     /// </summary>
@@ -211,10 +213,11 @@ public class CuentaCorrienteService(LogisticaDbContext db, ILogger<CuentaCorrien
                 {
                     (resultado, itemsFacturados) = await CerrarUnoAsync();
                 }
-                // Con el token del caller cancelado no se traga nada: el host se apaga o el request
-                // se cortó, y lo que venga (OperationCanceledException o lo que el driver tire en su
-                // lugar) tiene que propagar.
-                catch (Exception ex) when (!ct.IsCancellationRequested)
+                // Solo lo que falla por los datos de ESTE cliente (EsFallaDeLosDatos). Con el token del
+                // caller cancelado no se traga nada: el host se apaga o el request se cortó, y lo que
+                // venga (OperationCanceledException o lo que el driver tire en su lugar) tiene que
+                // propagar.
+                catch (DbUpdateException ex) when (!ct.IsCancellationRequested && EsFallaDeLosDatos(ex))
                 {
                     DescartarIntentoFallido(cliente.Id, pendientesDelCliente);
                     log?.LogError(ex,
@@ -297,6 +300,21 @@ public class CuentaCorrienteService(LogisticaDbContext db, ILogger<CuentaCorrien
 
         return resultados;
     }
+
+    /// <summary>
+    /// ¿El cierre falló por los datos del cliente, o falló la base? Regla: es de los datos solo si la
+    /// escritura llegó a la base y la base la rechazó con un SQLSTATE de clase 22 (dato inválido), 23
+    /// (restricción violada) o P0 (RAISE de un trigger): eso lo provoca una fila y le va a pasar a ese
+    /// cliente en cada corrida. Todo lo demás propaga: una conexión que no abre o se corta llega como
+    /// NpgsqlException sin SQLSTATE (o ni siquiera como DbUpdateException), un timeout igual, y lo
+    /// que la base informa de sí misma (clases 08, 40, 53, 57, 58, XX) o lo que agotó los reintentos
+    /// de EnableRetryOnFailure no es culpa del cliente que estaba de turno. Tragarlo convertiría una
+    /// base caída en una lista de clientes "omitidos", también en el cierre manual y en la
+    /// previsualización.
+    /// </summary>
+    private static bool EsFallaDeLosDatos(DbUpdateException ex) =>
+        ex.InnerException is PostgresException { SqlState: { Length: 5 } estado }
+        && estado[..2] is "22" or "23" or "P0";
 
     /// <summary>
     /// La transacción del cliente que falló ya se revirtió, pero el change tracker todavía recuerda el

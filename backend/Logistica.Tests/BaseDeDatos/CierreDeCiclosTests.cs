@@ -187,30 +187,119 @@ public class CierreDeCiclosTests(BaseDePrueba baseDatos)
         var sano = await PedidoConItemViejoAsync();
         Assert.True(roto.ClienteId < sano.ClienteId); // el que falla va primero en la corrida
         var arreglar = await RomperCierreDeAsync(roto, fallaEnLaFactura);
-
-        var resultados = await CerrarTodosAsync();
-
-        var omitido = Assert.Single(resultados, r => r.ClienteId == roto.ClienteId);
-        Assert.Null(omitido.FacturaId);
-        Assert.Equal(CuentaCorrienteService.OmitidoPorError, omitido.Omitido);
-        var facturado = Assert.Single(resultados, r => r.ClienteId == sano.ClienteId);
-        Assert.NotNull(facturado.FacturaId);
-        Assert.Null(facturado.Omitido);
-        Assert.Equal(1000m, facturado.Total);
-        Assert.Equal(resultados.Select(r => r.ClienteId).Order(), resultados.Select(r => r.ClienteId));
-
-        await using (var db = baseDatos.CrearContexto())
+        try
         {
+            var resultados = await CerrarTodosAsync();
+
+            var omitido = Assert.Single(resultados, r => r.ClienteId == roto.ClienteId);
+            Assert.Null(omitido.FacturaId);
+            Assert.Equal(CuentaCorrienteService.OmitidoPorError, omitido.Omitido);
+            var facturado = Assert.Single(resultados, r => r.ClienteId == sano.ClienteId);
+            Assert.NotNull(facturado.FacturaId);
+            Assert.Null(facturado.Omitido);
+            Assert.Equal(1000m, facturado.Total);
+            Assert.Equal(resultados.Select(r => r.ClienteId).Order(), resultados.Select(r => r.ClienteId));
+
+            await using var db = baseDatos.CrearContexto();
             Assert.Equal(0, await db.Facturas.CountAsync(f => f.ClienteId == roto.ClienteId));
             Assert.Null((await db.FacturaItems.SingleAsync(i => i.PedidoId == roto.Id)).FacturaId);
             var factura = await db.Facturas.SingleAsync(f => f.ClienteId == sano.ClienteId);
             Assert.Equal(factura.Id, (await db.FacturaItems.SingleAsync(i => i.PedidoId == sano.Id)).FacturaId);
         }
+        finally
+        {
+            // La base es de toda la colección: el trigger se saca aunque una aserción falle.
+            await baseDatos.EjecutarAsync(arreglar);
+        }
 
         // Nada quedó a medias: resuelta la causa, la corrida siguiente le emite su factura.
-        await baseDatos.EjecutarAsync(arreglar);
         var reintento = Assert.Single(await CerrarTodosAsync(), r => r.ClienteId == roto.ClienteId);
         Assert.NotNull(reintento.FacturaId);
         Assert.Equal(1000m, reintento.Total);
+    }
+
+    /// <summary>Lo mismo que RomperCierreDeAsync, pero con una falla que no es de los datos del cliente.
+    /// `cortandoLaConexion` mata el backend en plena escritura (lo que se ve cuando la base se cae o se
+    /// corta la red); si no, la base rechaza con una clase de SQLSTATE que no es de datos (53300,
+    /// demasiadas conexiones). Devuelve la sentencia que lo saca.</summary>
+    private async Task<string> RomperLaBaseAlCerrarAAsync(Pedido pedido, bool cortandoLaConexion)
+    {
+        var nombre = $"trg_prueba_base_rota_{pedido.ClienteId}";
+        var funcion = cortandoLaConexion ? "fn_prueba_conexion_cortada" : "fn_prueba_base_saturada";
+        await baseDatos.EjecutarAsync(cortandoLaConexion
+            ? """
+              create or replace function fn_prueba_conexion_cortada() returns trigger language plpgsql as $$
+              begin
+                perform pg_terminate_backend(pg_backend_pid());
+                perform pg_sleep(30); -- la baja llega en el primer punto de interrupción
+                return new;
+              end $$
+              """
+            : """
+              create or replace function fn_prueba_base_saturada() returns trigger language plpgsql as $$
+              begin
+                raise exception 'Falla provocada por la prueba' using errcode = '53300';
+              end $$
+              """);
+        await baseDatos.EjecutarAsync(
+            $"create trigger {nombre} before insert on facturas for each row when (new.cliente_id = {pedido.ClienteId}) execute function {funcion}()");
+        return $"drop trigger {nombre} on facturas";
+    }
+
+    // Aislar a un cliente es para lo que falla por SUS datos. Si lo que falla es la base, tragarlo
+    // devolvería una lista de clientes "omitidos" y nadie se enteraría de que la corrida no corrió.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Una_falla_que_no_es_de_los_datos_del_cliente_corta_la_corrida(bool cortandoLaConexion)
+    {
+        var pedido = await PedidoConItemViejoAsync();
+        var arreglar = await RomperLaBaseAlCerrarAAsync(pedido, cortandoLaConexion);
+        try
+        {
+            await using var db = baseDatos.CrearContexto();
+            var error = await Assert.ThrowsAnyAsync<Exception>(() => new CuentaCorrienteService(db).CerrarCiclosAsync(
+                PrimeroDeFebreroDe2020, pedido.ClienteId, previsualizar: false, actor: null, CancellationToken.None));
+            Assert.IsNotType<OperationCanceledException>(error);
+        }
+        finally
+        {
+            await baseDatos.EjecutarAsync(arreglar);
+        }
+
+        await using var despues = baseDatos.CrearContexto();
+        Assert.Equal(0, await despues.Facturas.CountAsync(f => f.ClienteId == pedido.ClienteId));
+        Assert.Null((await despues.FacturaItems.SingleAsync(i => i.PedidoId == pedido.Id)).FacturaId);
+    }
+
+    // El host que se apaga o el request que se corta no es una falla del cliente que se estaba cerrando.
+    [Fact]
+    public async Task Una_cancelacion_en_medio_del_cierre_de_un_cliente_propaga()
+    {
+        var pedido = await PedidoConItemViejoAsync();
+        var nombre = $"trg_prueba_cierre_lento_{pedido.ClienteId}";
+        await baseDatos.EjecutarAsync("""
+            create or replace function fn_prueba_cierre_lento() returns trigger language plpgsql as $$
+            begin
+              perform pg_sleep(30);
+              return new;
+            end $$
+            """);
+        await baseDatos.EjecutarAsync(
+            $"create trigger {nombre} before insert on facturas for each row when (new.cliente_id = {pedido.ClienteId}) execute function fn_prueba_cierre_lento()");
+        try
+        {
+            await using var db = baseDatos.CrearContexto();
+            using var cancelacion = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new CuentaCorrienteService(db).CerrarCiclosAsync(
+                PrimeroDeFebreroDe2020, pedido.ClienteId, previsualizar: false, actor: null, cancelacion.Token));
+        }
+        finally
+        {
+            await baseDatos.EjecutarAsync($"drop trigger {nombre} on facturas");
+        }
+
+        await using var despues = baseDatos.CrearContexto();
+        Assert.Equal(0, await despues.Facturas.CountAsync(f => f.ClienteId == pedido.ClienteId));
     }
 }

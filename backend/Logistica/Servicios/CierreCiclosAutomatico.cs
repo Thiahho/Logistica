@@ -49,8 +49,9 @@ public class CierreCiclosAutomatico(
     }
 
     /// <summary>Una corrida. Nunca tira: un error se anota y la corrida siguiente reintenta. Un cliente
-    /// que falla no la corta (CerrarCiclosAsync lo omite y sigue): el catch de acá es para lo que
-    /// falla antes de llegar a los clientes.</summary>
+    /// que falla por sus datos no la corta (CerrarCiclosAsync lo omite y sigue): el catch de acá es
+    /// para lo que falla antes de llegar a los clientes y para lo que no es de ninguno (la base caída,
+    /// un timeout), que sí corta la corrida.</summary>
     private async Task CorrerAsync(CancellationToken ct)
     {
         try
