@@ -860,6 +860,19 @@ public class PedidosController(
             // sigue el flujo normal: cae a pedido.Estado = nuevo más abajo, un único GuardarComoAsync.
         }
 
+        // E1: entregar desde el back-office factura igual que el cierre de parada del repartidor
+        // (MisParadasController.Cerrar) — misma descripción, mismo monto. Sin esto el pedido quedaba
+        // Entregado sin ítem y ningún cierre de ciclo lo cobraba. ux_factura_items_pedido sigue
+        // garantizando un solo ítem por pedido.
+        if (nuevo == EstadoPedido.Entregado)
+        {
+            if (pedido.Total is null)
+                return Conflict($"El pedido {pedido.Id} no tiene precio congelado; no se puede facturar su entrega.");
+
+            cuentaCorriente.AgregarItemDePedido(
+                pedido, $"Pedido #{pedido.Id} — {pedido.DestinatarioNombre}", pedido.Total.Value, User.UsuarioId());
+        }
+
         if (nuevo == EstadoPedido.Reprogramado)
         {
             if (req.NuevaFechaEntrega is null) return BadRequest("Falta la nueva fecha de entrega.");

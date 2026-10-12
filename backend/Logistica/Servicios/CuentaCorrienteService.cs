@@ -27,9 +27,10 @@ public record ClienteEnRiesgo(
 
 /// <summary>
 /// E1 (Anexo I §5, B1). Único lugar del sistema que acuña un FacturaItem tipo='pedido' — lo
-/// llaman PedidosController.CambiarEstado (cancelación de un Confirmado, §10.2-I) y
-/// MisParadasController.Cerrar (entrega). Sin este servicio, dos controllers tendrían que copiar
-/// la misma regla y se desincronizarían en la primera corrección.
+/// llaman PedidosController.CambiarEstado (cancelación de un Confirmado, §10.2-I, y entrega
+/// marcada desde el back-office) y MisParadasController.Cerrar (entrega del repartidor). Sin
+/// este servicio, dos controllers tendrían que copiar la misma regla y se desincronizarían en la
+/// primera corrección.
 ///
 /// AgregarItemDePedido NO guarda — solo agrega al change tracker. El caller decide si cierra con
 /// GuardarComoAsync (si la escritura además toca `pedidos`, regla §3.7 de construccion_v1.md) o
