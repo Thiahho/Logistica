@@ -25,16 +25,20 @@ namespace Logistica.Controllers;
 /// B5 (diseño_b5_portal_carga.md) agrega el alta de pedido desde el portal: mismo controller, no
 /// uno nuevo, porque comparte exactamente el mismo criterio de alcance ("resuelve del claim,
 /// nunca del body ni de la URL").
+///
+/// [CortaServicioAEmpresaInactiva]: con la empresa dada de baja el portal queda de solo lectura,
+/// más lo que hace falta para pagar. Toda acción nueva que no sea GET nace cortada.
 /// </summary>
 [ApiController]
 [Route("api/mi-cuenta")]
 [Authorize(Policy = "Cliente")]
+[CortaServicioAEmpresaInactiva]
 public class MiCuentaController(
     LogisticaDbContext db, CuentaCorrienteService cuentaCorriente, PrecioService precios,
     DistanciaService distancias, OrigenRutaService origenes, IOptions<OpcionesPortal> opcionesPortal,
     IOptions<OpcionesCarga> opcionesCarga, UbicacionService ubicaciones, GeocodificacionService geocodificador, ZonaLocalidadService zonasLocalidad,
     DireccionDesdeMapaService desdeMapa, RangoClienteService rangos, AlmacenamientoFotos almacenamiento,
-    ViajeService viajes)
+    ViajeService viajes, AuthService auth)
     : ControllerBase
 {
     public record FacturaPropia(
@@ -700,15 +704,18 @@ public class MiCuentaController(
         return Ok(new UsuarioEquipo(usuario.Id, usuario.Nombre, usuario.Email, usuario.Rol, usuario.Activo, usuario.CreadoEn));
     }
 
-    /// <summary>Desactivar corta la sesión del empleado en el próximo refresh (AuthService
-    /// re-chequea Activo) y le impide volver a entrar.</summary>
+    /// <summary>Desactivar corta las sesiones abiertas del empleado (AuthService.RevocarSesionesAsync)
+    /// y le impide volver a entrar. Permitido con la empresa inactiva: no pide servicio, y el dueño
+    /// tiene que poder sacar a un empleado igual.</summary>
     [HttpPut("usuarios/{id:guid}/activo")]
     [Authorize(Policy = "ClienteDueno")]
+    [PermitidoConEmpresaInactiva]
     public async Task<IActionResult> CambiarActivoUsuario(Guid id, ActivoEquipoRequest req, CancellationToken ct)
     {
         var (usuario, error) = await UsuarioGestionableAsync(id, ct);
         if (usuario is null) return error!;
 
+        if (!req.Activo) await auth.RevocarSesionesAsync(usuario, ct);
         usuario.Activo = req.Activo;
         ActividadPortal.Registrar(db, User,
             req.Activo ? AccionesPortal.UsuarioActivado : AccionesPortal.UsuarioDesactivado,
@@ -717,15 +724,20 @@ public class MiCuentaController(
         return NoContent();
     }
 
+    /// <summary>Permitido con la empresa inactiva, por lo mismo que CambiarActivoUsuario: es
+    /// seguridad de la cuenta, no servicio.</summary>
     [HttpPut("usuarios/{id:guid}/password")]
     [Authorize(Policy = "ClienteDueno")]
+    [PermitidoConEmpresaInactiva]
     public async Task<IActionResult> CambiarPasswordUsuario(Guid id, PasswordEquipoRequest req, CancellationToken ct)
     {
         var (usuario, error) = await UsuarioGestionableAsync(id, ct);
         if (usuario is null) return error!;
         if (PoliticaContrasena.Validar(req.Password, usuario.Email) is { } errorClave) return BadRequest(errorClave);
 
+        // Quien entró con la contraseña vieja no sigue adentro con su refresh token.
         usuario.PasswordHash = AuthService.HashearCliente(usuario, req.Password);
+        await auth.RevocarSesionesAsync(usuario, ct);
         ActividadPortal.Registrar(db, User, AccionesPortal.UsuarioContrasena, "usuario", usuario.Id.ToString(), usuario.Nombre);
         await db.SaveChangesAsync(ct);
         return NoContent();
@@ -1015,9 +1027,11 @@ public class MiCuentaController(
     }
 
     /// <summary>El dueño avisa un pago. No toca el saldo: Administración lo confirma (y ahí se crea el
-    /// Pago) o lo rechaza. El comprobante es una foto JPEG opcional.</summary>
+    /// Pago) o lo rechaza. El comprobante es una foto JPEG opcional. Permitido con la empresa
+    /// inactiva: es justamente como avisa que pagó para que le devuelvan el servicio.</summary>
     [HttpPost("pagos-informados")]
     [Authorize(Policy = "ClienteDueno")]
+    [PermitidoConEmpresaInactiva]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(2 * 1024 * 1024)]
     public async Task<IActionResult> InformarPago([FromForm] InformarPagoRequest req, CancellationToken ct)

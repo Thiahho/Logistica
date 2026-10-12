@@ -1,3 +1,4 @@
+using Logistica.Auth;
 using Logistica.Datos;
 using Logistica.Entidades;
 using Microsoft.EntityFrameworkCore;
@@ -103,13 +104,15 @@ public sealed class BaseDePrueba : IAsyncLifetime
 
     private static string Unico() => Guid.NewGuid().ToString("N")[..12];
 
-    public async Task<Usuario> UsuarioAsync(string rol = Roles.Administracion)
+    /// <param name="password">null deja un hash que no valida: alcanza para lo que no inicia sesión.</param>
+    public async Task<Usuario> UsuarioAsync(string rol = Roles.Administracion, string? password = null)
     {
         await using var db = CrearContexto();
         var usuario = new Usuario
         {
             Id = Guid.NewGuid(), Nombre = "Prueba", Email = $"{Unico()}@interno.test", PasswordHash = "x", Rol = rol,
         };
+        if (password is not null) usuario.PasswordHash = AuthService.Hashear(usuario, password);
         db.Usuarios.Add(usuario);
         await db.SaveChangesAsync();
         return usuario;
@@ -124,13 +127,16 @@ public sealed class BaseDePrueba : IAsyncLifetime
         return cliente;
     }
 
-    public async Task<ClienteUsuario> ClienteUsuarioAsync(int clienteId)
+    /// <param name="password">null deja un hash que no valida: alcanza para lo que no inicia sesión.</param>
+    public async Task<ClienteUsuario> ClienteUsuarioAsync(int clienteId, string rol = RolesCliente.Dueno, string? password = null)
     {
         await using var db = CrearContexto();
         var login = new ClienteUsuario
         {
             Id = Guid.NewGuid(), ClienteId = clienteId, Nombre = "Dueño", Email = $"{Unico()}@cliente.test", PasswordHash = "x",
+            Rol = rol,
         };
+        if (password is not null) login.PasswordHash = AuthService.HashearCliente(login, password);
         db.ClientesUsuarios.Add(login);
         await db.SaveChangesAsync();
         return login;

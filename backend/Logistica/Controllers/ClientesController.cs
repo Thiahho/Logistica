@@ -27,7 +27,7 @@ namespace Logistica.Controllers;
 [Route("api/clientes")]
 public class ClientesController(
     LogisticaDbContext db, TarifaService tarifas, CuentaCorrienteService cuentaCorriente, AvisosCobranzaService avisosCobranza,
-    AlmacenamientoFotos almacenamiento)
+    AlmacenamientoFotos almacenamiento, AuthService auth)
     : ControllerBase
 {
     public record TarifaZona(
@@ -478,6 +478,8 @@ public class ClientesController(
         var usuario = await db.ClientesUsuarios.SingleOrDefaultAsync(u => u.Id == usuarioId && u.ClienteId == id, ct);
         if (usuario is null) return NotFound();
 
+        // La baja corta las sesiones abiertas del login, sin esperar a su próximo refresh.
+        if (!req.Activo) await auth.RevocarSesionesAsync(usuario, ct);
         usuario.Activo = req.Activo;
         await db.SaveChangesAsync(ct);
         return NoContent();
@@ -492,7 +494,9 @@ public class ClientesController(
         if (usuario is null) return NotFound();
         if (PoliticaContrasena.Validar(req.Password, usuario.Email) is { } errorClave) return BadRequest(errorClave);
 
+        // Quien entró con la contraseña vieja no sigue adentro con su refresh token.
         usuario.PasswordHash = AuthService.HashearCliente(usuario, req.Password);
+        await auth.RevocarSesionesAsync(usuario, ct);
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
