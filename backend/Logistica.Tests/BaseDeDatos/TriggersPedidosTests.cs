@@ -47,6 +47,49 @@ public class TriggersPedidosTests(BaseDePrueba baseDatos)
         Assert.Equal("El cliente lo pidió", eventos[1].Motivo);
     }
 
+    // ---- Pedido.Version (xmin): concurrencia optimista ----
+
+    [Fact]
+    public async Task Dos_escrituras_sobre_la_misma_lectura_del_pedido_la_segunda_no_pisa_a_la_primera()
+    {
+        var usuario = await baseDatos.UsuarioAsync();
+        var pedido = await baseDatos.PedidoAsync(EstadoPedido.EnRuta);
+        await using var operacion = baseDatos.CrearContexto();
+        await using var repartidor = baseDatos.CrearContexto();
+        var paraCancelar = await operacion.Pedidos.SingleAsync(p => p.Id == pedido.Id);
+        var paraEntregar = await repartidor.Pedidos.SingleAsync(p => p.Id == pedido.Id);
+
+        paraCancelar.Estado = EstadoPedido.Cancelado;
+        await operacion.GuardarComoAsync(usuario.Id, "El cliente lo pidió");
+        paraEntregar.Estado = EstadoPedido.Entregado;
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => repartidor.GuardarComoAsync(usuario.Id, "Entrega"));
+        await using var db = baseDatos.CrearContexto();
+        Assert.Equal(EstadoPedido.Cancelado, (await db.Pedidos.SingleAsync(p => p.Id == pedido.Id)).Estado);
+    }
+
+    [Fact]
+    public async Task Dos_guardados_seguidos_del_mismo_contexto_no_chocan_entre_si()
+    {
+        // CerrarPlanificacion: Confirmado y EnRuta en la misma transacción. El trigger de log corre
+        // en el medio y no tiene que mover la versión que EF espera encontrar.
+        var usuario = await baseDatos.UsuarioAsync();
+        var pedido = await baseDatos.PedidoAsync(EstadoPedido.Reprogramado);
+        await using var db = baseDatos.CrearContexto();
+        var guardado = await db.Pedidos.SingleAsync(p => p.Id == pedido.Id);
+
+        await using var tx = await db.Database.BeginTransactionAsync();
+        await db.PublicarActorAsync(usuario.Id, "Cierre de planificación de ruta.");
+        guardado.Estado = EstadoPedido.Confirmado;
+        await db.SaveChangesAsync();
+        guardado.Estado = EstadoPedido.EnRuta;
+        await db.SaveChangesAsync();
+        await tx.CommitAsync();
+
+        guardado.Observaciones = "y una tercera vez, ya fuera de la transacción";
+        await db.GuardarComoAsync(usuario.Id);
+    }
+
     [Fact]
     public async Task El_actor_no_queda_pegado_a_la_conexion_para_la_escritura_siguiente()
     {

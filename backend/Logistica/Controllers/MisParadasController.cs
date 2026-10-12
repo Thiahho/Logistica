@@ -416,8 +416,10 @@ public class MisParadasController(
         return await almacenamiento.GuardarAsync(paradaId, req.DeviceUuid, stream, req.Foto.Length, ct);
     }
 
-    /// <summary>Otra escritura ganó la carrera por un unique: la prueba del otro tap, o el ítem facturable
-    /// de una cancelación (ux_factura_items_pedido).</summary>
+    /// <summary>Otra escritura ganó la carrera: por un unique (la prueba del otro tap, o el ítem facturable
+    /// de una cancelación — ux_factura_items_pedido) o porque el pedido ya no es la versión que se leyó
+    /// (Pedido.Version). Cuál de los dos salta primero depende del orden en que EF mande las sentencias.</summary>
     private static bool EsCambioConcurrente(DbUpdateException ex) =>
-        ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
+        ex is DbUpdateConcurrencyException
+        || ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
 }

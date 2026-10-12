@@ -59,6 +59,12 @@ public class ManejadorExcepciones(IProblemDetailsService problemDetailsService, 
 
     private static (int? Status, string? Detalle) Clasificar(Exception exception)
     {
+        // Concurrencia optimista (Pedido.Version): otra escritura modificó la fila entre la lectura y
+        // el guardado. No trae PostgresException adentro — el UPDATE simplemente no afectó filas.
+        if (exception is DbUpdateConcurrencyException)
+            return (StatusCodes.Status409Conflict,
+                "Otra persona modificó este registro mientras lo guardabas; volvé a cargarlo e intentá de nuevo.");
+
         // trg_congelar_pedido, trg_bloquear_direccion_dudosa, trg_log_inmutable: RAISE EXCEPTION
         // sin código propio queda en SqlState P0001 (raise_exception), con el mensaje del RAISE
         // como MessageText.

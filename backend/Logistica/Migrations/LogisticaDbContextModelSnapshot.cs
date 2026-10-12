@@ -1500,6 +1500,12 @@ namespace Logistica.Migrations
                         .HasColumnType("numeric(12,2)")
                         .HasColumnName("valor_declarado");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.Property<long?>("ViajeId")
                         .HasColumnType("bigint")
                         .HasColumnName("viaje_id");
