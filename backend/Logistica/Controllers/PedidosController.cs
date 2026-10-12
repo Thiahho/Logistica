@@ -1113,7 +1113,8 @@ public class PedidosController(
     /// E1 / B16 (sumado por decisión del usuario): al retiro físico, operación marca la cantidad
     /// real de bultos cuando difiere de lo declarado. Queda pendiente hasta que un admin lo
     /// apruebe con un monto — no toca `pedidos` (frozen por P1), el ajuste vive aparte en
-    /// factura_items y entra en la SIGUIENTE factura.
+    /// factura_items y entra en la SIGUIENTE factura. Un pedido en borrador o cancelado no lo
+    /// admite (ver MotivoSinAjustes).
     /// </summary>
     [HttpPost("{id:long}/ajustes")]
     [Authorize(Policy = "BackOffice")]
@@ -1121,6 +1122,7 @@ public class PedidosController(
     {
         var pedido = await db.Pedidos.SingleOrDefaultAsync(p => p.Id == id, ct);
         if (pedido is null) return NotFound();
+        if (MotivoSinAjustes(pedido.Estado) is { } motivo) return Conflict(motivo);
 
         db.FacturaItems.Add(new FacturaItem
         {
@@ -1137,6 +1139,18 @@ public class PedidosController(
         return NoContent();
     }
 
+    /// <summary>null si un pedido en ese estado admite pedir o aprobar un ajuste; si no, el motivo
+    /// para el 409. El cierre de ciclo factura todo ítem aprobado sin mirar el pedido, así que el
+    /// control va acá: un borrador todavía no tiene precio congelado sobre el cual ajustar, y un
+    /// cancelado deja de tener valor. Rechazar no pasa por acá: el ajuste que quedó pendiente en un
+    /// pedido que después se canceló se tiene que poder limpiar.</summary>
+    private static string? MotivoSinAjustes(EstadoPedido estado) => estado switch
+    {
+        EstadoPedido.Borrador => "El pedido todavía está en borrador; no admite ajustes hasta que se confirme.",
+        EstadoPedido.Cancelado => "El pedido está cancelado; ya no admite ajustes.",
+        _ => null,
+    };
+
     /// <summary>Más estricta que la clase (Administracion sobre BackOffice) — combinación AND,
     /// mismo criterio que precio-manual (B9): fijar un monto que afecta lo que se cobra es
     /// decisión de empresa. Tope de 3 ajustes/notas por pedido sin cargo extra (§10.2 sumado a
@@ -1149,6 +1163,10 @@ public class PedidosController(
         var ajuste = await db.FacturaItems.SingleOrDefaultAsync(i => i.Id == ajusteId && i.PedidoId == id, ct);
         if (ajuste is null) return NotFound();
         if (ajuste.Estado != "pendiente") return Conflict("Este ajuste ya fue resuelto.");
+
+        // El pedido pudo cancelarse con el ajuste ya pedido: ese pendiente no se aprueba, se rechaza.
+        var estadoPedido = await db.Pedidos.Where(p => p.Id == id).Select(p => p.Estado).SingleAsync(ct);
+        if (MotivoSinAjustes(estadoPedido) is { } motivo) return Conflict(motivo);
 
         var previos = await db.FacturaItems.CountAsync(i =>
             i.PedidoId == id && i.Tipo != "pedido" && i.Estado == "aprobado", ct);
