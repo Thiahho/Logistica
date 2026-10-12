@@ -773,6 +773,15 @@ public class RutasController(
         if (ruta.Estado == "cerrada") return Conflict("La ruta ya está cerrada.");
         if (ruta.Estado != "en_curso")
             return Conflict("La ruta todavía no cerró su planificación (RF-17); no se puede cerrar económicamente.");
+
+        // Una ruta cerrada ya no se interrumpe (Interrumpir exige en_curso): cerrarla con paradas
+        // pendientes dejaría sus pedidos en EnRuta para siempre, fuera del circuito de reprogramación.
+        // Mismo criterio que el cierre de jornada del repartidor (MiJornadaController), sin escape:
+        // el escape es interrumpir, que declara fallido lo pendiente con su motivo.
+        var paradasPendientes = await db.RutaParadas.CountAsync(p => p.RutaId == id && p.Estado == "pendiente", ct);
+        if (paradasPendientes > 0)
+            return Conflict($"La ruta todavía tiene {paradasPendientes} parada(s) pendientes. Interrumpila primero: lo pendiente pasa a fallido y se puede reprogramar; después cerrala.");
+
         // Regla cruzada, no expresable con [Range]: el km final no puede ser anterior al inicial.
         if (req.KmFinal < req.KmInicial)
             return BadRequest("El km final no puede ser menor al km inicial.");
