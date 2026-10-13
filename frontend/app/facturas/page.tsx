@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { MessageCircle, UserRound } from "lucide-react";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { LIMITE_OPERACION_LARGA_MS } from "@/lib/auth/tiempos";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -353,7 +354,9 @@ function CierreCicloDialog({
     setError(null);
     setEmitido(null);
     try {
-      const resp = await fetchConSesion(`/api/facturas/cierre/previsualizacion?fecha=${fecha}`);
+      const resp = await fetchConSesion(`/api/facturas/cierre/previsualizacion?fecha=${fecha}`, {
+        limiteMs: LIMITE_OPERACION_LARGA_MS,
+      });
       setPrevisualizacion(await leerJson<ResultadoCierreCliente[]>(resp));
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo previsualizar el cierre.");
@@ -370,6 +373,7 @@ function CierreCicloDialog({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fecha }),
+        limiteMs: LIMITE_OPERACION_LARGA_MS,
       });
       if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
       const resultado = await leerJson<ResultadoCierreCliente[]>(resp);

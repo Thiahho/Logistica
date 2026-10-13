@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { LIMITE_OPERACION_LARGA_MS } from "@/lib/auth/tiempos";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
 import { AvisoViajeDeRuta } from "@/components/viajes/AvisoViajeDeRuta";
 import { Button } from "@/components/ui/button";
@@ -444,7 +445,10 @@ function ArmarRuta() {
     try {
       await guardarAsignacion();
       await guardarParadas();
-      const resp = await fetchConSesion(`/api/rutas/${id}/cerrar-planificacion`, { method: "POST" });
+      const resp = await fetchConSesion(`/api/rutas/${id}/cerrar-planificacion`, {
+        method: "POST",
+        limiteMs: LIMITE_OPERACION_LARGA_MS,
+      });
       if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
       router.push("/rutas");
     } catch (err) {

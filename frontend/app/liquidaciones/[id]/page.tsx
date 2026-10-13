@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { LIMITE_OPERACION_LARGA_MS } from "@/lib/auth/tiempos";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,7 +38,7 @@ function Comprobante() {
   async function descargarCsv() {
     setError(null);
     try {
-      const resp = await fetchConSesion(`/api/liquidaciones/${id}/csv`);
+      const resp = await fetchConSesion(`/api/liquidaciones/${id}/csv`, { limiteMs: LIMITE_OPERACION_LARGA_MS });
       if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
       const url = URL.createObjectURL(await resp.blob());
       const a = document.createElement("a");

@@ -6,6 +6,11 @@ export const LIMITE_PEDIDO_MS = 30_000;
  * con mala señal la subida sola puede llevar más que el límite común. */
 export const LIMITE_SUBIDA_MS = 120_000;
 
+/** Lo mismo para una operación que el servidor tarda en resolver aunque la señal sea buena (el cierre de
+ * facturación, cerrar la planificación con sus consultas de distancia, un exportable, una importación).
+ * Mismo valor que la subida: no hay medición que justifique otro. */
+export const LIMITE_OPERACION_LARGA_MS = 120_000;
+
 /** `RequestInit` más el límite de espera. Sin `limiteMs` se usa el común, o el de subida si el cuerpo
  * lleva un archivo. */
 export type OpcionesDePedido = RequestInit & { limiteMs?: number };

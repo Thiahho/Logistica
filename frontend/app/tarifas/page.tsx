@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { LIMITE_OPERACION_LARGA_MS } from "@/lib/auth/tiempos";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -119,7 +120,10 @@ function ListaTarifas() {
     setErrorPendientes(null);
     setResultadoRecalculo(null);
     try {
-      const resp = await fetchConSesion("/api/localidades/recalcular", { method: "POST" });
+      const resp = await fetchConSesion("/api/localidades/recalcular", {
+        method: "POST",
+        limiteMs: LIMITE_OPERACION_LARGA_MS,
+      });
       if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
       setResultadoRecalculo(await leerJson<ResultadoRecalculo>(resp));
       cargarPendientes();
