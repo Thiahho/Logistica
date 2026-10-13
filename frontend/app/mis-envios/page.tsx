@@ -266,7 +266,7 @@ function MiPlan() {
 
       {empresaActiva === false && <AvisoServicioSuspendido esDueno={esDueno} />}
       <EnviosDeHoy onAbrir={setEnvioAbierto} />
-      <MisViajes suspendido={empresaActiva === false} />
+      <MisViajes />
       {esDueno && <MiCuenta />}
 
       <section aria-labelledby="titulo-todos" className="flex flex-col gap-3">
@@ -373,7 +373,7 @@ function MiPlan() {
 
 /** Los últimos viajes (envíos de varias paradas) con su avance; cada uno abre su detalle con el mapa.
  * No se muestra si el cliente todavía no cargó ninguno. */
-function MisViajes({ suspendido }: { suspendido: boolean }) {
+function MisViajes() {
   const { fetchConSesion } = useAuth();
   const [viajes, setViajes] = useState<ViajeResumen[] | null>(null);
 
@@ -401,10 +401,7 @@ function MisViajes({ suspendido }: { suspendido: boolean }) {
               <div className="min-w-0 flex-1">
                 <p className="font-medium">Viaje #{v.id} · {v.paradas} paradas</p>
                 <p className="text-muted-foreground">
-                  Entrega {v.fechaEntrega.split("-").reverse().join("/")} ·{" "}
-                  {/* El resumen no trae el estado de cada envío. Con la empresa dada de baja, un viaje
-                      sin ruta es uno al que la baja le retuvo los envíos y le quitó la ruta propuesta. */}
-                  {suspendido && v.estado === "sin_ruta" ? "Suspendido por falta de pago" : etiquetaEstadoViaje(v.estado)}
+                  Entrega {v.fechaEntrega.split("-").reverse().join("/")} · {etiquetaEstadoViaje(v.estado)}
                 </p>
               </div>
               <span className="shrink-0 tabular-nums text-muted-foreground" aria-label={`${v.entregadas} de ${v.paradas} entregadas`}>

@@ -53,8 +53,12 @@ function Viajes() {
                   <span className="shrink-0 tabular-nums text-muted-foreground">
                     {v.entregadas}/{v.paradas}
                   </span>
-                  <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-bf-azul">
-                    {etiquetaEstadoViaje(v.estado)}
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                      v.estado === "retenido" ? "bg-red-100 text-red-700" : "bg-accent text-bf-azul"
+                    }`}
+                  >
+                    {etiquetaEstadoViaje(v.estado, true)}
                   </span>
                 </Link>
               </li>

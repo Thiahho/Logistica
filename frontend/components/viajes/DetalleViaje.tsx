@@ -16,11 +16,12 @@ import { etiquetaEstadoViaje, etiquetaTipoVehiculo, type EstadoPedido, type Viaj
 const pesos = (n: number) => `$${n.toLocaleString("es-AR", { maximumFractionDigits: 2 })}`;
 
 function variante(estado: EstadoPedido, enRuta: boolean): VarianteMarcador {
+  // Un Retenido tampoco se va a visitar: salió de la ruta con la baja de la empresa. Va antes que
+  // `enRuta`: ni él ni un cancelado están en la ruta, y eso no los vuelve una dirección a verificar.
+  if (estado === "Cancelado" || estado === "Retenido") return "cancelada";
   if (!enRuta) return "dudosa";
   if (estado === "Entregado") return "completada";
   if (estado === "Fallido" || estado === "Devuelto") return "fallida";
-  // Un Retenido tampoco se va a visitar: salió de la ruta con la baja de la empresa.
-  if (estado === "Cancelado" || estado === "Retenido") return "cancelada";
   return "pendiente";
 }
 
@@ -97,7 +98,10 @@ export function DetalleViaje({
            variante: variante(p.estado, p.enRuta), titulo: `${p.orden}. ${p.destinatarioNombre} — ${p.calleNumero}` }]
       : []),
   ];
-  // El estado del viaje sale de su ruta y no sabe de retenciones: se dice aparte, con la palabra de cada lado.
+  // Un viaje que conserva su ruta se lee de ella y no sabe de retenciones; uno sin ruta propia solo es
+  // `retenido` cuando no le queda nada pendiente. Las paradas retenidas se dicen aparte, con la palabra
+  // de cada lado — salvo en el portal cuando el estado ya lo dice con esas mismas palabras.
+  const viajeRetenido = viaje.estado === "retenido";
   const retenidas = viaje.paradas.filter((p) => p.estado === "Retenido").length;
   const puedeCancelar =rutaCancelar && (viaje.estado === "planificado" || viaje.estado === "sin_ruta")
     && viaje.paradas.every((p) => p.estado === "Borrador" || p.estado === "Cancelado");
@@ -105,8 +109,10 @@ export function DetalleViaje({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="rounded-full bg-accent px-3 py-1 font-medium text-bf-azul">{etiquetaEstadoViaje(viaje.estado)}</span>
-        {retenidas > 0 && (
+        <span className={`rounded-full px-3 py-1 font-medium ${viajeRetenido ? "bg-red-100 text-red-700" : "bg-accent text-bf-azul"}`}>
+          {etiquetaEstadoViaje(viaje.estado, mostrarRuta)}
+        </span>
+        {retenidas > 0 && (mostrarRuta || !viajeRetenido) && (
           <span className="rounded-full bg-red-100 px-3 py-1 font-medium text-red-700">
             {mostrarRuta
               ? `${retenidas} ${retenidas === 1 ? "parada retenida" : "paradas retenidas"}`

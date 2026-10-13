@@ -1722,10 +1722,19 @@ export interface PrevisualizacionViajePortal {
   total: number | null;
 }
 
-export type EstadoViaje = "sin_ruta" | "planificado" | "en_curso" | "cerrado" | "cancelado";
+/**
+ * Espejo de Servicios/ViajeService: el estado sale de la ruta propia del viaje o, si no la tiene
+ * (EstadoSinRutaPropia), de sus envíos. `retenido`: la baja de la empresa por falta de pago le retuvo
+ * los envíos y no le queda ninguno pendiente.
+ */
+export type EstadoViaje = "sin_ruta" | "planificado" | "en_curso" | "cerrado" | "cancelado" | "retenido";
 
-export function etiquetaEstadoViaje(e: EstadoViaje): string {
+/** `interno` (back-office): un viaje retenido se llama por su nombre; "Suspendido por falta de pago" es
+ * la forma de decírselo al cliente, igual que con un pedido (EstadoPedidoBadge). */
+export function etiquetaEstadoViaje(e: EstadoViaje, interno = false): string {
   switch (e) {
+    case "retenido":
+      return interno ? "Retenido" : "Suspendido por falta de pago";
     case "sin_ruta":
       return "Por planificar";
     case "planificado":
@@ -1751,7 +1760,8 @@ export interface ParadaViajeDetalle {
   bultos: number;
   observaciones: string | null;
   estado: EstadoPedido;
-  /** false = la dirección quedó fuera de la ruta propuesta (dudosa) hasta que la corrijan. */
+  /** false = la dirección quedó fuera de la ruta propuesta (dudosa) hasta que la corrijan. En un viaje
+   * sin ruta propia no hay propuesta de la que quedar afuera: false solo si la dirección es dudosa. */
   enRuta: boolean;
   precio: number | null;
 }
