@@ -359,18 +359,49 @@ public class ClientesController(
     /// en total y el detalle por empresa (solo las que tenían algo pendiente).</summary>
     public record RetencionDeInactivas(int Empresas, int Pedidos, List<EmpresaRetenida> Detalle);
 
+    /// <summary>La empresa en la que se cortó la pasada: a esa no se le retuvo nada.</summary>
+    public record EmpresaConFallo(int ClienteId, string RazonSocial);
+
     /// <summary>
     /// Pasada única para después de desplegar la retención por baja: una empresa que ya estaba inactiva
     /// antes de esa regla nunca pasó por GuardarConActivoAsync, así que sus pedidos pendientes siguen
     /// vivos. Retiene los de todas las empresas inactivas, con quien la corre como actor — igual que
     /// una baja común. Se puede repetir: la segunda vez no encuentra nada y responde cero.
+    ///
+    /// Cada empresa se guarda por separado, así que si una falla las anteriores ya quedaron retenidas.
+    /// Esa respuesta no es un 200 — la pasada no terminó — pero tampoco un error mudo: es el mismo
+    /// problem+json de un error inesperado (ManejadorExcepciones), con dos datos más para saber hasta
+    /// dónde llegó: `retenidas` (lo que sí quedó guardado, con la forma de la respuesta normal) y
+    /// `fallo` (la empresa en la que se cortó, que no cambió nada). Se corrige y se vuelve a correr.
     /// </summary>
     [HttpPost("inactivas/retener-pendientes")]
     [Authorize(Policy = "Administracion")]
     public async Task<IActionResult> RetenerPendientesDeInactivas(CancellationToken ct)
     {
-        var retenidas = await retencion.GuardarBajaDeInactivasAsync(User.UsuarioId(), ct);
-        return Ok(new RetencionDeInactivas(retenidas.Count, retenidas.Sum(e => e.Pedidos), retenidas));
+        var pasada = await retencion.GuardarBajaDeInactivasAsync(User.UsuarioId(), ct);
+        var retenidas = new RetencionDeInactivas(
+            pasada.Retenidas.Count, pasada.Retenidas.Sum(e => e.Pedidos), pasada.Retenidas);
+        if (pasada.Fallo is not { } fallo) return Ok(retenidas);
+
+        // El error no sale por ManejadorExcepciones (se respondería sin decir qué se retuvo): se
+        // registra acá, con el mismo código de soporte que va en la respuesta.
+        var traceId = HttpContext.TraceIdentifier;
+        HttpContext.RequestServices?.GetService<ILogger<ClientesController>>()?.LogError(
+            fallo.Error, "La retención de empresas inactivas se cortó en la empresa {ClienteId} (traceId {TraceId})",
+            fallo.ClienteId, traceId);
+
+        var problema = new ProblemDetails
+        {
+            Status = StatusCodes.Status500InternalServerError,
+            Title = "Error inesperado",
+            Detail = $"La pasada se cortó en la empresa #{fallo.ClienteId} ({fallo.RazonSocial}): a esa no se le retuvo nada. " +
+                     $"Antes quedaron retenidas {retenidas.Empresas} empresas ({retenidas.Pedidos} pedidos). " +
+                     $"Volvé a correrla para seguir desde ahí; si se repite, pasale este código a soporte: {traceId}",
+        };
+        problema.Extensions["traceId"] = traceId;
+        problema.Extensions["retenidas"] = retenidas;
+        problema.Extensions["fallo"] = new EmpresaConFallo(fallo.ClienteId, fallo.RazonSocial);
+        return new ObjectResult(problema) { StatusCode = problema.Status };
     }
 
     /// <summary>Guarda al cliente ya modificado. Los dos caminos que escriben Cliente.Activo pasan por

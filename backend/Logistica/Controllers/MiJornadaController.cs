@@ -63,6 +63,18 @@ public class MiJornadaController(
         bool Discrepancia, bool Duplicado);
 
     /// <summary>
+    /// Los bultos que el repartidor se lleva del depósito en la ruta: la suma de los de sus pedidos. Un
+    /// cancelado o un retenido conserva su fila en la parada pero no sale del depósito: no se cuenta.
+    /// Una sola cuenta para los dos lugares que la usan, que tienen que coincidir: el número que el
+    /// repartidor ve antes de firmar (MisParadasController.Dia) y contra el que se firma (Retiro).
+    /// </summary>
+    public static async Task<int> BultosPorRetirarAsync(LogisticaDbContext db, long rutaId, CancellationToken ct) =>
+        await db.ParadaPedidos
+            .Where(pp => pp.Parada.RutaId == rutaId
+                && pp.Pedido.Estado != EstadoPedido.Cancelado && pp.Pedido.Estado != EstadoPedido.Retenido)
+            .SumAsync(pp => (int?)pp.Pedido.Bultos, ct) ?? 0;
+
+    /// <summary>
     /// RF-35 / acta §7: "ninguna ruta sale sin conteo firmado". Sin esto, MisParadasController
     /// rechaza registrar llegada y cerrar parada.
     /// </summary>
@@ -101,13 +113,8 @@ public class MiJornadaController(
 
         // Los bultos esperados los cuenta el SERVIDOR, nunca llegan del cliente: son la lista
         // contra la que se firma. Se congelan en la fila para que un cambio posterior en los
-        // pedidos no reescriba retroactivamente contra qué se contó. Un cancelado o un retenido
-        // conserva su fila en la parada pero no sale del depósito: no se cuenta (misma cuenta que
-        // MisParadasController.Dia, que es el número que el repartidor ve antes de firmar).
-        var bultosEsperados = await db.ParadaPedidos
-            .Where(pp => pp.Parada.RutaId == ruta.Id
-                && pp.Pedido.Estado != EstadoPedido.Cancelado && pp.Pedido.Estado != EstadoPedido.Retenido)
-            .SumAsync(pp => (int?)pp.Pedido.Bultos, ct) ?? 0;
+        // pedidos no reescriba retroactivamente contra qué se contó.
+        var bultosEsperados = await BultosPorRetirarAsync(db, ruta.Id, ct);
 
         var discrepancia = req.BultosContados != bultosEsperados;
         if (discrepancia && string.IsNullOrWhiteSpace(req.Observaciones))

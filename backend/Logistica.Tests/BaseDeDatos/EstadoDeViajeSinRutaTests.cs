@@ -132,9 +132,9 @@ public class EstadoDeViajeSinRutaTests(BaseDePrueba baseDatos)
         var portal = (await servicio.DetalleAsync(viaje.Id, viaje.ClienteId, conPrecios: false, CancellationToken.None))!.Estado;
         var listaPortal = (await servicio.ListarAsync(viaje.ClienteId, null, null, CancellationToken.None))
             .Items.Single(v => v.Id == viaje.Id).Estado;
-        // El listado del back-office trae los viajes de todos los clientes: página grande para que entre.
-        var listaBackOffice = (await servicio.ListarAsync(null, 1, 200, CancellationToken.None))
-            .Items.SingleOrDefault(v => v.Id == viaje.Id)?.Estado ?? listaPortal;
+        // El listado del back-office trae los viajes de todos los clientes: se busca hasta dar con él,
+        // y si no está la prueba falla (nunca se da por bueno con el valor del portal).
+        var listaBackOffice = (await EnListaDelBackOfficeAsync(servicio, viaje)).Estado;
 
         Assert.Equal(backOffice, portal);
         Assert.Equal(backOffice, listaPortal);

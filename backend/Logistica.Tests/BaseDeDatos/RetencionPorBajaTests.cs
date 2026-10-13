@@ -4,9 +4,11 @@ using Logistica.Datos;
 using Logistica.Entidades;
 using Logistica.Opciones;
 using Logistica.Servicios;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Options;
 
 namespace Logistica.Tests.BaseDeDatos;
@@ -315,6 +317,97 @@ public class RetencionPorBajaTests(BaseDePrueba baseDatos)
         Assert.Equal(2, await db.PedidoEventos.CountAsync(e => e.PedidoId == pedido.Id));
     }
 
+    [Fact]
+    public async Task La_empresa_reactivada_antes_de_su_turno_en_la_pasada_no_se_retiene()
+    {
+        var actor = await baseDatos.UsuarioAsync();
+        // Estaba inactiva cuando la pasada armó su lista y la reactivaron antes de que le tocara.
+        var reactivada = await baseDatos.ClienteAsync();
+        var vivo = await PedidoDeAsync(reactivada.Id, EstadoPedido.Confirmado);
+        var inactiva = await ClienteInactivoDeAntesAsync();
+        var pendiente = await PedidoDeAsync(inactiva.Id, EstadoPedido.Confirmado);
+
+        await using (var db = baseDatos.CrearContexto())
+            Assert.Null(await new RetencionPedidosService(db).GuardarBajaSiSigueInactivaAsync(reactivada.Id, actor.Id, CancellationToken.None));
+        await using (var db = baseDatos.CrearContexto())
+            Assert.Equal(1, await new RetencionPedidosService(db).GuardarBajaSiSigueInactivaAsync(inactiva.Id, actor.Id, CancellationToken.None));
+
+        Assert.Equal(EstadoPedido.Confirmado, await EstadoAsync(vivo.Id));
+        Assert.Equal(EstadoPedido.Retenido, await EstadoAsync(pendiente.Id));
+        await using var lectura = baseDatos.CrearContexto();
+        Assert.Equal(1, await lectura.PedidoEventos.CountAsync(e => e.PedidoId == vivo.Id)); // solo el alta
+        Assert.True((await lectura.Clientes.AsNoTracking().SingleAsync(c => c.Id == reactivada.Id)).Activo);
+    }
+
+    /// <summary>Hace fallar el guardado que lleve algún pedido de la empresa `clienteId`.</summary>
+    private sealed class FallaAlGuardar(int clienteId) : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData datos, InterceptionResult<int> resultado, CancellationToken ct = default)
+        {
+            if (datos.Context!.ChangeTracker.Entries<Pedido>().Any(e => e.Entity.ClienteId == clienteId))
+                throw new InvalidOperationException("Falla provocada por la prueba.");
+            return base.SavingChangesAsync(datos, resultado, ct);
+        }
+    }
+
+    [Fact]
+    public async Task Si_una_empresa_falla_la_pasada_responde_cuales_ya_retuvo_y_cual_fallo_y_al_repetirla_sigue_desde_ahi()
+    {
+        var actor = await baseDatos.UsuarioAsync();
+        // La pasada va por id: la primera queda retenida, la segunda falla y a la tercera no llega.
+        var primera = await ClienteInactivoDeAntesAsync();
+        var deLaPrimera = await PedidoDeAsync(primera.Id, EstadoPedido.Confirmado);
+        var conFalla = await ClienteInactivoDeAntesAsync();
+        var deLaQueFalla = await PedidoDeAsync(conFalla.Id, EstadoPedido.Confirmado);
+        var ultima = await ClienteInactivoDeAntesAsync();
+        var deLaUltima = await PedidoDeAsync(ultima.Id, EstadoPedido.Confirmado);
+
+        ObjectResult respuesta;
+        await using (var db = baseDatos.CrearContexto(new FallaAlGuardar(conFalla.Id)))
+            respuesta = Assert.IsType<ObjectResult>(await Clientes(db, actor.Id).RetenerPendientesDeInactivas(CancellationToken.None));
+
+        // No es un 200: la pasada no terminó. Pero la respuesta dice hasta dónde llegó.
+        Assert.Equal(StatusCodes.Status500InternalServerError, respuesta.StatusCode);
+        var problema = Assert.IsType<ProblemDetails>(respuesta.Value);
+        Assert.Contains(conFalla.RazonSocial, problema.Detail);
+        var retenidas = Assert.IsType<ClientesController.RetencionDeInactivas>(problema.Extensions["retenidas"]);
+        Assert.Contains(retenidas.Detalle, e => e.ClienteId == primera.Id && e.Pedidos == 1);
+        Assert.DoesNotContain(retenidas.Detalle, e => e.ClienteId == conFalla.Id || e.ClienteId == ultima.Id);
+        Assert.Equal(retenidas.Detalle.Count, retenidas.Empresas);
+        Assert.Equal(retenidas.Detalle.Sum(e => e.Pedidos), retenidas.Pedidos);
+        var fallo = Assert.IsType<ClientesController.EmpresaConFallo>(problema.Extensions["fallo"]);
+        Assert.Equal(conFalla.Id, fallo.ClienteId);
+        Assert.Equal(conFalla.RazonSocial, fallo.RazonSocial);
+
+        // Las anteriores quedaron completas, la que falló no cambió nada y la pasada se cortó ahí.
+        Assert.Equal(EstadoPedido.Retenido, await EstadoAsync(deLaPrimera.Id));
+        Assert.Equal(EstadoPedido.Confirmado, await EstadoAsync(deLaQueFalla.Id));
+        Assert.Equal(EstadoPedido.Confirmado, await EstadoAsync(deLaUltima.Id));
+        await using (var db = baseDatos.CrearContexto())
+            Assert.Equal(1, await db.PedidoEventos.CountAsync(e => e.PedidoId == deLaQueFalla.Id)); // solo el alta
+
+        // Se vuelve a correr y sigue desde la que había fallado; la primera no se toca otra vez.
+        var segunda = await RetenerPendientesDeInactivasAsync(actor.Id);
+        Assert.DoesNotContain(segunda.Detalle, e => e.ClienteId == primera.Id);
+        Assert.Contains(segunda.Detalle, e => e.ClienteId == conFalla.Id && e.Pedidos == 1);
+        Assert.Contains(segunda.Detalle, e => e.ClienteId == ultima.Id && e.Pedidos == 1);
+        Assert.Equal(EstadoPedido.Retenido, await EstadoAsync(deLaQueFalla.Id));
+        Assert.Equal(EstadoPedido.Retenido, await EstadoAsync(deLaUltima.Id));
+    }
+
+    [Fact]
+    public void La_pasada_sobre_las_inactivas_es_solo_de_administracion()
+    {
+        var accion = typeof(ClientesController).GetMethod(nameof(ClientesController.RetenerPendientesDeInactivas))!;
+
+        // La clase no lleva [Authorize] propio (cada acción declara su política): la de esta es la única que aplica.
+        Assert.Empty(typeof(ClientesController).GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true));
+        var autorizacion = Assert.Single(accion.GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true).Cast<AuthorizeAttribute>());
+        Assert.Equal("Administracion", autorizacion.Policy);
+        Assert.Empty(accion.GetCustomAttributes(typeof(AllowAnonymousAttribute), inherit: true));
+    }
+
     // ---- Sin cargo ----
 
     [Fact]
@@ -499,6 +592,9 @@ public class RetencionPorBajaTests(BaseDePrueba baseDatos)
 
         byte[] firma = [0xFF, 0xD8, 0xFF, 0xE0, 0x00];
         await using var db = baseDatos.CrearContexto();
+        // El número que el repartidor ve antes de firmar (MisParadasController.Dia) sale de esta misma
+        // cuenta: tiene que ser el que después congela el retiro.
+        Assert.Equal(vivo.Bultos, await MiJornadaController.BultosPorRetirarAsync(db, ruta.Id, CancellationToken.None));
         var respuesta = Assert.IsType<OkObjectResult>(
             await new MiJornadaController(db, new SinFotos(), OpcionesDePrueba)
                 .ComoUsuario(repartidor.Id)

@@ -153,12 +153,9 @@ public class MisParadasController(
         // Una query más, solo mientras el retiro no está firmado: es el número que la pantalla de
         // retiro pone arriba para contra qué contar. Una vez firmado sale de la fila, porque lo
         // que importa desde ahí es contra qué se contó, no cuántos bultos tiene la ruta ahora.
-        // Sin los cancelados ni los retenidos: misma cuenta que congela MiJornadaController.Retiro.
+        // Sin los cancelados ni los retenidos: la misma cuenta que congela MiJornadaController.Retiro.
         var bultosEsperados = ruta.RetiroBultosEsperados
-            ?? await db.ParadaPedidos
-                .Where(pp => pp.Parada.RutaId == ruta.Id
-                    && pp.Pedido.Estado != EstadoPedido.Cancelado && pp.Pedido.Estado != EstadoPedido.Retenido)
-                .SumAsync(pp => (int?)pp.Pedido.Bultos, ct) ?? 0;
+            ?? await MiJornadaController.BultosPorRetirarAsync(db, ruta.Id, ct);
 
         var novedades = await db.Novedades.AsNoTracking()
             // Sin acusar, o lo que él informó y sigue abierto. Un aviso de operación ya acusado sale del

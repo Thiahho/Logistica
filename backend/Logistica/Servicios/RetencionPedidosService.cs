@@ -8,6 +8,13 @@ namespace Logistica.Servicios;
 /// <summary>Una empresa inactiva y cuántos de sus pedidos pendientes quedaron retenidos en la pasada.</summary>
 public record EmpresaRetenida(int ClienteId, string RazonSocial, int Pedidos);
 
+/// <summary>La empresa en la que se cortó la pasada, y con qué error: a esa no se le retuvo nada.</summary>
+public record FalloDeRetencion(int ClienteId, string RazonSocial, Exception Error);
+
+/// <summary>Hasta dónde llegó la pasada sobre las empresas inactivas: las que quedaron retenidas (y
+/// guardadas) y, si se cortó, en cuál. `Fallo` null = recorrió todas.</summary>
+public record PasadaDeRetencion(List<EmpresaRetenida> Retenidas, FalloDeRetencion? Fallo);
+
 /// <summary>
 /// Baja de una empresa por falta de pago: el servicio se corta de verdad. Sus pedidos pendientes
 /// (TransicionesPedido.Retenibles) pasan a Retenido y dejan de estar en una ruta o por entregar; lo ya
@@ -45,6 +52,18 @@ public class RetencionPedidosService(LogisticaDbContext db)
     /// </summary>
     public async Task<int> GuardarBajaAsync(int clienteId, Guid actorId, CancellationToken ct)
     {
+        var retenidos = await RetenerPendientesAsync(clienteId, actorId, ct);
+
+        // GuardarComoAsync (regla 7): cambia Pedido.Estado, fn_log_estado_pedido tiene que registrar
+        // quién dio la baja y por qué quedó retenido cada pedido.
+        await db.GuardarComoAsync(actorId, MotivoBaja, ct);
+        return retenidos;
+    }
+
+    /// <summary>Deja en el contexto la retención de los pedidos pendientes de la empresa — estados, filas
+    /// de parada, avisos — sin guardar: lo hace quien llama, en su transacción. Devuelve cuántos son.</summary>
+    private async Task<int> RetenerPendientesAsync(int clienteId, Guid actorId, CancellationToken ct)
+    {
         var pedidos = await db.Pedidos
             .Where(p => p.ClienteId == clienteId && TransicionesPedido.Retenibles.Contains(p.Estado))
             .ToListAsync(ct);
@@ -68,21 +87,49 @@ public class RetencionPedidosService(LogisticaDbContext db)
             pedidos.ToDictionary(p => p.Id), actorId, ct);
 
         foreach (var pedido in pedidos) pedido.Estado = EstadoPedido.Retenido;
-
-        // GuardarComoAsync (regla 7): cambia Pedido.Estado, fn_log_estado_pedido tiene que registrar
-        // quién dio la baja y por qué quedó retenido cada pedido.
-        await db.GuardarComoAsync(actorId, MotivoBaja, ct);
         return pedidos.Count;
     }
 
     /// <summary>
+    /// La retención de una empresa de la pasada (GuardarBajaDeInactivasAsync), en su propia transacción
+    /// y solo si la empresa sigue inactiva: entre que la pasada arma su lista y le llega el turno, la
+    /// pudieron reactivar, y una empresa activa no se retiene. La fila de la empresa queda tomada
+    /// (`for update`) hasta el commit, así que una reactivación que llegue a la vez espera y encuentra
+    /// la retención ya hecha — el mismo resultado que reactivarla después. Devuelve cuántos pedidos
+    /// retuvo, o null si la salteó porque ya no está inactiva (o no existe).
+    /// </summary>
+    public async Task<int?> GuardarBajaSiSigueInactivaAsync(int clienteId, Guid actorId, CancellationToken ct)
+    {
+        var estrategia = db.Database.CreateExecutionStrategy();
+        return await estrategia.ExecuteAsync(async () =>
+        {
+            // Todo dentro del delegate, como GuardarComoAsync: si la estrategia reintenta, parte de cero.
+            db.ChangeTracker.Clear();
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+            var activa = await db.Database
+                .SqlQuery<bool>($"select activo from clientes where id = {clienteId} for update")
+                .ToListAsync(ct);
+            if (activa is not [false]) return (int?)null;
+
+            await db.PublicarActorAsync(actorId, MotivoBaja, ct);
+            var retenidos = await RetenerPendientesAsync(clienteId, actorId, ct);
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+            return retenidos;
+        });
+    }
+
+    /// <summary>
     /// La misma retención para todas las empresas que ya están inactivas: recoge lo que quedó pendiente
-    /// de las bajas anteriores a esta regla. Cada empresa va en su propia transacción (GuardarBajaAsync),
-    /// así ninguna queda a medio retener: si una falla, las anteriores ya quedaron completas, esa no
-    /// cambia nada y el error corta la pasada — se vuelve a correr y sigue desde ahí. Devuelve solo las
+    /// de las bajas anteriores a esta regla. Cada empresa va en su propia transacción
+    /// (GuardarBajaSiSigueInactivaAsync), así ninguna queda a medio retener, y la que se reactivó
+    /// mientras tanto se saltea. Si una falla, las anteriores ya quedaron completas, esa no cambia nada
+    /// y la pasada se corta ahí: el resultado dice cuáles se retuvieron y cuál falló, para que quien la
+    /// corre sepa hasta dónde llegó — se vuelve a correr y sigue desde ahí. `Retenidas` trae solo las
     /// empresas a las que les retuvo algún pedido.
     /// </summary>
-    public async Task<List<EmpresaRetenida>> GuardarBajaDeInactivasAsync(Guid actorId, CancellationToken ct)
+    public async Task<PasadaDeRetencion> GuardarBajaDeInactivasAsync(Guid actorId, CancellationToken ct)
     {
         var inactivas = await db.Clientes.AsNoTracking()
             .Where(c => !c.Activo)
@@ -93,13 +140,23 @@ public class RetencionPedidosService(LogisticaDbContext db)
         var retenidas = new List<EmpresaRetenida>();
         foreach (var empresa in inactivas)
         {
-            var pedidos = await GuardarBajaAsync(empresa.Id, actorId, ct);
+            try
+            {
+                var pedidos = await GuardarBajaSiSigueInactivaAsync(empresa.Id, actorId, ct);
+                if (pedidos > 0) retenidas.Add(new EmpresaRetenida(empresa.Id, empresa.RazonSocial, pedidos.Value));
+            }
+            // Una cancelación del request no es un fallo de esta empresa: sigue su curso.
+            catch (Exception error) when (error is not OperationCanceledException)
+            {
+                // Su transacción se deshizo entera; lo que quedó a medio armar en el contexto se suelta.
+                db.ChangeTracker.Clear();
+                return new PasadaDeRetencion(retenidas, new FalloDeRetencion(empresa.Id, empresa.RazonSocial, error));
+            }
             // Lo de esta empresa ya está guardado: se suelta para que la siguiente arranque limpia y su
             // transacción lleve solo lo suyo.
             db.ChangeTracker.Clear();
-            if (pedidos > 0) retenidas.Add(new EmpresaRetenida(empresa.Id, empresa.RazonSocial, pedidos));
         }
-        return retenidas;
+        return new PasadaDeRetencion(retenidas, null);
     }
 
     /// <summary>Elimina la ruta propuesta, todavía en planificación, de cada viaje activo de la empresa
