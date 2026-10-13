@@ -1,6 +1,7 @@
 using Logistica.Auth;
 using Logistica.Controllers;
 using Logistica.Datos;
+using Logistica.Dominio;
 using Logistica.Entidades;
 using Logistica.Opciones;
 using Logistica.Servicios;
@@ -20,7 +21,10 @@ namespace Logistica.Tests.BaseDeDatos;
 public class ReanudacionDeRetenidosTests(BaseDePrueba baseDatos)
 {
     private static readonly DateOnly Dia = new(2026, 10, 5); // la fecha de BaseDePrueba.RutaAsync
-    private static readonly DateOnly NuevaFecha = new(2026, 10, 20);
+    // Las fechas con que se reanuda salen del reloj del proyecto: reanudar exige hoy o más adelante, y una
+    // fecha fija de calendario dejaría de servir con el paso de los días. `Dia` ya pasó, y es a propósito.
+    private static DateOnly Hoy => Reloj.HoyLocal();
+    private static DateOnly NuevaFecha => Hoy.AddDays(7);
 
     private static readonly IOptions<OpcionesPruebaEntrega> OpcionesDePrueba =
         Options.Create(new OpcionesPruebaEntrega { RaizFotos = "no-se-usa", MotivosFallo = ["ausente"] });
@@ -41,7 +45,7 @@ public class ReanudacionDeRetenidosTests(BaseDePrueba baseDatos)
                 Options.Create(new OpcionesPortal()), null!, new RetencionPedidosService(db))
             .ComoUsuario(usuarioId);
 
-    private async Task<Pedido> PedidoDeAsync(int clienteId, EstadoPedido estado, long? destinoId = null)
+    private async Task<Pedido> PedidoDeAsync(int clienteId, EstadoPedido estado, long? destinoId = null, DateOnly? fechaEntrega = null)
     {
         var origen = await baseDatos.UbicacionAsync();
         destinoId ??= (await baseDatos.UbicacionAsync()).Id;
@@ -54,7 +58,7 @@ public class ReanudacionDeRetenidosTests(BaseDePrueba baseDatos)
             DestinoUbicacionId = destinoId.Value,
             DestinatarioNombre = "Destinatario",
             DestinatarioTelefono = "1150000000",
-            FechaEntrega = Dia,
+            FechaEntrega = fechaEntrega ?? Dia,
             Estado = estado,
         };
         if (estado != EstadoPedido.Borrador)
@@ -77,10 +81,10 @@ public class ReanudacionDeRetenidosTests(BaseDePrueba baseDatos)
 
     /// <summary>Un pedido que estaba en `estado` y quedó Retenido por la baja de su empresa, que sigue
     /// inactiva salvo que se pida reactivarla.</summary>
-    private async Task<Pedido> RetenidoAsync(Guid actor, EstadoPedido estado, bool reactivar = true)
+    private async Task<Pedido> RetenidoAsync(Guid actor, EstadoPedido estado, bool reactivar = true, DateOnly? fechaEntrega = null)
     {
         var cliente = await baseDatos.ClienteAsync();
-        var pedido = await PedidoDeAsync(cliente.Id, estado);
+        var pedido = await PedidoDeAsync(cliente.Id, estado, fechaEntrega: fechaEntrega);
         await CambiarActivoAsync(cliente.Id, actor, activo: false);
         if (reactivar) await CambiarActivoAsync(cliente.Id, actor, activo: true);
         return pedido;
@@ -182,15 +186,100 @@ public class ReanudacionDeRetenidosTests(BaseDePrueba baseDatos)
         Assert.Contains(candidatos, c => c.PedidoId == pedido.Id);
     }
 
-    [Fact]
-    public async Task Volver_a_borrador_sin_fecha_conserva_la_que_tenia()
+    [Theory]
+    [InlineData(0)] // hoy todavía se puede entregar
+    [InlineData(3)]
+    public async Task Volver_a_borrador_sin_fecha_conserva_la_que_tenia_si_todavia_no_paso(int diasDesdeHoy)
     {
         var actor = await baseDatos.UsuarioAsync();
-        var pedido = await RetenidoAsync(actor.Id, EstadoPedido.Borrador);
+        var fecha = Hoy.AddDays(diasDesdeHoy);
+        var pedido = await RetenidoAsync(actor.Id, EstadoPedido.Borrador, fechaEntrega: fecha);
 
         Assert.IsType<NoContentResult>(await CambiarEstadoAsync(pedido.Id, actor.Id, "Borrador"));
 
-        Assert.Equal(Dia, (await LeerAsync(pedido.Id)).FechaEntrega);
+        var guardado = await LeerAsync(pedido.Id);
+        Assert.Equal(EstadoPedido.Borrador, guardado.Estado);
+        Assert.Equal(fecha, guardado.FechaEntrega);
+    }
+
+    [Fact]
+    public async Task Volver_a_borrador_sin_fecha_se_rechaza_si_la_que_tenia_ya_paso()
+    {
+        var actor = await baseDatos.UsuarioAsync();
+        var ayer = Hoy.AddDays(-1);
+        var pedido = await RetenidoAsync(actor.Id, EstadoPedido.Borrador, fechaEntrega: ayer);
+
+        var respuesta = Assert.IsType<BadRequestObjectResult>(await CambiarEstadoAsync(pedido.Id, actor.Id, "Borrador"));
+
+        Assert.Contains("nueva fecha de entrega", Assert.IsType<string>(respuesta.Value));
+        var guardado = await LeerAsync(pedido.Id);
+        Assert.Equal(EstadoPedido.Retenido, guardado.Estado);
+        Assert.Equal(ayer, guardado.FechaEntrega);
+
+        // Con una fecha nueva sí vuelve.
+        Assert.IsType<NoContentResult>(await CambiarEstadoAsync(pedido.Id, actor.Id, "Borrador", Hoy));
+        Assert.Equal(Hoy, (await LeerAsync(pedido.Id)).FechaEntrega);
+    }
+
+    // Lo que se reanuda vuelve a estar pendiente: su fecha de entrega no puede haber pasado ya.
+    [Theory]
+    [InlineData(EstadoPedido.EnRuta, "Reprogramado")]
+    [InlineData(EstadoPedido.Borrador, "Borrador")]
+    public async Task No_se_reanuda_con_una_fecha_de_entrega_que_ya_paso(EstadoPedido estado, string destino)
+    {
+        var actor = await baseDatos.UsuarioAsync();
+        // La fecha que tenía todavía sirve: lo que se rechaza es la nueva.
+        var fecha = Hoy.AddDays(2);
+        var pedido = await RetenidoAsync(actor.Id, estado, fechaEntrega: fecha);
+
+        var respuesta = Assert.IsType<BadRequestObjectResult>(
+            await CambiarEstadoAsync(pedido.Id, actor.Id, destino, Hoy.AddDays(-1)));
+
+        Assert.Contains("anterior a hoy", Assert.IsType<string>(respuesta.Value));
+        var guardado = await LeerAsync(pedido.Id);
+        Assert.Equal(EstadoPedido.Retenido, guardado.Estado);
+        Assert.Equal(fecha, guardado.FechaEntrega);
+
+        // Para hoy mismo sí.
+        Assert.IsType<NoContentResult>(await CambiarEstadoAsync(pedido.Id, actor.Id, destino, Hoy));
+        Assert.Equal(Hoy, (await LeerAsync(pedido.Id)).FechaEntrega);
+    }
+
+    // La regla es de la reanudación: reprogramar un fallido sigue como estaba.
+    [Fact]
+    public async Task Reprogramar_un_fallido_no_valida_la_fecha_contra_hoy()
+    {
+        var actor = await baseDatos.UsuarioAsync();
+        var cliente = await baseDatos.ClienteAsync();
+        var pedido = await PedidoDeAsync(cliente.Id, EstadoPedido.Fallido);
+        var ayer = Hoy.AddDays(-1);
+
+        Assert.IsType<NoContentResult>(await CambiarEstadoAsync(pedido.Id, actor.Id, "Reprogramado", ayer));
+
+        var guardado = await LeerAsync(pedido.Id);
+        Assert.Equal(EstadoPedido.Reprogramado, guardado.Estado);
+        Assert.Equal(ayer, guardado.FechaEntrega);
+    }
+
+    // ---- Lo que el detalle le dice al back-office ----
+
+    [Fact]
+    public async Task El_detalle_dice_si_la_empresa_del_pedido_esta_activa()
+    {
+        var actor = await baseDatos.UsuarioAsync();
+        var cliente = await baseDatos.ClienteAsync();
+        var retenido = await PedidoDeAsync(cliente.Id, EstadoPedido.EnRuta);
+        var fallido = await PedidoDeAsync(cliente.Id, EstadoPedido.Fallido);
+        Assert.True((await DetalleAsync(fallido.Id, actor.Id)).EmpresaActiva);
+
+        // Dada de baja: ni se reanuda el retenido ni se reprograma el fallido, y el detalle lo avisa.
+        await CambiarActivoAsync(cliente.Id, actor.Id, activo: false);
+        Assert.False((await DetalleAsync(retenido.Id, actor.Id)).EmpresaActiva);
+        Assert.False((await DetalleAsync(fallido.Id, actor.Id)).EmpresaActiva);
+
+        await CambiarActivoAsync(cliente.Id, actor.Id, activo: true);
+        Assert.True((await DetalleAsync(retenido.Id, actor.Id)).EmpresaActiva);
+        Assert.True((await DetalleAsync(fallido.Id, actor.Id)).EmpresaActiva);
     }
 
     [Theory]

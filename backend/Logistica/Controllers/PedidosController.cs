@@ -114,7 +114,10 @@ public class PedidosController(
         long? ViajeId = null, int? OrdenEnViaje = null,
         // Solo en un Retenido: a qué estado lo reanuda operación ("Reprogramado" si ya tenía precio
         // congelado, "Borrador" si nunca se confirmó). Ver TransicionesPedido.ReanudaEn.
-        string? ReanudaEn = null);
+        string? ReanudaEn = null,
+        // false = la empresa del pedido está dada de baja por falta de pago: CambiarEstado no lo deja
+        // volver a un estado pendiente (reanudar un retenido, reprogramar un fallido) hasta que se reactive.
+        bool EmpresaActiva = true);
 
     public record CambiarEstadoRequest(string EstadoNuevo, string? Motivo, DateOnly? NuevaFechaEntrega);
 
@@ -660,6 +663,7 @@ public class PedidosController(
                 p.ViajeId,
                 p.OrdenEnViaje,
                 ZonaTieneTarifa =p.ZonaId != null && db.Tarifas.Any(t => t.ZonaId == p.ZonaId && t.VigenteHasta == null),
+                EmpresaActiva = p.Cliente.Activo,
             })
             .SingleOrDefaultAsync(ct);
         if (fila is null) return NotFound();
@@ -734,7 +738,7 @@ public class PedidosController(
             fila.Estado.ToString(), fila.OrigenCarga, fila.Observaciones, fila.CreadoEn,
             fila.DireccionDudosa, RequiereCotizacion: fila.PrecioManual is null && !fila.ZonaTieneTarifa,
             precioManualInfo, vecesReprogramado, facturado, historial, fila.DescuentoRango,
-            fila.CargadoPorNombre, fila.ViajeId, fila.OrdenEnViaje, reanudaEn);
+            fila.CargadoPorNombre, fila.ViajeId, fila.OrdenEnViaje, reanudaEn, fila.EmpresaActiva);
 
         // Montos de envío: el personal interno siempre; un cliente, según Portal:MostrarPrecios (acta 4.30).
         if (!User.VePreciosDeEnvio(opcionesPortal.Value.MostrarPrecios))
@@ -884,6 +888,16 @@ public class PedidosController(
                 return Conflict(destino == EstadoPedido.Borrador
                     ? "Este pedido nunca se confirmó: se reanuda como borrador, no como reprogramado."
                     : "Este pedido ya tenía precio congelado: se reanuda como reprogramado, con una nueva fecha de entrega.");
+
+            // Lo que se reanuda vuelve a estar pendiente de entrega: la fecha con que queda es hoy o más
+            // adelante. Como reprogramado la nueva es obligatoria (más abajo); como borrador puede
+            // conservar la que tenía, salvo que ya haya pasado. Solo al reanudar: reprogramar un fallido
+            // no pasa por acá.
+            var hoy = Reloj.HoyLocal();
+            if (req.NuevaFechaEntrega < hoy)
+                return BadRequest("La nueva fecha de entrega no puede ser anterior a hoy.");
+            if (nuevo == EstadoPedido.Borrador && req.NuevaFechaEntrega is null && pedido.FechaEntrega < hoy)
+                return BadRequest("La fecha de entrega que tenía este pedido ya pasó: indicá una nueva fecha de entrega.");
 
             // Vuelve a Borrador con la fecha que tenía, salvo que operación le ponga una nueva.
             if (nuevo == EstadoPedido.Borrador && req.NuevaFechaEntrega is { } fechaBorrador)

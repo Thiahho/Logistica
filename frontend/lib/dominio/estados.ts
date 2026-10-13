@@ -36,6 +36,15 @@ export function transicionesDisponibles(estado: EstadoPedido, reanudaEn?: Estado
   return [reanudaEn ?? "Reprogramado", "Devuelto"];
 }
 
+// Espejo de TransicionesPedido.Retenibles: los estados en que un pedido está pendiente de entrega.
+const PENDIENTES = new Set<EstadoPedido>(["Borrador", "Confirmado", "EnRuta", "Reprogramado"]);
+
+/** Con la empresa dada de baja por falta de pago, ningún pedido suyo vuelve a un estado pendiente
+ * (reanudar un retenido, reprogramar un fallido): PedidosController.CambiarEstado responde 409. */
+export function requiereEmpresaActiva(estadoNuevo: EstadoPedido): boolean {
+  return PENDIENTES.has(estadoNuevo);
+}
+
 export function motivoObligatorio(estadoNuevo: EstadoPedido): boolean {
   return CON_MOTIVO_OBLIGATORIO.has(estadoNuevo);
 }

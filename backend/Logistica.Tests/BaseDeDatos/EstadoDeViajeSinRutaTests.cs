@@ -2,6 +2,7 @@ using System.Data.Common;
 using Logistica.Auth;
 using Logistica.Controllers;
 using Logistica.Datos;
+using Logistica.Dominio;
 using Logistica.Entidades;
 using Logistica.Opciones;
 using Logistica.Servicios;
@@ -112,7 +113,7 @@ public class EstadoDeViajeSinRutaTests(BaseDePrueba baseDatos)
     {
         await using var db = baseDatos.CrearContexto();
         Assert.IsType<NoContentResult>(await Pedidos(db, actor).CambiarEstado(
-            pedidoId, new PedidosController.CambiarEstadoRequest("Borrador", "La empresa pagó.", null), CancellationToken.None));
+            pedidoId, new PedidosController.CambiarEstadoRequest("Borrador", "La empresa pagó.", Reloj.HoyLocal().AddDays(7)), CancellationToken.None));
     }
 
     private async Task<ViajeDetalle> DetalleAsync(Viaje viaje)

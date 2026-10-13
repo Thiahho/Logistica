@@ -145,6 +145,9 @@ export interface PedidoDetalle {
   /** Solo en un Retenido: a qué estado lo reanuda operación ("Reprogramado" si ya tenía precio
    * congelado, "Borrador" si nunca se confirmó). El backend rechaza cualquier otro. */
   reanudaEn: "Reprogramado" | "Borrador" | null;
+  /** false = la empresa del pedido está dada de baja por falta de pago: el backend no deja que el pedido
+   * vuelva a un estado pendiente (reanudar un retenido, reprogramar un fallido) hasta que se reactive. */
+  empresaActiva: boolean;
 }
 
 /** Quién fijó el precio manual y cuándo (B9, Anexo I §4) — criterio subjetivo que afecta precio,

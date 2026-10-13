@@ -67,7 +67,9 @@ function armarPasos(eventos: EventoLinea[], estadoActual: EstadoPedido): Paso[] 
       alcanzado: true,
       actual: true,
       ocurridoEn: evento?.ocurridoEn ?? null,
-      motivo: evento?.motivo ?? null,
+      // El motivo de una retención es texto interno de operación ("Retenido: la empresa fue dada de
+      // baja…"): al cliente ya se lo dice la etiqueta del paso, con sus palabras.
+      motivo: estadoActual === "Retenido" ? null : (evento?.motivo ?? null),
     });
   }
   return pasos;

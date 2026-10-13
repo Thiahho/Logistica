@@ -14,9 +14,15 @@ import {
   type PedidoDetalle,
   type ReintentoCreado,
 } from "@/lib/dominio/tipos";
-import { etiquetaTransicion, motivoObligatorio, transicionesDisponibles } from "@/lib/dominio/estados";
+import { etiquetaTransicion, motivoObligatorio, requiereEmpresaActiva, transicionesDisponibles } from "@/lib/dominio/estados";
 import { ContactoYNovedadesDePedido } from "@/components/ContactoYNovedadesDePedido";
 import { TarjetaPruebaEntrega } from "@/components/TarjetaPruebaEntrega";
+
+/** Hoy en el huso del navegador, como yyyy-mm-dd: el mínimo de la fecha con que se reanuda un retenido. */
+function hoyLocal(): string {
+  const ahora = new Date();
+  return new Date(ahora.getTime() - ahora.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
 
 interface PedidoDetalleContenidoProps {
   pedidoId: number;
@@ -119,6 +125,18 @@ export function PedidoDetalleContenido({ pedidoId, onCambio, onAbrirPedidoOrigen
       setError("Falta la nueva fecha de entrega.");
       return;
     }
+    // Reanudar un retenido: la fecha con que queda es hoy o más adelante (el backend lo valida igual).
+    if (pedido?.estado === "Retenido" && transicionElegida !== "Devuelto") {
+      const hoy = hoyLocal();
+      if (nuevaFecha && nuevaFecha < hoy) {
+        setError("La nueva fecha de entrega no puede ser anterior a hoy.");
+        return;
+      }
+      if (!nuevaFecha && pedido.fechaEntrega < hoy) {
+        setError("La fecha de entrega que tenía este pedido ya pasó: indicá una nueva fecha de entrega.");
+        return;
+      }
+    }
 
     setEnviando(true);
     setError(null);
@@ -129,7 +147,8 @@ export function PedidoDetalleContenido({ pedidoId, onCambio, onAbrirPedidoOrigen
         body: JSON.stringify({
           estadoNuevo: transicionElegida,
           motivo: motivo || null,
-          // Un Retenido que se reanuda como borrador puede llevar fecha nueva; si no, conserva la que tenía.
+          // Un Retenido que se reanuda como borrador puede llevar fecha nueva; si no, conserva la que
+          // tenía (si todavía no pasó: arriba se exige una nueva cuando ya pasó).
           nuevaFechaEntrega:
             transicionElegida === "Reprogramado" || (pedido?.estado === "Retenido" && transicionElegida === "Borrador")
               ? nuevaFecha || null
@@ -180,8 +199,14 @@ export function PedidoDetalleContenido({ pedidoId, onCambio, onAbrirPedidoOrigen
   }
 
   const transiciones = transicionesDisponibles(pedido.estado, pedido.reanudaEn);
-  // Reanudar un Retenido que nunca se confirmó: vuelve a Borrador y la fecha nueva es opcional.
+  // Reanudar un Retenido que nunca se confirmó: vuelve a Borrador y la fecha nueva es opcional, salvo
+  // que la que tenía ya haya pasado.
   const reanudaComoBorrador = pedido.estado === "Retenido" && transicionElegida === "Borrador";
+  const reanuda = pedido.estado === "Retenido" && transicionElegida !== null && transicionElegida !== "Devuelto";
+  const hoy = hoyLocal();
+  const fechaObligatoria = transicionElegida === "Reprogramado" || (reanudaComoBorrador && pedido.fechaEntrega < hoy);
+  // Con la empresa dada de baja el backend responde 409 a reanudar o reprogramar: no se ofrecen.
+  const frenadaPorBaja = (t: EstadoPedido) => !pedido.empresaActiva && requiereEmpresaActiva(t);
 
   return (
     <div className="flex flex-col gap-6">
@@ -449,12 +474,19 @@ export function PedidoDetalleContenido({ pedidoId, onCambio, onAbrirPedidoOrigen
                   key={t}
                   variant={transicionElegida === t ? "default" : "outline"}
                   size="sm"
+                  disabled={frenadaPorBaja(t)}
                   onClick={() => elegirTransicion(t)}
                 >
                   {etiquetaTransicion(pedido.estado, t)}
                 </Button>
               ))}
             </div>
+            {transiciones.some(frenadaPorBaja) && (
+              <p className="text-sm text-muted-foreground">
+                La empresa está dada de baja por falta de pago: sus pedidos no se reanudan ni se reprograman
+                hasta que se reactive.
+              </p>
+            )}
 
             {transicionElegida && (
               <div className="flex flex-col gap-3 border-t pt-4">
@@ -475,10 +507,18 @@ export function PedidoDetalleContenido({ pedidoId, onCambio, onAbrirPedidoOrigen
                 )}
                 {(transicionElegida === "Reprogramado" || reanudaComoBorrador) && (
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="nueva-fecha">Nueva fecha de entrega{reanudaComoBorrador ? " (opcional)" : ""}</Label>
+                    <Label htmlFor="nueva-fecha">Nueva fecha de entrega{fechaObligatoria ? "" : " (opcional)"}</Label>
+                    {reanudaComoBorrador && fechaObligatoria && (
+                      <p className="text-xs text-muted-foreground">
+                        La fecha que tenía ({pedido.fechaEntrega}) ya pasó: hace falta una nueva.
+                      </p>
+                    )}
                     <Input
                       id="nueva-fecha"
                       type="date"
+                      // Solo al reanudar un retenido: reprogramar un fallido sigue sin mínimo.
+                      min={reanuda ? hoy : undefined}
+                      required={fechaObligatoria}
                       value={nuevaFecha}
                       onChange={(e) => setNuevaFecha(e.target.value)}
                       className="w-40"
