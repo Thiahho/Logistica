@@ -2,6 +2,7 @@ using Logistica.Auth;
 using Logistica.Datos;
 using Logistica.Entidades;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 using Testcontainers.PostgreSql;
 
@@ -66,6 +67,10 @@ public sealed class BaseDePrueba : IAsyncLifetime
     }
 
     public LogisticaDbContext CrearContexto() => new(Opciones(_fuente));
+
+    /// <summary>Un contexto que pasa cada comando por `interceptores`: para contar idas y vueltas a la base.</summary>
+    public LogisticaDbContext CrearContexto(params IInterceptor[] interceptores) =>
+        new(new DbContextOptionsBuilder<LogisticaDbContext>().UseNpgsql(_fuente).AddInterceptors(interceptores).Options);
 
     private NpgsqlDataSource CrearFuente()
     {

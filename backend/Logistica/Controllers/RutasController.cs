@@ -583,26 +583,46 @@ public class RutasController(
             .Where(p => p.PrecioManual != null && p.PrecioManualPor != null && fijadosPorCliente.Contains(p.PrecioManualPor.Value))
             .ToList();
 
+        // Los pedidos se recorren en orden y el primero que falla corta: ninguno posterior a uno sin zona
+        // llega a cotizarse, así que tampoco hace falta pedir su tarifa ni su distancia.
+        var aCotizar = borradores.Except(vinculantes).ToList();
+        // Una ruta solo de reprogramados o de precios vinculantes no cotiza nada.
+        if (aCotizar.Count == 0) return (new Congelamiento([], vinculantes), null);
+        var conZona =aCotizar.TakeWhile(p => p.ZonaId is not null).ToList();
+
+        // Antes era, por cada pedido y en fila, una consulta al proveedor de distancias y hasta cuatro a
+        // la base. Ahora la base se lee una vez para todos y las distancias se piden de a varias; el
+        // precio de cada pedido sale igual, en memoria y en el mismo orden. Primero la base y recién
+        // después el proveedor: un DbContext no admite uso concurrente, así que mientras las distancias
+        // corren en paralelo no se toca.
+        var lote = await precios.PrepararLoteAsync(
+            conZona.Where(p => p.PrecioManual is null).Select(p => new ClaveTarifa(p.ClienteId, p.ZonaId!.Value, p.FechaEntrega)),
+            tipoVehiculo, ct);
+        var distanciasPedidas = await distancias.ResolverLoteAsync(
+            conZona.Select(p => new SolicitudDistancia(
+                p.OrigenUbicacion.Lat, p.OrigenUbicacion.Lng, p.DestinoUbicacion.Lat, p.DestinoUbicacion.Lng,
+                p.KmManual)).ToList(),
+            ct);
+
         var cotizados = new Dictionary<Pedido, DesglosePrecio>();
-        foreach (var pedido in borradores.Except(vinculantes))
+        for (var i = 0; i < conZona.Count; i++)
         {
-            if (pedido.ZonaId is null)
-                return (null, $"El pedido {pedido.Id} no tiene zona resuelta; no se puede cotizar.");
+            var pedido = conZona[i];
             try
             {
-                var distancia = await distancias.ResolverAsync(
-                    pedido.OrigenUbicacion.Lat, pedido.OrigenUbicacion.Lng,
-                    pedido.DestinoUbicacion.Lat, pedido.DestinoUbicacion.Lng,
-                    pedido.KmManual, ct);
-                cotizados[pedido] = await precios.CotizarAsync(
-                    pedido.ClienteId, pedido.ZonaId.Value, pedido.FechaEntrega, pedido.Urgente,
-                    pedido.Peajes, descuentoRuta: false, tipoVehiculo, pedido.PrecioManual, distancia, ct);
+                // Tarea ya terminada: esperarla solo entrega el km, o relanza la falla de ESTE pedido.
+                var distancia = await distanciasPedidas[i];
+                cotizados[pedido] = lote.Cotizar(
+                    pedido.ClienteId, pedido.ZonaId!.Value, pedido.FechaEntrega, pedido.Urgente,
+                    pedido.Peajes, descuentoRuta: false, pedido.PrecioManual, distancia);
             }
             catch (InvalidOperationException ex)
             {
                 return (null, $"Pedido {pedido.Id}: {ex.Message}");
             }
         }
+        if (conZona.Count < aCotizar.Count)
+            return (null, $"El pedido {aCotizar[conZona.Count].Id} no tiene zona resuelta; no se puede cotizar.");
         return (new Congelamiento(cotizados, vinculantes), null);
     }
 
