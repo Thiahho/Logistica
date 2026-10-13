@@ -66,6 +66,28 @@ export function claveDeBorrador(usuarioId: string, paradaId: number): string {
   return `${usuarioId}:${paradaId}`;
 }
 
+// De quién pueden ser los borradores que se guardan o se leen en esta pestaña: el usuario de la sesión.
+// Lo fija AuthProvider, en el acto, cada vez que cambia la identidad y antes de encolar el borrado de
+// lo del anterior. Guardar y leer lo miran adentro de la cola, justo al tocar IndexedDB, así que un
+// guardado del usuario anterior no puede quedar escrito por más tarde que termine: si corre antes
+// del borrado, el borrado se lo lleva; si corre después, acá se descarta. No depende de quién gana
+// una carrera, que es lo que no garantizaba repetir el borrado. Sin dueño no se guarda ni se lee
+// nada; descartar, borrar todo y purgar no lo necesitan.
+let dueno: string | null = null;
+
+export function fijarDuenoDeBorradores(usuarioId: string | null): void {
+  dueno = usuarioId;
+}
+
+export function esDuenoDeBorradores(usuarioId: string): boolean {
+  return dueno === usuarioId;
+}
+
+/** Si esa clave (ver claveDeBorrador) es de un borrador del dueño actual. */
+function esDelDueno(clave: string): boolean {
+  return dueno !== null && clave.startsWith(`${dueno}:`);
+}
+
 export function camposVacios(campos: CamposDeCaptura): boolean {
   return (
     !campos.receptorNombre.trim() && !campos.documento.trim() && !campos.sinDocumento && !campos.sinDocumentoMotivo.trim()
@@ -222,12 +244,12 @@ async function abrirRegistro<T>(
   }
 }
 
-/** Lo guardado para esa clave, o null si no hay nada, está vencido, no se puede descifrar con esa
- * llave o el almacenamiento no anda. Un registro que no descifra no sirve más: se borra. */
+/** Lo guardado para esa clave, o null si no hay nada, está vencido, no es del dueño actual, no se
+ * puede descifrar con esa llave o el almacenamiento no anda. Un registro que no descifra no sirve más: se borra. */
 export function leerBorrador(clave: string, llave: CryptoKey, ahora = Date.now()): Promise<BorradorDeCaptura | null> {
   return enOrden(async () => {
     try {
-      if (!hayCifrado()) return null;
+      if (!hayCifrado() || !esDelDueno(clave)) return null;
       const guardado = await enTransaccion("readonly", (tx) => {
         const pedidoCampos = tx.objectStore(ALMACEN_CAMPOS).get(clave);
         const pedidoFoto = tx.objectStore(ALMACEN_FOTOS).get(clave);
@@ -261,11 +283,14 @@ export function leerBorrador(clave: string, llave: CryptoKey, ahora = Date.now()
 export function guardarCampos(clave: string, llave: CryptoKey, campos: CamposDeCaptura, ahora = Date.now()): Promise<void> {
   return enOrden(async () => {
     try {
+      if (!esDelDueno(clave)) return;
       const registro =
         camposVacios(campos) || !hayCifrado()
           ? null
           : await cifrar(llave, ALMACEN_CAMPOS, clave, ahora, new TextEncoder().encode(JSON.stringify(campos)));
       await enTransaccion("readwrite", (tx) => {
+        // Otra vez, ya con la transacción abierta: el dueño pudo cambiar mientras se cifraba.
+        if (!esDelDueno(clave)) return sinResultado;
         const almacen = tx.objectStore(ALMACEN_CAMPOS);
         // Sin poder cifrar tampoco queda lo anterior: mostraría al recargar campos que ya no son los cargados.
         if (!registro) almacen.delete(clave);
@@ -282,9 +307,12 @@ export function guardarCampos(clave: string, llave: CryptoKey, campos: CamposDeC
 export function guardarFoto(clave: string, llave: CryptoKey, foto: File | null, ahora = Date.now()): Promise<void> {
   return enOrden(async () => {
     try {
+      if (!esDelDueno(clave)) return;
       const registro =
         !foto || !hayCifrado() ? null : await cifrar(llave, ALMACEN_FOTOS, clave, ahora, await empaquetarFoto(foto));
       await enTransaccion("readwrite", (tx) => {
+        // Otra vez, ya con la transacción abierta: una foto tarda en cifrarse y el dueño pudo cambiar.
+        if (!esDelDueno(clave)) return sinResultado;
         const almacen = tx.objectStore(ALMACEN_FOTOS);
         if (!registro) almacen.delete(clave);
         else almacen.put(registro);
