@@ -31,7 +31,9 @@ public static class ResumenEnvios
     ];
 
     /// <summary>Los estados que se informan. Borrador y Confirmado son pasos internos de la carga y la
-    /// planificación: no le dicen nada al cliente.</summary>
+    /// planificación: no le dicen nada al cliente. Retenido tampoco va: la suspensión por falta de pago es
+    /// de la cuenta entera, la cuentan el portal y los avisos de cobranza, y este resumen solo sale para
+    /// empresas activas (AvisosEstadoService) — llegaría cuando ya no es cierto.</summary>
     public static readonly EstadoPedido[] Informables = Secciones.Select(s => s.Estado).ToArray();
 
     /// <summary>null si no hubo movimientos: no se manda un correo para decir que no pasó nada.</summary>

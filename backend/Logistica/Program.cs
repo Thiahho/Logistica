@@ -108,6 +108,7 @@ switch (almacenamiento.Proveedor)
         throw new InvalidOperationException($"Almacenamiento:Proveedor inválido: '{almacenamiento.Proveedor}' (local o cloudinary).");
 }
 builder.Services.AddScoped<CuentaCorrienteService>();
+builder.Services.AddScoped<RetencionPedidosService>();
 builder.Services.AddScoped<JornadaService>();
 builder.Services.AddScoped<LiquidacionService>();
 builder.Services.AddScoped<RangoClienteService>();

@@ -27,7 +27,7 @@ namespace Logistica.Controllers;
 [Route("api/clientes")]
 public class ClientesController(
     LogisticaDbContext db, TarifaService tarifas, CuentaCorrienteService cuentaCorriente, AvisosCobranzaService avisosCobranza,
-    AlmacenamientoFotos almacenamiento, AuthService auth)
+    AlmacenamientoFotos almacenamiento, AuthService auth, RetencionPedidosService retencion)
     : ControllerBase
 {
     public record TarifaZona(
@@ -338,7 +338,7 @@ public class ClientesController(
         cliente.ColorOper = req.ColorOper;
         cliente.CicloFacturacion = req.CicloFacturacion;
 
-        await db.SaveChangesAsync(ct);
+        await GuardarConActivoAsync(cliente, ct);
         return NoContent();
     }
 
@@ -351,8 +351,19 @@ public class ClientesController(
         if (cliente is null) return NotFound();
 
         cliente.Activo = req.Activo;
-        await db.SaveChangesAsync(ct);
+        await GuardarConActivoAsync(cliente, ct);
         return NoContent();
+    }
+
+    /// <summary>Guarda al cliente ya modificado. Los dos caminos que escriben Cliente.Activo pasan por
+    /// acá: una empresa que queda inactiva tiene el servicio cortado, así que en la misma transacción
+    /// sus pedidos pendientes pasan a Retenido y salen de sus rutas (RetencionPedidosService, que por
+    /// eso guarda con GuardarComoAsync: hay cambios de estado y tienen que quedar con su actor).
+    /// Reactivarla no reanuda nada.</summary>
+    private async Task GuardarConActivoAsync(Cliente cliente, CancellationToken ct)
+    {
+        if (cliente.Activo) await db.SaveChangesAsync(ct);
+        else await retencion.GuardarBajaAsync(cliente.Id, User.UsuarioId(), ct);
     }
 
     /// <summary>

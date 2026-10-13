@@ -272,10 +272,13 @@ public class MisParadasController(
         // falla: se excluye del cierre en vez de dejar que dispare el Conflict de más abajo y bloquee
         // a los demás pedidos de la parada consolidada. Se decide acá, antes del chequeo de
         // idempotencia, para que un reintento compare contra el mismo conjunto que el intento original.
+        // Lo mismo un Retenido: la empresa fue dada de baja por falta de pago con el pedido ya en la
+        // calle (RetencionPedidosService) — tampoco se entrega ni frena a los demás.
         var todosLosPedidos = await db.Pedidos.Where(p => idsDeLaParada.Contains(p.Id)).ToListAsync(ct);
-        var pedidoIds = todosLosPedidos.Where(p => p.Estado != EstadoPedido.Cancelado).Select(p => p.Id).ToList();
+        var pedidoIds = todosLosPedidos
+            .Where(p => p.Estado is not (EstadoPedido.Cancelado or EstadoPedido.Retenido)).Select(p => p.Id).ToList();
         if (pedidoIds.Count == 0)
-            return Conflict("Operación canceló todos los pedidos de esta parada: no hay nada para entregar.");
+            return Conflict("Operación canceló o suspendió todos los pedidos de esta parada: no hay nada para entregar.");
 
         // Chequeo de idempotencia EXPLÍCITO primero (RNF-02): si ya existe una prueba para todos
         // los pedidos de la parada con este device_uuid, no es un conflicto — es un reintento. Un

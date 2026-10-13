@@ -2,6 +2,7 @@ using Logistica.Auth;
 using Logistica.Controllers;
 using Logistica.Datos;
 using Logistica.Entidades;
+using Logistica.Servicios;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -25,7 +26,7 @@ public class RevocacionDeSesionesTests(BaseDePrueba baseDatos)
         new UsuariosController(db, Auth(db)).ComoUsuario(adminId);
 
     private static ClientesController Clientes(LogisticaDbContext db, Guid adminId) =>
-        new ClientesController(db, null!, null!, null!, null!, Auth(db)).ComoUsuario(adminId);
+        new ClientesController(db, null!, null!, null!, null!, Auth(db), new RetencionPedidosService(db)).ComoUsuario(adminId);
 
     // El dueño administra a sus empleados: de MiCuentaController solo se usan la base y AuthService.
     private static MiCuentaController MiCuenta(LogisticaDbContext db, ClienteUsuario dueno) =>

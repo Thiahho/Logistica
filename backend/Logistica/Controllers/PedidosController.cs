@@ -854,6 +854,12 @@ public class PedidosController(
         if (TransicionesPedido.MotivoObligatorio(nuevo) && string.IsNullOrWhiteSpace(req.Motivo))
             return BadRequest("El motivo es obligatorio para esta transición.");
 
+        // Una empresa dada de baja por falta de pago tiene el servicio cortado: ninguno de sus pedidos
+        // vuelve a un estado pendiente (reprogramar un fallido, por ejemplo) hasta que se reactive.
+        var empresaActiva = await db.Clientes.Where(c => c.Id == pedido.ClienteId).Select(c => c.Activo).SingleAsync(ct);
+        if (!empresaActiva && TransicionesPedido.Retenibles.Contains(nuevo))
+            return Conflict("La empresa está dada de baja por falta de pago: sus pedidos no se reprograman ni se reanudan hasta que se reactive.");
+
         // E1 (§10.2-I): cancelar es gratis en Borrador (nunca tuvo precio). Un Confirmado ya
         // consumió planificación y tiene precio congelado (P1) — cancelarlo se factura al 100%,
         // igual que si se hubiera entregado.
@@ -997,8 +1003,10 @@ public class PedidosController(
             .FirstOrDefaultAsync(ct);
         if (enRuta is null) return;
 
+        // Un Retenido (empresa dada de baja por falta de pago) tampoco es algo para entregar.
         var quedanActivos = await db.ParadaPedidos.AnyAsync(pp =>
-            pp.ParadaId == enRuta.ParadaId && pp.PedidoId != pedido.Id && pp.Pedido.Estado != EstadoPedido.Cancelado, ct);
+            pp.ParadaId == enRuta.ParadaId && pp.PedidoId != pedido.Id
+            && pp.Pedido.Estado != EstadoPedido.Cancelado && pp.Pedido.Estado != EstadoPedido.Retenido, ct);
         if (!quedanActivos)
         {
             var parada = await db.RutaParadas.SingleAsync(p => p.Id == enRuta.ParadaId, ct);
@@ -1148,6 +1156,9 @@ public class PedidosController(
     {
         EstadoPedido.Borrador => "El pedido todavía está en borrador; no admite ajustes hasta que se confirme.",
         EstadoPedido.Cancelado => "El pedido está cancelado; ya no admite ajustes.",
+        // Un ajuste es un cargo, y retener no cobra nada; además un retenido puede venir de un
+        // borrador sin precio. Reanudado (o devuelto) vuelve a la regla de su estado.
+        EstadoPedido.Retenido => "El pedido está suspendido por falta de pago; no admite ajustes hasta que se reanude.",
         _ => null,
     };
 

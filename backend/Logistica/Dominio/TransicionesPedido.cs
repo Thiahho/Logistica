@@ -43,6 +43,12 @@ public static class TransicionesPedido
     private static readonly HashSet<EstadoPedido> ConMotivoObligatorio =
         [EstadoPedido.Fallido, EstadoPedido.Cancelado];
 
+    /// <summary>Los estados de un pedido todavía pendiente: los que pasan a Retenido cuando la empresa
+    /// se da de baja por falta de pago (Servicios/RetencionPedidosService.cs), y a los que ningún pedido
+    /// de una empresa inactiva puede volver.</summary>
+    public static readonly EstadoPedido[] Retenibles =
+        [EstadoPedido.Borrador, EstadoPedido.Confirmado, EstadoPedido.EnRuta, EstadoPedido.Reprogramado];
+
     public static bool Permitida(EstadoPedido actual, EstadoPedido nuevo) =>
         Permitidas.TryGetValue(actual, out var siguientes) && siguientes.Contains(nuevo);
 

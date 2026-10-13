@@ -21,7 +21,7 @@ namespace Logistica.Migrations
                 .HasAnnotation("ProductVersion", "8.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "estado_pedido", new[] { "borrador", "confirmado", "en_ruta", "entregado", "fallido", "reprogramado", "devuelto", "cancelado" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "estado_pedido", new[] { "borrador", "confirmado", "en_ruta", "entregado", "fallido", "reprogramado", "devuelto", "cancelado", "retenido" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("Logistica.Datos.FacturaSaldo", b =>
