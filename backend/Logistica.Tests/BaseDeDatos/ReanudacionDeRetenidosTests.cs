@@ -346,6 +346,37 @@ public class ReanudacionDeRetenidosTests(BaseDePrueba baseDatos)
         Assert.Equal(1, Assert.IsType<MisParadasController.CierreResultado>(respuesta.Value).PedidosActualizados);
     }
 
+    /// <summary>Con la ruta todavía en planificación no hay nada que soltar al reanudar: la baja ya lo sacó
+    /// del armado. El pedido no queda atado a ninguna parada y la del otro pedido sigue como estaba.</summary>
+    [Theory]
+    [InlineData("Reprogramado")]
+    [InlineData("Devuelto")]
+    public async Task El_retenido_de_una_ruta_en_planificacion_no_queda_en_ninguna_parada_al_reanudarlo_o_devolverlo(string destino)
+    {
+        var actor = await baseDatos.UsuarioAsync();
+        var cliente = await baseDatos.ClienteAsync();
+        var ajeno = await baseDatos.PedidoAsync(EstadoPedido.Confirmado);
+        var retenido = await PedidoDeAsync(cliente.Id, EstadoPedido.Confirmado, ajeno.DestinoUbicacionId);
+        var ruta = await baseDatos.RutaAsync();
+        var parada = await baseDatos.ParadaAsync(ruta.Id, ajeno.DestinoUbicacionId);
+        await using (var db = baseDatos.CrearContexto())
+        {
+            db.ParadaPedidos.Add(new ParadaPedido { ParadaId = parada.Id, PedidoId = retenido.Id });
+            db.ParadaPedidos.Add(new ParadaPedido { ParadaId = parada.Id, PedidoId = ajeno.Id });
+            await db.SaveChangesAsync();
+        }
+        await CambiarActivoAsync(cliente.Id, actor.Id, activo: false);
+        await CambiarActivoAsync(cliente.Id, actor.Id, activo: true);
+
+        Assert.IsType<NoContentResult>(await CambiarEstadoAsync(retenido.Id, actor.Id, destino, NuevaFecha));
+
+        await using var lectura = baseDatos.CrearContexto();
+        Assert.Equal("planificada", (await lectura.Rutas.SingleAsync(r => r.Id == ruta.Id)).Estado);
+        Assert.False(await lectura.ParadaPedidos.AnyAsync(pp => pp.PedidoId == retenido.Id));
+        Assert.Equal([ajeno.Id], await lectura.ParadaPedidos.Where(pp => pp.ParadaId == parada.Id).Select(pp => pp.PedidoId).ToListAsync());
+        Assert.Equal("pendiente", (await lectura.RutaParadas.SingleAsync(p => p.Id == parada.Id)).Estado);
+    }
+
     [Fact]
     public async Task La_fila_de_una_parada_ya_cancelada_queda_como_historia_al_reanudar()
     {
