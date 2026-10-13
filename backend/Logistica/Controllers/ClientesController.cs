@@ -355,6 +355,24 @@ public class ClientesController(
         return NoContent();
     }
 
+    /// <summary>Lo que retuvo la pasada sobre las empresas inactivas: cuántas empresas, cuántos pedidos
+    /// en total y el detalle por empresa (solo las que tenían algo pendiente).</summary>
+    public record RetencionDeInactivas(int Empresas, int Pedidos, List<EmpresaRetenida> Detalle);
+
+    /// <summary>
+    /// Pasada única para después de desplegar la retención por baja: una empresa que ya estaba inactiva
+    /// antes de esa regla nunca pasó por GuardarConActivoAsync, así que sus pedidos pendientes siguen
+    /// vivos. Retiene los de todas las empresas inactivas, con quien la corre como actor — igual que
+    /// una baja común. Se puede repetir: la segunda vez no encuentra nada y responde cero.
+    /// </summary>
+    [HttpPost("inactivas/retener-pendientes")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> RetenerPendientesDeInactivas(CancellationToken ct)
+    {
+        var retenidas = await retencion.GuardarBajaDeInactivasAsync(User.UsuarioId(), ct);
+        return Ok(new RetencionDeInactivas(retenidas.Count, retenidas.Sum(e => e.Pedidos), retenidas));
+    }
+
     /// <summary>Guarda al cliente ya modificado. Los dos caminos que escriben Cliente.Activo pasan por
     /// acá: una empresa que queda inactiva tiene el servicio cortado, así que en la misma transacción
     /// sus pedidos pendientes pasan a Retenido y salen de sus rutas (RetencionPedidosService, que por

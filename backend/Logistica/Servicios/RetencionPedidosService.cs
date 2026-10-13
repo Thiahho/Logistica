@@ -5,6 +5,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Logistica.Servicios;
 
+/// <summary>Una empresa inactiva y cuántos de sus pedidos pendientes quedaron retenidos en la pasada.</summary>
+public record EmpresaRetenida(int ClienteId, string RazonSocial, int Pedidos);
+
 /// <summary>
 /// Baja de una empresa por falta de pago: el servicio se corta de verdad. Sus pedidos pendientes
 /// (TransicionesPedido.Retenibles) pasan a Retenido y dejan de estar en una ruta o por entregar; lo ya
@@ -69,6 +72,33 @@ public class RetencionPedidosService(LogisticaDbContext db)
         // quién dio la baja y por qué quedó retenido cada pedido.
         await db.GuardarComoAsync(actorId, MotivoBaja, ct);
         return pedidos.Count;
+    }
+
+    /// <summary>
+    /// La misma retención para todas las empresas que ya están inactivas: recoge lo que quedó pendiente
+    /// de las bajas anteriores a esta regla. Cada empresa va en su propia transacción (GuardarBajaAsync),
+    /// así ninguna queda a medio retener: si una falla, las anteriores ya quedaron completas, esa no
+    /// cambia nada y el error corta la pasada — se vuelve a correr y sigue desde ahí. Devuelve solo las
+    /// empresas a las que les retuvo algún pedido.
+    /// </summary>
+    public async Task<List<EmpresaRetenida>> GuardarBajaDeInactivasAsync(Guid actorId, CancellationToken ct)
+    {
+        var inactivas = await db.Clientes.AsNoTracking()
+            .Where(c => !c.Activo)
+            .OrderBy(c => c.Id)
+            .Select(c => new { c.Id, c.RazonSocial })
+            .ToListAsync(ct);
+
+        var retenidas = new List<EmpresaRetenida>();
+        foreach (var empresa in inactivas)
+        {
+            var pedidos = await GuardarBajaAsync(empresa.Id, actorId, ct);
+            // Lo de esta empresa ya está guardado: se suelta para que la siguiente arranque limpia y su
+            // transacción lleve solo lo suyo.
+            db.ChangeTracker.Clear();
+            if (pedidos > 0) retenidas.Add(new EmpresaRetenida(empresa.Id, empresa.RazonSocial, pedidos));
+        }
+        return retenidas;
     }
 
     /// <summary>Elimina la ruta propuesta, todavía en planificación, de cada viaje activo de la empresa

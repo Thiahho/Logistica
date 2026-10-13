@@ -212,6 +212,109 @@ public class RetencionPorBajaTests(BaseDePrueba baseDatos)
         Assert.Equal(EstadoPedido.Retenido, (await db.Pedidos.SingleAsync(p => p.Id == pedido.Id)).Estado);
     }
 
+    // ---- Empresas que ya estaban inactivas antes de esta regla ----
+
+    /// <summary>Una empresa dada de baja antes de que existiera la retención: inactiva en la base, sin
+    /// haber pasado por el controller, con sus pedidos pendientes todavía vivos.</summary>
+    private async Task<Cliente> ClienteInactivoDeAntesAsync()
+    {
+        var cliente = await baseDatos.ClienteAsync();
+        await baseDatos.EjecutarAsync($"update clientes set activo = false where id = {cliente.Id}");
+        return cliente;
+    }
+
+    private async Task<ClientesController.RetencionDeInactivas> RetenerPendientesDeInactivasAsync(Guid actor)
+    {
+        await using var db = baseDatos.CrearContexto();
+        var respuesta = Assert.IsType<OkObjectResult>(
+            await Clientes(db, actor).RetenerPendientesDeInactivas(CancellationToken.None));
+        return Assert.IsType<ClientesController.RetencionDeInactivas>(respuesta.Value);
+    }
+
+    [Fact]
+    public async Task La_pasada_retiene_los_pendientes_de_la_empresa_que_ya_estaba_inactiva_y_deja_registrado_quien_y_por_que()
+    {
+        var actor = await baseDatos.UsuarioAsync();
+        var cliente = await ClienteInactivoDeAntesAsync();
+        var confirmado = await PedidoDeAsync(cliente.Id, EstadoPedido.Confirmado);
+        var enRuta = await PedidoDeAsync(cliente.Id, EstadoPedido.EnRuta);
+        var entregado = await PedidoDeAsync(cliente.Id, EstadoPedido.Entregado);
+
+        var resultado = await RetenerPendientesDeInactivasAsync(actor.Id);
+
+        var empresa = Assert.Single(resultado.Detalle, e => e.ClienteId == cliente.Id);
+        Assert.Equal(cliente.RazonSocial, empresa.RazonSocial);
+        Assert.Equal(2, empresa.Pedidos);
+        Assert.Equal(resultado.Detalle.Count, resultado.Empresas);
+        Assert.Equal(resultado.Detalle.Sum(e => e.Pedidos), resultado.Pedidos);
+
+        Assert.Equal(EstadoPedido.Retenido, await EstadoAsync(confirmado.Id));
+        Assert.Equal(EstadoPedido.Retenido, await EstadoAsync(enRuta.Id));
+        Assert.Equal(EstadoPedido.Entregado, await EstadoAsync(entregado.Id)); // lo resuelto no se toca
+
+        await using var db = baseDatos.CrearContexto();
+        var evento = await db.PedidoEventos.Where(e => e.PedidoId == enRuta.Id).OrderBy(e => e.Id).LastAsync();
+        Assert.Equal(EstadoPedido.EnRuta, evento.EstadoAnterior);
+        Assert.Equal(EstadoPedido.Retenido, evento.EstadoNuevo);
+        Assert.Equal(actor.Id, evento.ActorUsuarioId);
+        Assert.Contains("falta de pago", evento.Motivo);
+    }
+
+    [Fact]
+    public async Task La_pasada_saca_al_retenido_del_armado_igual_que_una_baja_comun()
+    {
+        var actor = await baseDatos.UsuarioAsync();
+        var cliente = await ClienteInactivoDeAntesAsync();
+        var ajeno = await baseDatos.PedidoAsync(EstadoPedido.Reprogramado);
+        var consolidado = await PedidoDeAsync(cliente.Id, EstadoPedido.Borrador, ajeno.DestinoUbicacionId);
+        var ruta = await baseDatos.RutaAsync();
+        await ParadaConAsync(ruta.Id, 1, ajeno.DestinoUbicacionId, consolidado, ajeno);
+
+        await RetenerPendientesDeInactivasAsync(actor.Id);
+
+        Assert.Equal(EstadoPedido.Retenido, await EstadoAsync(consolidado.Id));
+        await using var db = baseDatos.CrearContexto();
+        var filas = await db.ParadaPedidos.Where(pp => pp.Parada.RutaId == ruta.Id).Select(pp => pp.PedidoId).ToListAsync();
+        Assert.Equal([ajeno.Id], filas);
+    }
+
+    [Fact]
+    public async Task La_pasada_no_toca_a_una_empresa_activa()
+    {
+        var actor = await baseDatos.UsuarioAsync();
+        var inactiva = await ClienteInactivoDeAntesAsync();
+        await PedidoDeAsync(inactiva.Id, EstadoPedido.Confirmado);
+        var activa = await baseDatos.ClienteAsync();
+        var vivo = await PedidoDeAsync(activa.Id, EstadoPedido.Confirmado);
+
+        var resultado = await RetenerPendientesDeInactivasAsync(actor.Id);
+
+        Assert.Contains(resultado.Detalle, e => e.ClienteId == inactiva.Id);
+        Assert.DoesNotContain(resultado.Detalle, e => e.ClienteId == activa.Id);
+        Assert.Equal(EstadoPedido.Confirmado, await EstadoAsync(vivo.Id));
+        await using var db = baseDatos.CrearContexto();
+        Assert.Equal(1, await db.PedidoEventos.CountAsync(e => e.PedidoId == vivo.Id)); // solo el alta
+    }
+
+    [Fact]
+    public async Task Repetir_la_pasada_no_retiene_nada_mas()
+    {
+        var actor = await baseDatos.UsuarioAsync();
+        var cliente = await ClienteInactivoDeAntesAsync();
+        var pedido = await PedidoDeAsync(cliente.Id, EstadoPedido.Reprogramado);
+        var primera = await RetenerPendientesDeInactivasAsync(actor.Id);
+        Assert.Contains(primera.Detalle, e => e.ClienteId == cliente.Id);
+
+        var segunda = await RetenerPendientesDeInactivasAsync(actor.Id);
+
+        Assert.Equal(0, segunda.Empresas);
+        Assert.Equal(0, segunda.Pedidos);
+        Assert.Empty(segunda.Detalle);
+        await using var db = baseDatos.CrearContexto();
+        // El alta y la retención: la segunda pasada no dejó otro evento.
+        Assert.Equal(2, await db.PedidoEventos.CountAsync(e => e.PedidoId == pedido.Id));
+    }
+
     // ---- Sin cargo ----
 
     [Fact]
