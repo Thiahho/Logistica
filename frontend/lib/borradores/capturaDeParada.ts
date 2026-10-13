@@ -91,9 +91,18 @@ function abrir(): Promise<IDBDatabase> {
         pedido.result.createObjectStore(nombre, { keyPath: "clave" }).createIndex(INDICE_FECHA, INDICE_FECHA);
       }
     };
-    pedido.onsuccess = () => resolve(pedido.result);
+    // Bloqueada se da por fallida, pero el pedido sigue vivo y puede abrirse más tarde: esa conexión,
+    // que ya nadie espera, se cierra para no dejarla abierta (y trabando a otras pestañas).
+    let abandonado = false;
+    pedido.onsuccess = () => {
+      if (abandonado) pedido.result.close();
+      else resolve(pedido.result);
+    };
     pedido.onerror = () => reject(pedido.error);
-    pedido.onblocked = () => reject(new Error("IndexedDB bloqueada"));
+    pedido.onblocked = () => {
+      abandonado = true;
+      reject(new Error("IndexedDB bloqueada"));
+    };
   });
 }
 

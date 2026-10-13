@@ -21,6 +21,7 @@ import {
   descartarBorrador,
   guardarCampos,
   guardarFoto,
+  hayCifrado,
   leerBorrador,
   purgarBorradoresVencidos,
 } from "@/lib/borradores/capturaDeParada";
@@ -47,12 +48,29 @@ import {
 export default function ParadaPage() {
   return (
     <RequireRole roles={["repartidor"]}>
-      <ParadaDetalle />
+      <ParadaDeLaSesion />
     </RequireRole>
   );
 }
 
+/** La pantalla se vuelve a montar de cero si cambia de quién es la sesión (otra persona entró desde
+ * otra pestaña) o la parada: lo que cargó uno (nombre, DNI, foto, la llave de su borrador) no le
+ * queda a la vista al otro ni se guarda a su nombre. */
+function ParadaDeLaSesion() {
+  const { paradaId } = useParams<{ paradaId: string }>();
+  const { usuario } = useAuth();
+  return <ParadaDetalle key={`${usuario?.id ?? ""}:${paradaId}`} />;
+}
+
 type Modo = "detalle" | "entregado" | "fallido" | "corregir";
+
+/** Cuánto se espera antes de volver a pedir la llave del borrador cuando no llegó (sin señal, tiempo
+ * agotado). Crece hasta un minuto y ahí se queda: se sigue intentando mientras la parada esté abierta,
+ * sin cargar al servidor. */
+const ESPERAS_LLAVE_MS = [2_000, 5_000, 15_000, 30_000, 60_000];
+/** Al volver la señal o la pantalla se reintenta enseguida, pero no en el acto: una señal que va y
+ * viene dispara varios avisos seguidos. */
+const ESPERA_AL_VOLVER_MS = 1_000;
 
 /** DNI argentino: 6 a 9 dígitos, con o sin puntos/espacios ("12.345.678"). Igual criterio que el servidor. */
 const soloDigitosDni = (texto: string) => texto.replace(/[.\s-]/g, "");
@@ -116,6 +134,8 @@ function ParadaDetalle() {
   // mientras tanto manda sobre lo guardado: estos dos recuerdan qué tocó antes de que llegara.
   const camposTocadosRef = useRef(false);
   const fotoSinGuardarRef = useRef<{ archivo: File | null } | null>(null);
+  // La parada ya se cerró bien: desde ahí no se guarda nada más, llegue lo que llegue después.
+  const cerradaRef = useRef(false);
   // Un input de archivo no se puede vaciar por valor: se lo vuelve a montar al descartar.
   const [versionInputFoto, setVersionInputFoto] = useState(0);
 
@@ -160,17 +180,47 @@ function ParadaDetalle() {
   useEffect(() => {
     if (!claveBorrador || !estadoParada) return;
     let vigente = true;
+    const sigue = () => vigente && !cerradaRef.current;
+
+    // Espera entre dos intentos de pedir la llave. Se corta antes si vuelve la señal o la pantalla, y
+    // con la pantalla oculta no se reintenta: se espera a que vuelva.
+    let reloj: ReturnType<typeof setTimeout> | undefined;
+    let seguir: (() => void) | null = null;
+    const esperar = (ms: number) =>
+      new Promise<void>((resolve) => {
+        seguir = () => {
+          if (document.visibilityState !== "hidden") resolve();
+        };
+        reloj = setTimeout(() => seguir?.(), ms);
+      });
+    const alVolver = () => {
+      if (!seguir) return;
+      clearTimeout(reloj);
+      reloj = setTimeout(() => seguir?.(), ESPERA_AL_VOLVER_MS);
+    };
+    window.addEventListener("online", alVolver);
+    document.addEventListener("visibilitychange", alVolver);
+
     (async () => {
       await purgarBorradoresVencidos();
       if (estadoParada !== "pendiente") {
         await descartarBorrador(claveBorrador);
         return;
       }
-      // Sin llave (sin señal, navegador sin cifrado) no hay borrador: la pantalla sigue solo en memoria.
-      const llave = await obtenerLlaveDeBorradores();
-      if (!vigente || !llave) return;
+      // Sin llave no hay borrador y la pantalla sigue solo en memoria, pero se la sigue pidiendo: si
+      // llega más tarde, lo cargado hasta ahí se guarda. Un navegador sin cifrado no la va a tener nunca.
+      let llave: CryptoKey | null = null;
+      for (let intento = 0; !llave; intento++) {
+        llave = await obtenerLlaveDeBorradores();
+        if (!sigue()) return;
+        if (llave) break;
+        if (!hayCifrado()) return;
+        await esperar(ESPERAS_LLAVE_MS[Math.min(intento, ESPERAS_LLAVE_MS.length - 1)]);
+        seguir = null;
+        if (!sigue()) return;
+      }
       const borrador = await leerBorrador(claveBorrador, llave);
-      if (!vigente) return;
+      if (!sigue()) return;
 
       // La foto elegida (o quitada) mientras no había llave todavía no se guardó: se guarda ahora.
       const fotoSinGuardar = fotoSinGuardarRef.current;
@@ -197,6 +247,10 @@ function ParadaDetalle() {
     })();
     return () => {
       vigente = false;
+      seguir = null;
+      clearTimeout(reloj);
+      window.removeEventListener("online", alVolver);
+      document.removeEventListener("visibilitychange", alVolver);
     };
   }, [claveBorrador, estadoParada, obtenerLlaveDeBorradores]);
 
@@ -205,6 +259,8 @@ function ParadaDetalle() {
   useEffect(() => {
     if (!claveBorrador || !llaveBorrador || !borradorListo) return;
     const reloj = setTimeout(() => {
+      // El reloj pudo quedar corriendo entre que la parada se cerró y que la pantalla se enteró.
+      if (cerradaRef.current) return;
       void guardarCampos(claveBorrador, llaveBorrador, { receptorNombre, documento, sinDocumento, sinDocumentoMotivo });
     }, 300);
     return () => clearTimeout(reloj);
@@ -218,6 +274,7 @@ function ParadaDetalle() {
 
   function elegirFoto(archivo: File | null) {
     setFoto(archivo);
+    if (cerradaRef.current) return;
     if (claveBorrador && llaveBorrador && borradorListo) void guardarFoto(claveBorrador, llaveBorrador, archivo);
     else fotoSinGuardarRef.current = { archivo };
   }
@@ -299,6 +356,9 @@ function ParadaDetalle() {
       const cierre = await leerJson<CierreResultado>(resp);
       limpiarUuidDeCaptura(Number(paradaId));
       // Enviada: el borrador ya no hace falta, y se frena el guardado para que no lo vuelva a escribir.
+      // La marca va primero y no es estado: también frena a la llave que llegue tarde y a un reloj en curso.
+      cerradaRef.current = true;
+      fotoSinGuardarRef.current = null;
       setBorradorListo(false);
       if (claveBorrador) void descartarBorrador(claveBorrador);
       // replace, no push: atrás desde la parada siguiente no debe volver a una ya cerrada, que

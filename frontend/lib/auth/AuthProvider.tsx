@@ -33,6 +33,28 @@ interface EstadoAuth {
 
 const AuthContext = createContext<EstadoAuth | null>(null);
 
+// De quién son los borradores de entrega guardados en este teléfono (lib/borradores/capturaDeParada.ts).
+// Solo el id del usuario, que no es secreto; la llave que los cifra no se guarda nunca. Va en
+// localStorage para que sobreviva a una recarga: sin esto, si a uno se le vence la sesión, la pestaña
+// se recarga y entra otro, nadie notaría que cambió la persona.
+const CLAVE_DUENO_BORRADORES = "logistica-borradores-dueno";
+
+function leerDuenoDeBorradores(): string | null {
+  try {
+    return localStorage.getItem(CLAVE_DUENO_BORRADORES);
+  } catch {
+    return null;
+  }
+}
+
+function anotarDuenoDeBorradores(id: string) {
+  try {
+    localStorage.setItem(CLAVE_DUENO_BORRADORES, id);
+  } catch {
+    // Sin localStorage: queda solo la marca en memoria de esta pestaña.
+  }
+}
+
 /** Id del usuario dentro del access token (claim `sub`, el mismo `id` que devuelve /api/auth/yo).
  * Solo para comparar identidades: la firma la valida el backend, acá no se confía en nada más. */
 function idDelToken(token: string): string | null {
@@ -50,9 +72,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [cargando, setCargando] = useState(true);
   // De quién es la identidad que esta pestaña tiene cargada, para notar cuando la sesión cambió.
   const usuarioIdRef = useRef<string | null>(null);
-  // El último que estuvo logueado en esta pestaña: no se borra al vencer la sesión, para notar que
-  // quien entra después es otra persona.
-  const ultimoUsuarioIdRef = useRef<string | null>(null);
+  // Respaldo en memoria de la marca de dueño de los borradores, por si localStorage no anda: no se
+  // borra al vencer la sesión, para notar que quien entra después es otra persona.
+  const duenoDeBorradoresRef = useRef<string | null>(null);
+  // Pide repetir el borrado una vez que las pantallas del usuario anterior ya se desmontaron.
+  const [borradosPendientes, setBorradosPendientes] = useState(0);
   // La llave de los borradores vive solo acá, en memoria y sin poder exportarse (nunca en localStorage
   // ni en IndexedDB): la da el servidor a la sesión, y con la sesión se va. Se guarda el pedido y no
   // solo el resultado, para que dos pantallas que la piden a la vez compartan un único viaje.
@@ -60,13 +84,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const setUsuario = useCallback((u: Usuario | null) => {
     const id = u?.id ?? null;
     if (id !== usuarioIdRef.current) llaveDeBorradoresRef.current = null;
-    // Entró otra persona en este teléfono: no queda nada de lo que cargó la anterior. Si la sesión
-    // solo venció, los borradores se conservan (cifrados) para cuando el mismo repartidor vuelva a entrar.
-    if (id && ultimoUsuarioIdRef.current && id !== ultimoUsuarioIdRef.current) void borrarTodosLosBorradores();
-    if (id) ultimoUsuarioIdRef.current = id;
+    // Se identificó a alguien (al entrar, al recuperar la sesión o por un cambio desde otra pestaña).
+    // Si los borradores del teléfono no son suyos, no queda nada de lo que cargó el anterior. Si la
+    // sesión solo venció y vuelve el mismo, se conservan (cifrados).
+    // Sin marca (primer uso, almacenamiento borrado o que no se puede leer) no se sabe de quién son:
+    // se borran igual. Es lo seguro, y lo que se pierde a cambio es poco: en un navegador sin
+    // localStorage el borrador no sobrevive a una recarga, que es como andaba antes de existir.
+    if (id && id !== usuarioIdRef.current) {
+      const dueno = leerDuenoDeBorradores() ?? duenoDeBorradoresRef.current;
+      if (dueno !== id) {
+        void borrarTodosLosBorradores();
+        setBorradosPendientes((n) => n + 1);
+      }
+      duenoDeBorradoresRef.current = id;
+      anotarDuenoDeBorradores(id);
+    }
     usuarioIdRef.current = id;
     setUsuarioEstado(u);
   }, []);
+
+  // Segunda pasada del borrado por cambio de persona, ya con la pantalla del anterior desmontada: un
+  // guardado suyo que estaba por salir pudo entrar después del primer borrado.
+  useEffect(() => {
+    if (borradosPendientes > 0) void borrarTodosLosBorradores();
+  }, [borradosPendientes]);
   // El access token vive solo en memoria (nunca localStorage): un refresh de página lo pierde
   // a propósito y se recupera vía el refresh token en cookie httpOnly.
   const accessTokenRef = useRef<string | null>(null);
@@ -163,6 +204,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // no haya señal para avisarle al servidor.
     llaveDeBorradoresRef.current = null;
     void borrarTodosLosBorradores();
+    // La marca de dueño no se toca: si el pedido de abajo falla la sesión sigue abierta, y sin marca
+    // la próxima recarga borraría lo que este mismo usuario cargue desde ahora.
     await fetch(`${API_URL}/api/auth/logout`, {
       method: "POST",
       credentials: "include",
