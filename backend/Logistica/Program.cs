@@ -68,6 +68,7 @@ if (!builder.Environment.IsDevelopment())
 
 builder.Services.Configure<OpcionesJwt>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddSingleton<TokenService>();
+builder.Services.AddSingleton<ClaveDeBorradores>();
 builder.Services.AddScoped<AuthService>();
 
 builder.Services.Configure<OpcionesPrecio>(builder.Configuration.GetSection("Precio"));
