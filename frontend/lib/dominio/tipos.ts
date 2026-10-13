@@ -1729,12 +1729,22 @@ export interface PrevisualizacionViajePortal {
  */
 export type EstadoViaje = "sin_ruta" | "planificado" | "en_curso" | "cerrado" | "cancelado" | "retenido";
 
-/** `interno` (back-office): un viaje retenido se llama por su nombre; "Suspendido por falta de pago" es
- * la forma de decírselo al cliente, igual que con un pedido (EstadoPedidoBadge). */
-export function etiquetaEstadoViaje(e: EstadoViaje, interno = false): string {
+/**
+ * Cómo le dice el portal al cliente que un envío o un viaje está retenido. Mientras la empresa sigue dada
+ * de baja, "Suspendido por falta de pago". Con la empresa otra vez activa el cliente ya pagó y lo que
+ * falta es que operación lo reanude: "Pendiente de reanudación". Sin el dato (la consulta está cargando
+ * o falló) no se afirma que pagó: queda como suspendido.
+ */
+export function etiquetaRetenidoPortal(empresaActiva?: boolean | null): string {
+  return empresaActiva === true ? "Pendiente de reanudación" : "Suspendido por falta de pago";
+}
+
+/** `interno` (back-office): un viaje retenido se llama por su nombre; al cliente se le dice con
+ * etiquetaRetenidoPortal, igual que con un pedido (EstadoPedidoBadge). */
+export function etiquetaEstadoViaje(e: EstadoViaje, interno = false, empresaActiva?: boolean | null): string {
   switch (e) {
     case "retenido":
-      return interno ? "Retenido" : "Suspendido por falta de pago";
+      return interno ? "Retenido" : etiquetaRetenidoPortal(empresaActiva);
     case "sin_ruta":
       return "Por planificar";
     case "planificado":
@@ -1746,6 +1756,16 @@ export function etiquetaEstadoViaje(e: EstadoViaje, interno = false): string {
     case "cancelado":
       return "Cancelado";
   }
+}
+
+/** Los envíos retenidos que le quedan a un viaje, para decirlos al lado de su estado: un viaje reanudado
+ * a medias ya no se lee `retenido`. Mismas palabras de cada lado que etiquetaEstadoViaje. */
+export function etiquetaRetenidosDeViaje(cantidad: number, interno = false, empresaActiva?: boolean | null): string {
+  const uno = cantidad === 1;
+  if (interno) return `${cantidad} ${uno ? "retenido" : "retenidos"}`;
+  return empresaActiva === true
+    ? `${cantidad} ${uno ? "pendiente" : "pendientes"} de reanudación`
+    : `${cantidad} ${uno ? "suspendido" : "suspendidos"}`;
 }
 
 export interface ParadaViajeDetalle {
@@ -1799,4 +1819,6 @@ export interface ViajeResumen {
   kmEstimados: number | null;
   creadoPor: string;
   creadoEn: string;
+  /** Envíos del viaje que siguen retenidos por la baja de la empresa (0 si ninguno). */
+  retenidos: number;
 }

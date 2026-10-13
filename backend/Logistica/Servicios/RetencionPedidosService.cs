@@ -121,6 +121,23 @@ public class RetencionPedidosService(LogisticaDbContext db)
         return eliminadas;
     }
 
+    /// <summary>
+    /// Saca `pedidoIds` del armado de toda ruta todavía en planificación, con el mismo resultado que al
+    /// retenerlos (SacarDelArmadoAsync): para quien deja esos pedidos sin nada por entregar por otro
+    /// camino — ViajeService.CancelarAsync —. `salvoRutaId`: una ruta que quien llama elimina entera,
+    /// cuyas filas caen en cascada con ella. No guarda: lo hace quien llama, junto con el cambio de estado.
+    /// </summary>
+    public async Task SacarDeRutasEnPlanificacionAsync(List<long> pedidoIds, long? salvoRutaId, CancellationToken ct)
+    {
+        if (pedidoIds.Count == 0) return;
+        var filas = await db.ParadaPedidos
+            .Include(pp => pp.Parada)
+            .Where(pp => pedidoIds.Contains(pp.PedidoId) && pp.Parada.Ruta.Estado == "planificada"
+                && (salvoRutaId == null || pp.Parada.RutaId != salvoRutaId))
+            .ToListAsync(ct);
+        await SacarDelArmadoAsync(filas, pedidoIds, ct);
+    }
+
     /// <summary>Saca los pedidos retenidos de las rutas en planificación. Una parada que solo los tenía a
     /// ellos se elimina, y las que quedan en esa ruta se renumeran sin huecos (el unique (ruta_id, orden)
     /// es deferrable: no choca a mitad del guardado).</summary>

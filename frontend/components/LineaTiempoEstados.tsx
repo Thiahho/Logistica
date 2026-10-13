@@ -15,6 +15,8 @@ interface LineaTiempoEstadosProps {
   estadoActual: EstadoPedido;
   /** `vertical` para el detalle (con motivo); `compacta` para la tarjeta de "Hoy". */
   variante?: "vertical" | "compacta";
+  /** Portal: si la empresa del cliente está activa; decide cómo se dice un Retenido (etiquetaRetenidoPortal). */
+  empresaActiva?: boolean | null;
 }
 
 /** Camino feliz de un envío. Fallido/Reprogramado/Devuelto/Cancelado/Retenido no están acá: si el pedido
@@ -97,7 +99,7 @@ function Punto({ paso }: { paso: Paso }) {
   );
 }
 
-export function LineaTiempoEstados({ eventos, estadoActual, variante = "vertical" }: LineaTiempoEstadosProps) {
+export function LineaTiempoEstados({ eventos, estadoActual, variante = "vertical", empresaActiva }: LineaTiempoEstadosProps) {
   const pasos = armarPasos(eventos, estadoActual);
 
   if (variante === "compacta") {
@@ -111,7 +113,7 @@ export function LineaTiempoEstados({ eventos, estadoActual, variante = "vertical
               <span className={cn("h-0.5 flex-1", i === pasos.length - 1 ? "bg-transparent" : pasos[i + 1].alcanzado ? "bg-bf-azul" : "bg-border")} />
             </div>
             <span className={cn("text-[11px] leading-tight", paso.actual ? "font-semibold text-foreground" : "text-muted-foreground")}>
-              {etiquetaEstadoPedido(paso.estado)}
+              {etiquetaEstadoPedido(paso.estado, empresaActiva)}
             </span>
             {paso.ocurridoEn && (
               <span className="text-[10px] leading-none text-muted-foreground">{formatearMomento(paso.ocurridoEn)}</span>
@@ -134,7 +136,7 @@ export function LineaTiempoEstados({ eventos, estadoActual, variante = "vertical
           </div>
           <div className={cn("pb-4", i === pasos.length - 1 && "pb-0")}>
             <p className={cn("text-sm", paso.actual ? "font-semibold" : paso.alcanzado ? "font-medium" : "text-muted-foreground")}>
-              {etiquetaEstadoPedido(paso.estado)}
+              {etiquetaEstadoPedido(paso.estado, empresaActiva)}
             </p>
             {paso.ocurridoEn ? (
               <p className="text-xs text-muted-foreground">{formatearMomento(paso.ocurridoEn)}</p>

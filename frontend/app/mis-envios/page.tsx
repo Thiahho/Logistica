@@ -23,12 +23,13 @@ import {
   type CuentaPropia,
   type PedidoDelDia,
   type PedidoResumen,
-  type ServicioPropio,
   type UsuarioEquipo,
   type ListaPaginada,
   type ViajeResumen,
   etiquetaEstadoViaje,
+  etiquetaRetenidosDeViaje,
 } from "@/lib/dominio/tipos";
+import { useEmpresaActiva } from "@/components/useEmpresaActiva";
 
 export default function MisEnviosPage() {
   return (
@@ -149,7 +150,7 @@ function AvisoServicioSuspendido({ esDueno }: { esDueno: boolean }) {
 /** Los envíos de hoy con su línea de tiempo de estados. Se actualiza solo cada 30 s (con la
  * pestaña visible): lo que más le importa al cliente es saber si ya salió o ya llegó. En camino
  * primero; el resto por número. */
-function EnviosDeHoy({ onAbrir }: { onAbrir: (id: number) => void }) {
+function EnviosDeHoy({ onAbrir, empresaActiva }: { onAbrir: (id: number) => void; empresaActiva: boolean | null }) {
   const { datos, error } = useSondeo<PedidoDelDia[]>("/api/mi-cuenta/plan-del-dia", { intervaloMs: 30_000 });
 
   const ordenados = datos
@@ -198,11 +199,12 @@ function EnviosDeHoy({ onAbrir }: { onAbrir: (id: number) => void }) {
                       {p.destinoLocalidad ? `, ${p.destinoLocalidad}` : ""}
                     </p>
                   </div>
-                  <EstadoPedidoBadge estado={p.estado} />
+                  <EstadoPedidoBadge estado={p.estado} empresaActiva={empresaActiva} />
                 </div>
                 <LineaTiempoEstados
                   variante="compacta"
                   estadoActual={p.estado}
+                  empresaActiva={empresaActiva}
                   eventos={p.eventos.map((e) => ({ estado: e.estado, ocurridoEn: e.ocurridoEn, motivo: e.motivo }))}
                 />
               </button>
@@ -242,13 +244,7 @@ function MiPlan() {
   });
 
   // null mientras no se sabe (o si la consulta falla): sin el dato no se afirma nada.
-  const [empresaActiva, setEmpresaActiva] = useState<boolean | null>(null);
-  useEffect(() => {
-    fetchConSesion("/api/mi-cuenta/servicio")
-      .then((r) => leerJson<ServicioPropio>(r))
-      .then((s) => setEmpresaActiva(s.empresaActiva))
-      .catch(() => setEmpresaActiva(null));
-  }, [fetchConSesion]);
+  const empresaActiva = useEmpresaActiva();
 
   useEffect(() => {
     if (!esDueno) return;
@@ -265,8 +261,8 @@ function MiPlan() {
       <CabeceraSesion titulo="Mi plan" />
 
       {empresaActiva === false && <AvisoServicioSuspendido esDueno={esDueno} />}
-      <EnviosDeHoy onAbrir={setEnvioAbierto} />
-      <MisViajes />
+      <EnviosDeHoy onAbrir={setEnvioAbierto} empresaActiva={empresaActiva} />
+      <MisViajes empresaActiva={empresaActiva} />
       {esDueno && <MiCuenta />}
 
       <section aria-labelledby="titulo-todos" className="flex flex-col gap-3">
@@ -348,7 +344,7 @@ function MiPlan() {
                         {esDueno && p.cargadoPorNombre && ` · Cargó ${p.cargadoPorNombre}`}
                       </p>
                     </div>
-                    <EstadoPedidoBadge estado={p.estado} />
+                    <EstadoPedidoBadge estado={p.estado} empresaActiva={empresaActiva} />
                     <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                   </button>
                 </li>
@@ -373,7 +369,7 @@ function MiPlan() {
 
 /** Los últimos viajes (envíos de varias paradas) con su avance; cada uno abre su detalle con el mapa.
  * No se muestra si el cliente todavía no cargó ninguno. */
-function MisViajes() {
+function MisViajes({ empresaActiva }: { empresaActiva: boolean | null }) {
   const { fetchConSesion } = useAuth();
   const [viajes, setViajes] = useState<ViajeResumen[] | null>(null);
 
@@ -401,7 +397,14 @@ function MisViajes() {
               <div className="min-w-0 flex-1">
                 <p className="font-medium">Viaje #{v.id} · {v.paradas} paradas</p>
                 <p className="text-muted-foreground">
-                  Entrega {v.fechaEntrega.split("-").reverse().join("/")} · {etiquetaEstadoViaje(v.estado)}
+                  Entrega {v.fechaEntrega.split("-").reverse().join("/")} · {etiquetaEstadoViaje(v.estado, false, empresaActiva)}
+                  {/* Reanudado a medias: el estado ya no lo dice, pero le quedan envíos retenidos. */}
+                  {v.retenidos > 0 && v.estado !== "retenido" && (
+                    <span className={empresaActiva === true ? "text-amber-700" : "text-red-700"}>
+                      {" "}
+                      · {etiquetaRetenidosDeViaje(v.retenidos, false, empresaActiva)}
+                    </span>
+                  )}
                 </p>
               </div>
               <span className="shrink-0 tabular-nums text-muted-foreground" aria-label={`${v.entregadas} de ${v.paradas} entregadas`}>
