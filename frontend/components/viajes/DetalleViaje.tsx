@@ -19,7 +19,8 @@ function variante(estado: EstadoPedido, enRuta: boolean): VarianteMarcador {
   if (!enRuta) return "dudosa";
   if (estado === "Entregado") return "completada";
   if (estado === "Fallido" || estado === "Devuelto") return "fallida";
-  if (estado === "Cancelado") return "cancelada";
+  // Un Retenido tampoco se va a visitar: salió de la ruta con la baja de la empresa.
+  if (estado === "Cancelado" || estado === "Retenido") return "cancelada";
   return "pendiente";
 }
 
@@ -96,13 +97,22 @@ export function DetalleViaje({
            variante: variante(p.estado, p.enRuta), titulo: `${p.orden}. ${p.destinatarioNombre} — ${p.calleNumero}` }]
       : []),
   ];
-  const puedeCancelar = rutaCancelar && (viaje.estado === "planificado" || viaje.estado === "sin_ruta")
+  // El estado del viaje sale de su ruta y no sabe de retenciones: se dice aparte, con la palabra de cada lado.
+  const retenidas = viaje.paradas.filter((p) => p.estado === "Retenido").length;
+  const puedeCancelar =rutaCancelar && (viaje.estado === "planificado" || viaje.estado === "sin_ruta")
     && viaje.paradas.every((p) => p.estado === "Borrador" || p.estado === "Cancelado");
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="rounded-full bg-accent px-3 py-1 font-medium text-bf-azul">{etiquetaEstadoViaje(viaje.estado)}</span>
+        {retenidas > 0 && (
+          <span className="rounded-full bg-red-100 px-3 py-1 font-medium text-red-700">
+            {mostrarRuta
+              ? `${retenidas} ${retenidas === 1 ? "parada retenida" : "paradas retenidas"}`
+              : "Suspendido por falta de pago"}
+          </span>
+        )}
         <span className="text-muted-foreground">
           Entrega {viaje.fechaEntrega.split("-").reverse().join("/")}
           {viaje.tipoVehiculo && ` · ${etiquetaTipoVehiculo(viaje.tipoVehiculo)}`}
@@ -152,7 +162,7 @@ export function DetalleViaje({
                     </p>
                   </div>
                   {p.precio !== null && <span className="hidden shrink-0 tabular-nums md:block">{pesos(p.precio)}</span>}
-                  <EstadoPedidoBadge estado={p.estado} />
+                  <EstadoPedidoBadge estado={p.estado} interno={mostrarRuta} />
                 </Link>
               </li>
             ))}

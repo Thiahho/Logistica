@@ -49,7 +49,14 @@ public class MiCuentaController(
         decimal Saldo, decimal DeudaVencida, bool ServicioCortado,
         DateOnly? ProximoVencimiento, List<FacturaPropia> Facturas,
         // B3 (acta RF-42): el cliente ve su rango y su descuento, nunca los números con que se calculó (RF-33).
-        string RangoNombre = "", decimal DescuentoPct = 0m);
+        string RangoNombre = "", decimal DescuentoPct = 0m,
+        // false = empresa dada de baja por falta de pago: sus pedidos pendientes quedaron retenidos. No es
+        // ServicioCortado, que sale de la deuda vencida y solo frena los pedidos nuevos.
+        bool EmpresaActiva = true);
+
+    /// <summary>Lo que cualquier login del portal necesita saber del servicio de su empresa. El
+    /// empleado no ve la cuenta corriente (CuentaPropia es del dueño), pero sí sus envíos suspendidos.</summary>
+    public record ServicioPropio(bool EmpresaActiva);
 
     public record CrearPedidoPortalRequest(
         [Required(AllowEmptyStrings = false, ErrorMessage = "El nombre del destinatario es obligatorio.")] string DestinatarioNombre,
@@ -152,6 +159,19 @@ public class MiCuentaController(
             eventos[p.Id].Select(e => new EventoEstado(e.EstadoNuevo.ToString(), e.Motivo, e.OcurridoEn)).ToList())));
     }
 
+    /// <summary>Cliente.Activo, de la base y no de un claim: la baja vale desde ya (mismo criterio que
+    /// CortaServicioAEmpresaInactiva).</summary>
+    private Task<bool> EmpresaActivaAsync(int clienteId, CancellationToken ct) =>
+        db.Clientes.AsNoTracking().Where(c => c.Id == clienteId).Select(c => c.Activo).SingleOrDefaultAsync(ct);
+
+    /// <summary>Si la empresa está activa, para el aviso de servicio suspendido del portal. Dueño y empleado.</summary>
+    [HttpGet("servicio")]
+    public async Task<IActionResult> Servicio(CancellationToken ct)
+    {
+        if (User.ClienteId() is not { } clienteId) return Forbid();
+        return Ok(new ServicioPropio(await EmpresaActivaAsync(clienteId, ct)));
+    }
+
     /// <summary>Cuenta corriente: solo el dueño. Un empleado carga y sigue envíos, no ve plata.</summary>
     [HttpGet]
     [Authorize(Policy = "ClienteDueno")]
@@ -178,7 +198,7 @@ public class MiCuentaController(
         var rango = await rangos.EfectivoAsync(clienteId.Value, ct);
 
         return Ok(new CuentaPropia(saldo, deudaVencida, servicioCortado, proximoVencimiento, facturas,
-            rango?.Nombre ?? "", rango?.DescuentoPct ?? 0m));
+            rango?.Nombre ?? "", rango?.DescuentoPct ?? 0m, await EmpresaActivaAsync(clienteId.Value, ct)));
     }
 
     /// <summary>Espejo de LocalidadesController.Buscar (ver comentario arriba de estos records) —
@@ -895,7 +915,7 @@ public class MiCuentaController(
     public record EstadoDeCuentaPropio(
         DateOnly Desde, DateOnly Hasta, decimal SaldoInicial, decimal SaldoFinal,
         decimal SaldoActual, decimal DeudaVencida, decimal PendienteDeFacturar, bool ServicioCortado,
-        List<NegocioCliente.Movimiento> Movimientos);
+        List<NegocioCliente.Movimiento> Movimientos, bool EmpresaActiva = true);
 
     /// <summary>Resumen tipo extracto bancario: facturas (debe) y pagos imputados (haber) del período,
     /// con saldo acumulado. Por defecto, los últimos 90 días. Los pagos informados todavía sin
@@ -937,7 +957,7 @@ public class MiCuentaController(
             inicio, fin, saldoInicial, movimientos.Count > 0 ? movimientos[^1].Saldo : saldoInicial,
             await cuentaCorriente.SaldoAsync(clienteId, ct), deudaVencida, pendiente,
             await cuentaCorriente.ServicioCortadoAsync(clienteId, hoy, deudaVencida, ct),
-            movimientos));
+            movimientos, await EmpresaActivaAsync(clienteId, ct)));
     }
 
     public record FacturaItemPropio(long? PedidoId, string Tipo, string Descripcion, decimal? Monto);

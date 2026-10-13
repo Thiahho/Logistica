@@ -55,7 +55,12 @@ export function PedidoDetalleCliente({ pedidoId }: { pedidoId: number }) {
           <CardTitle className="text-base">{pedido.destinatarioNombre}</CardTitle>
           <EstadoPedidoBadge estado={pedido.estado} size="md" />
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-col gap-3">
+          {pedido.estado === "Retenido" && (
+            <p className="text-sm text-destructive">
+              Este envío está suspendido por falta de pago: no se entrega hasta que se regularice la cuenta.
+            </p>
+          )}
           <LineaTiempoEstados
             eventos={pedido.historial.map((e) => ({ estado: e.estadoNuevo, ocurridoEn: e.ocurridoEn, motivo: e.motivo }))}
             estadoActual={pedido.estado}

@@ -37,6 +37,7 @@ import { limpiarUuidDeCaptura, uuidDeCaptura } from "@/lib/captura/dispositivo";
 import { EstadoParadaBadge, etiquetaEstadoParada } from "@/components/EstadoBadge";
 import {
   ETIQUETA_CAMPO_EDITABLE,
+  noSeEntrega,
   type CierreResultado,
   type JornadaDelDia,
   type NovedadResultado,
@@ -284,7 +285,7 @@ function ParadaDetalle() {
   }
 
   function abrirCorreccion() {
-    const vivos = parada?.pedidos.filter((p) => p.estado !== "Cancelado") ?? [];
+    const vivos = parada?.pedidos.filter((p) => !noSeEntrega(p.estado)) ?? [];
     setCorregirPedidoId(vivos[0]?.pedidoId ?? null);
     setCorregirCampo("destinatario_telefono");
     setCorregirValor("");
@@ -340,8 +341,8 @@ function ParadaDetalle() {
   }
 
   const tieneCoordenadas = parada.lat !== null && parada.lng !== null;
-  // Un pedido que operación canceló con la ruta en curso no se entrega ni se llama: se muestra tachado.
-  const pedidosVivos = parada.pedidos.filter((p) => p.estado !== "Cancelado");
+  // Un pedido que operación canceló o retuvo con la ruta en curso no se entrega ni se llama: se muestra tachado.
+  const pedidosVivos = parada.pedidos.filter((p) => !noSeEntrega(p.estado));
 
   return (
     <div className="p-4 flex flex-col gap-4 pb-8">
@@ -388,13 +389,16 @@ function ParadaDetalle() {
         {parada.pedidos.map((pedido) => (
           <div
             key={pedido.pedidoId}
-            className={`rounded-2xl border bg-card shadow-sm p-3 flex flex-col gap-1 ${pedido.estado === "Cancelado" ? "border-red-300 bg-red-50/40" : ""}`}
+            className={`rounded-2xl border bg-card shadow-sm p-3 flex flex-col gap-1 ${noSeEntrega(pedido.estado) ? "border-red-300 bg-red-50/40" : ""}`}
           >
-            <p className={`font-medium ${pedido.estado === "Cancelado" ? "line-through" : ""}`}>
+            <p className={`font-medium ${noSeEntrega(pedido.estado) ? "line-through" : ""}`}>
               {pedido.destinatarioNombre}
             </p>
             {pedido.estado === "Cancelado" && (
               <p className="text-sm font-medium text-red-700">Cancelado por operación: no entregar.</p>
+            )}
+            {pedido.estado === "Retenido" && (
+              <p className="text-sm font-medium text-red-700">Retenido por operación: no entregar.</p>
             )}
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
               <Package className="size-3.5" />

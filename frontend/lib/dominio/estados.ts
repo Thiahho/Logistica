@@ -21,13 +21,19 @@ const TRANSICIONES: Record<EstadoPedido, EstadoPedido[]> = {
   Reprogramado: ["Confirmado"],
   Devuelto: [],
   Cancelado: [],
+  // Las dos salidas de un Retenido; a cuál de las dos primeras se reanuda lo dice el backend
+  // (PedidoDetalle.reanudaEn): ver transicionesDisponibles. Retenido -> Cancelado no está a propósito:
+  // cancelar un confirmado factura el 100% y retener no cobra nada.
+  Retenido: ["Reprogramado", "Borrador", "Devuelto"],
 };
 
 // Fallido y Cancelado: sin motivo la razón de la interrupción se pierde para siempre.
 const CON_MOTIVO_OBLIGATORIO = new Set<EstadoPedido>(["Fallido", "Cancelado"]);
 
-export function transicionesDisponibles(estado: EstadoPedido): EstadoPedido[] {
-  return TRANSICIONES[estado];
+/** `reanudaEn` solo importa en un Retenido: deja, de sus dos formas de reanudarse, la que le corresponde. */
+export function transicionesDisponibles(estado: EstadoPedido, reanudaEn?: EstadoPedido | null): EstadoPedido[] {
+  if (estado !== "Retenido") return TRANSICIONES[estado];
+  return [reanudaEn ?? "Reprogramado", "Devuelto"];
 }
 
 export function motivoObligatorio(estadoNuevo: EstadoPedido): boolean {
@@ -43,4 +49,10 @@ export const ETIQUETA_TRANSICION: Record<EstadoPedido, string> = {
   Reprogramado: "Reprogramar",
   Devuelto: "Marcar devuelto",
   Cancelado: "Cancelar",
+  Retenido: "Retener", // nunca se ofrece: a Retenido solo se llega por la baja de la empresa
 };
+
+/** Texto del botón. Salir de Retenido hacia Reprogramado o Borrador es "Reanudar", sea cual sea de los dos. */
+export function etiquetaTransicion(desde: EstadoPedido, hacia: EstadoPedido): string {
+  return desde === "Retenido" && hacia !== "Devuelto" ? "Reanudar" : ETIQUETA_TRANSICION[hacia];
+}

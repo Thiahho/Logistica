@@ -17,7 +17,7 @@ interface LineaTiempoEstadosProps {
   variante?: "vertical" | "compacta";
 }
 
-/** Camino feliz de un envío. Fallido/Reprogramado/Devuelto/Cancelado no están acá: si el pedido
+/** Camino feliz de un envío. Fallido/Reprogramado/Devuelto/Cancelado/Retenido no están acá: si el pedido
  * termina en uno de ellos se agrega como último paso, en color de alerta. */
 const CAMINO: EstadoPedido[] = ["Borrador", "Confirmado", "EnRuta", "Entregado"];
 
@@ -26,6 +26,7 @@ const ALERTA: Partial<Record<EstadoPedido, string>> = {
   Reprogramado: "bg-amber-500 text-white",
   Devuelto: "bg-neutral-500 text-white",
   Cancelado: "bg-neutral-500 text-white",
+  Retenido: "bg-red-600 text-white",
 };
 
 interface Paso {

@@ -23,6 +23,7 @@ import {
   type CuentaPropia,
   type PedidoDelDia,
   type PedidoResumen,
+  type ServicioPropio,
   type UsuarioEquipo,
   type ListaPaginada,
   type ViajeResumen,
@@ -86,7 +87,9 @@ function MiCuenta() {
           </p>
         )}
 
-        {cuenta.servicioCortado && (
+        {/* Corte por deuda vencida de una empresa activa: solo frena los envíos nuevos. Con la empresa
+            dada de baja no aplica (sus envíos pendientes están retenidos): lo dice AvisoServicioSuspendido. */}
+        {cuenta.servicioCortado && cuenta.empresaActiva && (
           <p className="text-sm text-destructive">
             Tu servicio está interrumpido por deuda vencida. Los envíos ya confirmados o en ruta
             siguen su curso; no se pueden cargar envíos nuevos hasta regularizar.
@@ -118,6 +121,28 @@ function MiCuenta() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** Empresa dada de baja por falta de pago: el servicio está suspendido y los envíos pendientes
+ * quedaron retenidos. Lo ven el dueño y el empleado; el camino para pagar es solo del dueño. */
+function AvisoServicioSuspendido({ esDueno }: { esDueno: boolean }) {
+  return (
+    <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm">
+      <p className="font-semibold text-destructive">Servicio suspendido por falta de pago</p>
+      <p className="mt-1">
+        Tus envíos pendientes quedaron retenidos: no se entregan, y no se pueden cargar envíos nuevos
+        hasta regularizar el pago.
+        {esDueno && (
+          <>
+            {" "}
+            <Link href="/mis-envios/negocio" className="font-medium underline underline-offset-2">
+              Ver mi deuda e informar un pago
+            </Link>
+          </>
+        )}
+      </p>
+    </div>
   );
 }
 
@@ -216,6 +241,15 @@ function MiPlan() {
     ordenInicial: "-fecha",
   });
 
+  // null mientras no se sabe (o si la consulta falla): sin el dato no se afirma nada.
+  const [empresaActiva, setEmpresaActiva] = useState<boolean | null>(null);
+  useEffect(() => {
+    fetchConSesion("/api/mi-cuenta/servicio")
+      .then((r) => leerJson<ServicioPropio>(r))
+      .then((s) => setEmpresaActiva(s.empresaActiva))
+      .catch(() => setEmpresaActiva(null));
+  }, [fetchConSesion]);
+
   useEffect(() => {
     if (!esDueno) return;
     fetchConSesion("/api/mi-cuenta/usuarios")
@@ -230,8 +264,9 @@ function MiPlan() {
     <div className="flex flex-col gap-6 p-4 md:p-8">
       <CabeceraSesion titulo="Mi plan" />
 
+      {empresaActiva === false && <AvisoServicioSuspendido esDueno={esDueno} />}
       <EnviosDeHoy onAbrir={setEnvioAbierto} />
-      <MisViajes />
+      <MisViajes suspendido={empresaActiva === false} />
       {esDueno && <MiCuenta />}
 
       <section aria-labelledby="titulo-todos" className="flex flex-col gap-3">
@@ -338,7 +373,7 @@ function MiPlan() {
 
 /** Los últimos viajes (envíos de varias paradas) con su avance; cada uno abre su detalle con el mapa.
  * No se muestra si el cliente todavía no cargó ninguno. */
-function MisViajes() {
+function MisViajes({ suspendido }: { suspendido: boolean }) {
   const { fetchConSesion } = useAuth();
   const [viajes, setViajes] = useState<ViajeResumen[] | null>(null);
 
@@ -366,7 +401,10 @@ function MisViajes() {
               <div className="min-w-0 flex-1">
                 <p className="font-medium">Viaje #{v.id} · {v.paradas} paradas</p>
                 <p className="text-muted-foreground">
-                  Entrega {v.fechaEntrega.split("-").reverse().join("/")} · {etiquetaEstadoViaje(v.estado)}
+                  Entrega {v.fechaEntrega.split("-").reverse().join("/")} ·{" "}
+                  {/* El resumen no trae el estado de cada envío. Con la empresa dada de baja, un viaje
+                      sin ruta es uno al que la baja le retuvo los envíos y le quitó la ruta propuesta. */}
+                  {suspendido && v.estado === "sin_ruta" ? "Suspendido por falta de pago" : etiquetaEstadoViaje(v.estado)}
                 </p>
               </div>
               <span className="shrink-0 tabular-nums text-muted-foreground" aria-label={`${v.entregadas} de ${v.paradas} entregadas`}>

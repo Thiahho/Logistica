@@ -14,7 +14,7 @@ import {
   type PedidoDetalle,
   type ReintentoCreado,
 } from "@/lib/dominio/tipos";
-import { ETIQUETA_TRANSICION, motivoObligatorio, transicionesDisponibles } from "@/lib/dominio/estados";
+import { etiquetaTransicion, motivoObligatorio, transicionesDisponibles } from "@/lib/dominio/estados";
 import { ContactoYNovedadesDePedido } from "@/components/ContactoYNovedadesDePedido";
 import { TarjetaPruebaEntrega } from "@/components/TarjetaPruebaEntrega";
 
@@ -129,7 +129,11 @@ export function PedidoDetalleContenido({ pedidoId, onCambio, onAbrirPedidoOrigen
         body: JSON.stringify({
           estadoNuevo: transicionElegida,
           motivo: motivo || null,
-          nuevaFechaEntrega: transicionElegida === "Reprogramado" ? nuevaFecha : null,
+          // Un Retenido que se reanuda como borrador puede llevar fecha nueva; si no, conserva la que tenía.
+          nuevaFechaEntrega:
+            transicionElegida === "Reprogramado" || (pedido?.estado === "Retenido" && transicionElegida === "Borrador")
+              ? nuevaFecha || null
+              : null,
         }),
       });
       if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
@@ -175,7 +179,9 @@ export function PedidoDetalleContenido({ pedidoId, onCambio, onAbrirPedidoOrigen
     return <p className={errorCarga ? "text-sm text-destructive" : "text-muted-foreground"}>{errorCarga ?? "Cargando…"}</p>;
   }
 
-  const transiciones = transicionesDisponibles(pedido.estado);
+  const transiciones = transicionesDisponibles(pedido.estado, pedido.reanudaEn);
+  // Reanudar un Retenido que nunca se confirmó: vuelve a Borrador y la fecha nueva es opcional.
+  const reanudaComoBorrador = pedido.estado === "Retenido" && transicionElegida === "Borrador";
 
   return (
     <div className="flex flex-col gap-6">
@@ -186,6 +192,12 @@ export function PedidoDetalleContenido({ pedidoId, onCambio, onAbrirPedidoOrigen
         <CardContent className="flex flex-col gap-2 text-sm">
           <Fila etiqueta="Cliente" valor={pedido.clienteRazonSocial} />
           <Fila etiqueta="Estado" valor={<span className="font-medium">{pedido.estado}</span>} />
+          {pedido.estado === "Retenido" && (
+            <p className="text-sm text-destructive">
+              Retenido por la baja de la empresa por falta de pago: salió de su ruta y no se entrega hasta
+              que se reanude o se marque devuelto.
+            </p>
+          )}
           <Fila etiqueta="Destinatario" valor={`${pedido.destinatarioNombre} · ${pedido.destinatarioTelefono}`} />
           <Fila
             etiqueta="Dirección"
@@ -439,7 +451,7 @@ export function PedidoDetalleContenido({ pedidoId, onCambio, onAbrirPedidoOrigen
                   size="sm"
                   onClick={() => elegirTransicion(t)}
                 >
-                  {ETIQUETA_TRANSICION[t]}
+                  {etiquetaTransicion(pedido.estado, t)}
                 </Button>
               ))}
             </div>
@@ -452,9 +464,18 @@ export function PedidoDetalleContenido({ pedidoId, onCambio, onAbrirPedidoOrigen
                     {pedido.total !== null ? ` ($${pedido.total.toLocaleString("es-AR")})` : ""} (§10.2-I).
                   </p>
                 )}
-                {transicionElegida === "Reprogramado" && (
+                {pedido.estado === "Retenido" && (
+                  <p className="text-sm text-muted-foreground">
+                    {transicionElegida === "Devuelto"
+                      ? "El pedido termina acá: no genera un pedido de retorno ni ningún cargo."
+                      : transicionElegida === "Reprogramado"
+                        ? "Vuelve como reprogramado, con el precio que ya tenía congelado y sin contar como una de sus reprogramaciones. Solo se puede con la empresa otra vez activa."
+                        : "Nunca se confirmó: vuelve a borrador y se cotiza cuando entre en una ruta. Solo se puede con la empresa otra vez activa."}
+                  </p>
+                )}
+                {(transicionElegida === "Reprogramado" || reanudaComoBorrador) && (
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="nueva-fecha">Nueva fecha de entrega</Label>
+                    <Label htmlFor="nueva-fecha">Nueva fecha de entrega{reanudaComoBorrador ? " (opcional)" : ""}</Label>
                     <Input
                       id="nueva-fecha"
                       type="date"
@@ -473,7 +494,7 @@ export function PedidoDetalleContenido({ pedidoId, onCambio, onAbrirPedidoOrigen
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 <div className="flex gap-2">
                   <Button onClick={confirmarTransicion} disabled={enviando}>
-                    {enviando ? "Guardando…" : `Confirmar: ${ETIQUETA_TRANSICION[transicionElegida]}`}
+                    {enviando ? "Guardando…" : `Confirmar: ${etiquetaTransicion(pedido.estado, transicionElegida)}`}
                   </Button>
                   <Button variant="outline" onClick={() => setTransicionElegida(null)} disabled={enviando}>
                     Cancelar

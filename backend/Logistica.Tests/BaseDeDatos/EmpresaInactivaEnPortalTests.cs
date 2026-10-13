@@ -3,6 +3,7 @@ using Logistica.Auth;
 using Logistica.Controllers;
 using Logistica.Datos;
 using Logistica.Entidades;
+using Logistica.Servicios;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.Extensions.Options;
@@ -136,6 +137,50 @@ public class EmpresaInactivaEnPortalTests(BaseDePrueba baseDatos)
             nameof(MiCuentaController.Facturas), () => portal.Facturas(CancellationToken.None));
 
         Assert.IsType<OkObjectResult>(respuesta);
+    }
+
+    // Las acciones reales de lectura, con los servicios que usan: el resto del controller no se toca.
+    private static MiCuentaController MiCuentaConCuenta(LogisticaDbContext db, ClienteUsuario login) =>
+        new MiCuentaController(
+                db, new CuentaCorrienteService(db), null!, null!, null!, null!, null!, null!, null!, null!, null!,
+                new RangoClienteService(db), null!, null!, null!)
+            .ComoPortal(login, db);
+
+    // El portal tiene que saber que la empresa está dada de baja para decirlo: sin esto, a una empresa
+    // inactiva sin deuda vencida la cuenta le seguiría diciendo que está al día.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task La_cuenta_del_dueno_dice_si_la_empresa_esta_activa(bool activa)
+    {
+        var login = await LoginDeEmpresaAsync(activa);
+
+        await using var db = baseDatos.CrearContexto();
+        var portal = MiCuentaConCuenta(db, login);
+        var cuenta = Assert.IsType<MiCuentaController.CuentaPropia>(
+            Assert.IsType<OkObjectResult>(await portal.Detalle(CancellationToken.None)).Value);
+        var estadoDeCuenta = Assert.IsType<MiCuentaController.EstadoDeCuentaPropio>(
+            Assert.IsType<OkObjectResult>(await portal.EstadoDeCuenta(null, null, CancellationToken.None)).Value);
+
+        Assert.Equal(activa, cuenta.EmpresaActiva);
+        Assert.Equal(activa, estadoDeCuenta.EmpresaActiva);
+    }
+
+    // El empleado no ve la cuenta corriente, pero sí sus envíos suspendidos: también a él hay que avisarle.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task El_empleado_tambien_sabe_si_el_servicio_de_su_empresa_esta_suspendido(bool activa)
+    {
+        var cliente = await baseDatos.ClienteAsync();
+        if (!activa) await baseDatos.EjecutarAsync($"update clientes set activo = false where id = {cliente.Id}");
+        var empleado = await baseDatos.ClienteUsuarioAsync(cliente.Id, rol: RolesCliente.Usuario);
+
+        await using var db = baseDatos.CrearContexto();
+        var servicio = Assert.IsType<MiCuentaController.ServicioPropio>(
+            Assert.IsType<OkObjectResult>(await MiCuenta(db, empleado).Servicio(CancellationToken.None)).Value);
+
+        Assert.Equal(activa, servicio.EmpresaActiva);
     }
 
     // La decisión es cortar el servicio, no la entrada: sin sesión no podría ver la deuda ni avisar el pago.

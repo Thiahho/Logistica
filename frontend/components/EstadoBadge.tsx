@@ -85,6 +85,7 @@ const ESTILO_PEDIDO: Record<EstadoPedido, string> = {
   Reprogramado: "bg-amber-100 text-amber-700",
   Devuelto: "bg-neutral-200 text-neutral-700",
   Cancelado: "bg-neutral-200 text-neutral-500",
+  Retenido: "bg-red-100 text-red-700",
 };
 
 const ETIQUETA_PEDIDO: Record<EstadoPedido, string> = {
@@ -96,16 +97,19 @@ const ETIQUETA_PEDIDO: Record<EstadoPedido, string> = {
   Reprogramado: "Reprogramado",
   Devuelto: "Devuelto",
   Cancelado: "Cancelado",
+  Retenido: "Suspendido por falta de pago",
 };
 
 export function etiquetaEstadoPedido(estado: string): string {
   return ETIQUETA_PEDIDO[estado as EstadoPedido] ?? estado;
 }
 
-export function EstadoPedidoBadge({ estado, size }: { estado: EstadoPedido; size?: "sm" | "md" }) {
+/** `interno`: el badge se muestra en el BackOffice (el detalle de un viaje lo comparten los dos). Ahí
+ * un Retenido se llama por su nombre; "Suspendido por falta de pago" es la forma de decírselo al cliente. */
+export function EstadoPedidoBadge({ estado, size, interno = false }: { estado: EstadoPedido; size?: "sm" | "md"; interno?: boolean }) {
   return (
     <Badge className={ESTILO_PEDIDO[estado] ?? "bg-neutral-100 text-neutral-700"} size={size}>
-      {etiquetaEstadoPedido(estado)}
+      {interno && estado === "Retenido" ? "Retenido" : etiquetaEstadoPedido(estado)}
     </Badge>
   );
 }

@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { leerError, leerJson } from "@/lib/api/errores";
 import { comprimirFoto } from "@/lib/captura/foto";
-import { etiquetaCategoria, type JornadaDelDia, type NovedadResultado } from "@/lib/dominio/tipos";
+import { etiquetaCategoria, noSeEntrega, type JornadaDelDia, type NovedadResultado } from "@/lib/dominio/tipos";
 
 export default function ProblemaPage() {
   return (
@@ -83,10 +83,10 @@ function Problema() {
     );
   }
 
-  // Solo pedidos que siguen vivos: uno cancelado por operación no tiene "problema con la carga".
+  // Solo pedidos que siguen vivos: uno cancelado o retenido por operación no tiene "problema con la carga".
   const pedidos = jornada.paradas.flatMap((p) =>
     p.pedidos
-      .filter((ped) => ped.estado !== "Cancelado")
+      .filter((ped) => !noSeEntrega(ped.estado))
       .map((ped) => ({ pedidoId: ped.pedidoId, etiqueta: `Parada ${p.orden} · ${ped.destinatarioNombre}` })),
   );
 

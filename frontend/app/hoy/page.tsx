@@ -26,6 +26,7 @@ import { RutaEnGoogleMaps } from "@/components/RutaEnGoogleMaps";
 import { AvisoParadaHecha } from "@/components/AvisoParadaHecha";
 import {
   ETIQUETA_TIPO_NOVEDAD,
+  noSeEntrega,
   etiquetaCategoria,
   type JornadaDelDia,
   type NovedadDelDia,
@@ -208,7 +209,7 @@ function GuiaDeRuta() {
           <div>
             <p className="font-medium">
               {proxima.pedidos
-                .filter((ped) => ped.estado !== "Cancelado")
+                .filter((ped) => !noSeEntrega(ped.estado))
                 .map((ped) => ped.destinatarioNombre)
                 .join(" · ")}
             </p>
@@ -416,7 +417,7 @@ function Aviso({
 
 function ParadaCard({ parada: p, bloqueada }: { parada: ParadaDelDia; bloqueada: boolean }) {
   const resuelta = p.estado !== "pendiente";
-  const activos = p.pedidos.filter((ped) => ped.estado !== "Cancelado");
+  const activos = p.pedidos.filter((ped) => !noSeEntrega(ped.estado));
   return (
     <li>
       <Link
