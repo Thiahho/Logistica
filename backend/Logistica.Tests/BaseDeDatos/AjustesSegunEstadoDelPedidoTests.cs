@@ -16,7 +16,7 @@ public class AjustesSegunEstadoDelPedidoTests(BaseDePrueba baseDatos)
 {
     // Los ajustes solo usan la base: el resto de las dependencias no se tocan.
     private static PedidosController Controlador(LogisticaDbContext db, Guid usuarioId) =>
-        new PedidosController(db, null!, null!, null!, null!, new CuentaCorrienteService(db), null!, null!, null!)
+        new PedidosController(db, null!, null!, null!, null!, new CuentaCorrienteService(db), null!, null!, null!, new RetencionPedidosService(db))
             .ComoUsuario(usuarioId);
 
     private static readonly PedidosController.SolicitarAjusteRequest Solicitud = new(BultosReales: 3, "Vino un bulto de más.");

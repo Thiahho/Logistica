@@ -20,7 +20,7 @@ public class ReprogramadosEnRutaTests(BaseDePrueba baseDatos)
         new RutasController(db, null!, null!, null!, null!, null!, null!).ComoUsuario(usuarioId);
 
     private static PedidosController Pedidos(LogisticaDbContext db, Guid usuarioId) =>
-        new PedidosController(db, null!, null!, null!, null!, new CuentaCorrienteService(db), null!, null!, null!)
+        new PedidosController(db, null!, null!, null!, null!, new CuentaCorrienteService(db), null!, null!, null!, new RetencionPedidosService(db))
             .ComoUsuario(usuarioId);
 
     /// <summary>Un pedido en `estado` que ya salió en una ruta: conserva su fila en una parada fallida de

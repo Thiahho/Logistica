@@ -15,7 +15,7 @@ public class EntregaDesdeBackOfficeTests(BaseDePrueba baseDatos)
 {
     // CambiarEstado solo usa la base y la cuenta corriente: el resto de las dependencias no se tocan.
     private static PedidosController Controlador(LogisticaDbContext db, Guid usuarioId) =>
-        new PedidosController(db, null!, null!, null!, null!, new CuentaCorrienteService(db), null!, null!, null!)
+        new PedidosController(db, null!, null!, null!, null!, new CuentaCorrienteService(db), null!, null!, null!, new RetencionPedidosService(db))
             .ComoUsuario(usuarioId);
 
     [Fact]

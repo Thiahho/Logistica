@@ -158,4 +158,29 @@ public class RetencionPedidosService(LogisticaDbContext db)
             });
         }
     }
+
+    /// <summary>
+    /// El pedido deja de estar retenido (se reanuda o se devuelve) y su ruta sigue en la calle: sale de la
+    /// parada que todavía está pendiente. Mientras estaba retenido el cierre de esa parada lo salteaba;
+    /// con cualquier otro estado lo trataría como un pedido más y respondería 409 para todos. La fila de
+    /// una parada ya resuelta o cancelada es historia y queda. No guarda: lo hace quien llama, junto con
+    /// el cambio de estado.
+    /// </summary>
+    public async Task SoltarParadasPendientesAsync(long pedidoId, CancellationToken ct)
+    {
+        var filas = await db.ParadaPedidos
+            .Where(pp => pp.PedidoId == pedidoId && pp.Parada.Estado == "pendiente" && pp.Parada.Ruta.Estado == "en_curso")
+            .ToListAsync(ct);
+        db.ParadaPedidos.RemoveRange(filas);
+    }
+
+    /// <summary>En qué estado estaba el pedido cuando se retuvo: el estado_anterior del último evento que
+    /// lo llevó a Retenido — lo escribió fn_log_estado_pedido en la misma transacción que la baja y
+    /// pedido_eventos es de solo inserción. null si ese evento no dice de dónde venía.</summary>
+    public async Task<EstadoPedido?> EstadoAlRetenerAsync(long pedidoId, CancellationToken ct) =>
+        await db.PedidoEventos.AsNoTracking()
+            .Where(e => e.PedidoId == pedidoId && e.EstadoNuevo == EstadoPedido.Retenido)
+            .OrderByDescending(e => e.Id)
+            .Select(e => e.EstadoAnterior)
+            .FirstOrDefaultAsync(ct);
 }

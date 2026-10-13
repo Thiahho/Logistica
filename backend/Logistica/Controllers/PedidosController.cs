@@ -25,7 +25,8 @@ public class PedidosController(
     LogisticaDbContext db, PrecioService precios, DistanciaService distancias,
     IOptions<OpcionesPruebaEntrega> opcionesPruebaEntrega,
     OrigenRutaService origenes, CuentaCorrienteService cuentaCorriente, RangoClienteService rangos,
-    IOptions<OpcionesPortal> opcionesPortal, IOptions<OpcionesCarga> opcionesCarga) : ControllerBase
+    IOptions<OpcionesPortal> opcionesPortal, IOptions<OpcionesCarga> opcionesCarga,
+    RetencionPedidosService retencion) : ControllerBase
 {
     public record PedidoResumen(
         long Id, string DestinatarioNombre, string Estado, decimal? Total,
@@ -110,7 +111,10 @@ public class PedidosController(
         decimal DescuentoRango = 0m,
         string? CargadoPorNombre = null,
         // Viaje (envío de varias paradas) al que pertenece, y su lugar en el orden de carga.
-        long? ViajeId = null, int? OrdenEnViaje = null);
+        long? ViajeId = null, int? OrdenEnViaje = null,
+        // Solo en un Retenido: a qué estado lo reanuda operación ("Reprogramado" si ya tenía precio
+        // congelado, "Borrador" si nunca se confirmó). Ver TransicionesPedido.ReanudaEn.
+        string? ReanudaEn = null);
 
     public record CambiarEstadoRequest(string EstadoNuevo, string? Motivo, DateOnly? NuevaFechaEntrega);
 
@@ -709,7 +713,13 @@ public class PedidosController(
         // E1: derivado del log inmutable (pedido_eventos), no una columna — mismo criterio que
         // el tope de 3 en CambiarEstado. "Facturado" es barato de chequear (índice único
         // ux_factura_items_pedido) y le evita al frontend pedir /ajustes solo para saber esto.
-        var vecesReprogramado = eventos.Count(e => e.EstadoNuevo.ToString() == "Reprogramado");
+        // Reanudar un retenido no es una reprogramación: mismo corte que en CambiarEstado.
+        var vecesReprogramado = eventos.Count(
+            e => e.EstadoNuevo == EstadoPedido.Reprogramado && e.EstadoAnterior != EstadoPedido.Retenido);
+        // Para un Retenido, a dónde lo reanuda operación: sale del evento que lo retuvo (ver CambiarEstado).
+        var alRetener = eventos.LastOrDefault(e => e.EstadoNuevo == EstadoPedido.Retenido)?.EstadoAnterior
+            ?? (fila.Total is null ? EstadoPedido.Borrador : EstadoPedido.Confirmado);
+        var reanudaEn = fila.Estado == EstadoPedido.Retenido ? TransicionesPedido.ReanudaEn(alRetener).ToString() : null;
         var facturado = await db.FacturaItems.AnyAsync(i => i.PedidoId == id && i.Tipo == "pedido", ct);
 
         var detalle = new PedidoDetalle(
@@ -724,7 +734,7 @@ public class PedidosController(
             fila.Estado.ToString(), fila.OrigenCarga, fila.Observaciones, fila.CreadoEn,
             fila.DireccionDudosa, RequiereCotizacion: fila.PrecioManual is null && !fila.ZonaTieneTarifa,
             precioManualInfo, vecesReprogramado, facturado, historial, fila.DescuentoRango,
-            fila.CargadoPorNombre, fila.ViajeId, fila.OrdenEnViaje);
+            fila.CargadoPorNombre, fila.ViajeId, fila.OrdenEnViaje, reanudaEn);
 
         // Montos de envío: el personal interno siempre; un cliente, según Portal:MostrarPrecios (acta 4.30).
         if (!User.VePreciosDeEnvio(opcionesPortal.Value.MostrarPrecios))
@@ -860,6 +870,26 @@ public class PedidosController(
         if (!empresaActiva && TransicionesPedido.Retenibles.Contains(nuevo))
             return Conflict("La empresa está dada de baja por falta de pago: sus pedidos no se reprograman ni se reanudan hasta que se reactive.");
 
+        // Reanudar un Retenido: a dónde vuelve no lo elige quien lo pide, sale de dónde estaba cuando se
+        // retuvo (TransicionesPedido.ReanudaEn). Devolverlo es la otra salida y no pasa por acá.
+        var saleDeRetenido = pedido.Estado == EstadoPedido.Retenido;
+        var reanuda = saleDeRetenido && nuevo != EstadoPedido.Devuelto;
+        if (reanuda)
+        {
+            // Sin el evento (un retenido cargado a mano en la base) decide el precio: sin total nunca se confirmó.
+            var alRetener = await retencion.EstadoAlRetenerAsync(pedido.Id, ct)
+                ?? (pedido.Total is null ? EstadoPedido.Borrador : EstadoPedido.Confirmado);
+            var destino = TransicionesPedido.ReanudaEn(alRetener);
+            if (nuevo != destino)
+                return Conflict(destino == EstadoPedido.Borrador
+                    ? "Este pedido nunca se confirmó: se reanuda como borrador, no como reprogramado."
+                    : "Este pedido ya tenía precio congelado: se reanuda como reprogramado, con una nueva fecha de entrega.");
+
+            // Vuelve a Borrador con la fecha que tenía, salvo que operación le ponga una nueva.
+            if (nuevo == EstadoPedido.Borrador && req.NuevaFechaEntrega is { } fechaBorrador)
+                pedido.FechaEntrega = fechaBorrador;
+        }
+
         // E1 (§10.2-I): cancelar es gratis en Borrador (nunca tuvo precio). Un Confirmado ya
         // consumió planificación y tiene precio congelado (P1) — cancelarlo se factura al 100%,
         // igual que si se hubiera entregado.
@@ -895,9 +925,12 @@ public class PedidosController(
 
             // E1/D13 (§10.2-M): 3 reprogramaciones gratis por pedido — antes era 1. Derivado de
             // pedido_eventos (insert-only, trg_log_inmutable), no una columna que pueda
-            // desincronizarse de lo que el trigger ya registró.
-            var reprogramaciones = await db.PedidoEventos.CountAsync(
-                e => e.PedidoId == pedido.Id && e.EstadoNuevo == EstadoPedido.Reprogramado, ct);
+            // desincronizarse de lo que el trigger ya registró. Reanudar un retenido no es una
+            // reprogramación: ni se cuenta (el evento Retenido → Reprogramado queda afuera) ni puede
+            // disparar el reintento con cargo — conserva su precio y solo cambia de fecha.
+            var reprogramaciones = reanuda ? 0 : await db.PedidoEventos.CountAsync(
+                e => e.PedidoId == pedido.Id && e.EstadoNuevo == EstadoPedido.Reprogramado
+                    && e.EstadoAnterior != EstadoPedido.Retenido, ct);
 
             if (reprogramaciones >= 3)
             {
@@ -939,7 +972,11 @@ public class PedidosController(
             pedido.FechaEntrega = req.NuevaFechaEntrega.Value; // 1ra, 2da o 3ra: sin cargo, misma fila
         }
 
-        if (nuevo == EstadoPedido.Devuelto)
+        // El retorno solo nace de un Fallido de una empresa activa. Un Retenido que se devuelve termina
+        // ahí: su empresa fue dada de baja por falta de pago, y generarle un servicio nuevo con precio
+        // es justo lo que la baja corta. Por lo mismo, tampoco el Fallido de una empresa inactiva: no
+        // admite pedidos nuevos (Crear) y ninguno suyo puede quedar en Borrador.
+        if (nuevo == EstadoPedido.Devuelto && pedido.Estado == EstadoPedido.Fallido && empresaActiva)
         {
             // El bulto no entregado vuelve y el retorno se registra como servicio (acta §7): es
             // un pedido nuevo encadenado (ck_pedidos_origen_coherente), no una reescritura del
@@ -972,6 +1009,8 @@ public class PedidosController(
                 CreadoEn = DateTimeOffset.UtcNow,
             });
         }
+
+        if (saleDeRetenido) await retencion.SoltarParadasPendientesAsync(pedido.Id, ct);
 
         pedido.Estado = nuevo;
 

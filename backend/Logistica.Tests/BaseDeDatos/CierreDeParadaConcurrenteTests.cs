@@ -85,7 +85,7 @@ public class CierreDeParadaConcurrenteTests(BaseDePrueba baseDatos)
     {
         var operador = await baseDatos.UsuarioAsync();
         await using var db = baseDatos.CrearContexto();
-        var respuesta = await new PedidosController(db, null!, null!, null!, null!, new CuentaCorrienteService(db), null!, null!, null!)
+        var respuesta = await new PedidosController(db, null!, null!, null!, null!, new CuentaCorrienteService(db), null!, null!, null!, new RetencionPedidosService(db))
             .ComoUsuario(operador.Id)
             .CambiarEstado(pedidoId, new PedidosController.CambiarEstadoRequest("Cancelado", "El cliente lo pidió", null), CancellationToken.None);
         Assert.IsType<NoContentResult>(respuesta);

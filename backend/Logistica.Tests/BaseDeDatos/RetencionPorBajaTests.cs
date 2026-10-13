@@ -38,7 +38,7 @@ public class RetencionPorBajaTests(BaseDePrueba baseDatos)
         new RutasController(db, null!, null!, null!, null!, new LiquidacionService(db), null!).ComoUsuario(usuarioId);
 
     private static PedidosController Pedidos(LogisticaDbContext db, Guid usuarioId) =>
-        new PedidosController(db, null!, null!, null!, null!, new CuentaCorrienteService(db), null!, null!, null!)
+        new PedidosController(db, null!, null!, null!, null!, new CuentaCorrienteService(db), null!, null!, null!, new RetencionPedidosService(db))
             .ComoUsuario(usuarioId);
 
     private async Task<Pedido> PedidoDeAsync(int clienteId, EstadoPedido estado, long? destinoId = null, long? viajeId = null)
