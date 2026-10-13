@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { leerError } from "@/lib/api/errores";
+import { borrarTodosLosBorradores, hayCifrado, purgarBorradoresVencidos } from "@/lib/borradores/capturaDeParada";
 import { esperarConLimite, fetchConLimite, limitePorDefecto, type OpcionesDePedido } from "./tiempos";
 import type { Usuario } from "./types";
 
@@ -24,6 +25,10 @@ interface EstadoAuth {
   /** fetch autenticado: agrega el access token y reintenta una vez tras refrescar si da 401.
    * Si el servidor no responde dentro del límite, rechaza con `ErrorDeTiempoAgotado` (tiempos.ts). */
   fetchConSesion: (input: string, init?: OpcionesDePedido) => Promise<Response>;
+  /** Llave con que se cifra el borrador local de una entrega (lib/borradores/capturaDeParada.ts), o
+   * null si ahora no se puede tener (sin sesión, sin señal, navegador sin WebCrypto): en ese caso no
+   * hay borrador, y un llamado posterior lo vuelve a intentar. Nunca rechaza. */
+  obtenerLlaveDeBorradores: () => Promise<CryptoKey | null>;
 }
 
 const AuthContext = createContext<EstadoAuth | null>(null);
@@ -45,8 +50,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [cargando, setCargando] = useState(true);
   // De quién es la identidad que esta pestaña tiene cargada, para notar cuando la sesión cambió.
   const usuarioIdRef = useRef<string | null>(null);
+  // El último que estuvo logueado en esta pestaña: no se borra al vencer la sesión, para notar que
+  // quien entra después es otra persona.
+  const ultimoUsuarioIdRef = useRef<string | null>(null);
+  // La llave de los borradores vive solo acá, en memoria y sin poder exportarse (nunca en localStorage
+  // ni en IndexedDB): la da el servidor a la sesión, y con la sesión se va. Se guarda el pedido y no
+  // solo el resultado, para que dos pantallas que la piden a la vez compartan un único viaje.
+  const llaveDeBorradoresRef = useRef<{ usuarioId: string; pedido: Promise<CryptoKey | null> } | null>(null);
   const setUsuario = useCallback((u: Usuario | null) => {
-    usuarioIdRef.current = u?.id ?? null;
+    const id = u?.id ?? null;
+    if (id !== usuarioIdRef.current) llaveDeBorradoresRef.current = null;
+    // Entró otra persona en este teléfono: no queda nada de lo que cargó la anterior. Si la sesión
+    // solo venció, los borradores se conservan (cifrados) para cuando el mismo repartidor vuelva a entrar.
+    if (id && ultimoUsuarioIdRef.current && id !== ultimoUsuarioIdRef.current) void borrarTodosLosBorradores();
+    if (id) ultimoUsuarioIdRef.current = id;
+    usuarioIdRef.current = id;
     setUsuarioEstado(u);
   }, []);
   // El access token vive solo en memoria (nunca localStorage): un refresh de página lo pierde
@@ -102,6 +120,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [obtenerUsuario, setUsuario]);
 
   useEffect(() => {
+    // Al arrancar, no recién al abrir una parada: lo vencido se va aunque nadie vuelva a esa pantalla.
+    void purgarBorradoresVencidos();
     (async () => {
       try {
         const token = await refrescar();
@@ -139,12 +159,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(async () => {
+    // Antes del pedido y sin esperarlo: quien cierra sesión no deja borradores en el teléfono aunque
+    // no haya señal para avisarle al servidor.
+    llaveDeBorradoresRef.current = null;
+    void borrarTodosLosBorradores();
     await fetch(`${API_URL}/api/auth/logout`, {
       method: "POST",
       credentials: "include",
     });
     accessTokenRef.current = null;
     setUsuario(null);
+    // Otra vez: una pantalla todavía abierta pudo guardar algo mientras el pedido estaba en vuelo.
+    void borrarTodosLosBorradores();
   }, [setUsuario]);
 
   const fetchConSesion = useCallback(
@@ -168,8 +194,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [refrescar],
   );
 
+  const obtenerLlaveDeBorradores = useCallback(async (): Promise<CryptoKey | null> => {
+    const usuarioId = usuarioIdRef.current;
+    if (!usuarioId || !hayCifrado()) return null;
+
+    let enCurso = llaveDeBorradoresRef.current;
+    if (enCurso?.usuarioId !== usuarioId) {
+      const pedido = (async () => {
+        try {
+          const resp = await fetchConSesion("/api/auth/clave-borradores", { cache: "no-store" });
+          if (!resp.ok) return null;
+          const { clave }: { clave: string } = await resp.json();
+          const bytes = Uint8Array.from(atob(clave), (c) => c.charCodeAt(0));
+          if (bytes.length !== 32) return null;
+          // No extraíble: ni el propio código de la página puede volver a leer los bytes de la llave.
+          const llave = await crypto.subtle.importKey("raw", bytes, "AES-GCM", false, ["encrypt", "decrypt"]);
+          bytes.fill(0);
+          return llave;
+        } catch {
+          // Sin señal, tiempo agotado o respuesta rara: no hay borrador por ahora.
+          return null;
+        }
+      })();
+      enCurso = { usuarioId, pedido };
+      llaveDeBorradoresRef.current = enCurso;
+    }
+
+    const llave = await enCurso.pedido;
+    // Un intento fallido no se recuerda: el próximo llamado vuelve a pedirla.
+    if (!llave && llaveDeBorradoresRef.current === enCurso) llaveDeBorradoresRef.current = null;
+    // Si mientras tanto cambió la identidad o se cerró la sesión, esa llave ya no es de quien está.
+    return usuarioIdRef.current === usuarioId && llaveDeBorradoresRef.current === enCurso ? llave : null;
+  }, [fetchConSesion]);
+
   return (
-    <AuthContext.Provider value={{ usuario, cargando, login, logout, fetchConSesion }}>
+    <AuthContext.Provider value={{ usuario, cargando, login, logout, fetchConSesion, obtenerLlaveDeBorradores }}>
       {children}
     </AuthContext.Provider>
   );

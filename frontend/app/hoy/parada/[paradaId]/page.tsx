@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   CheckCircle2,
@@ -88,7 +88,7 @@ function mensajeSinRespuesta(err: unknown, conCaptura: boolean): string {
 
 function ParadaDetalle() {
   const { paradaId } = useParams<{ paradaId: string }>();
-  const { fetchConSesion, usuario } = useAuth();
+  const { fetchConSesion, usuario, obtenerLlaveDeBorradores } = useAuth();
   const router = useRouter();
 
   const [jornada, setJornada] = useState<JornadaDelDia | null>(null);
@@ -105,11 +105,17 @@ function ParadaDetalle() {
   const [foto, setFoto] = useState<File | null>(null);
 
   // Borrador local de la entrega (lib/borradores/capturaDeParada.ts): lo cargado sobrevive a una recarga.
+  // Se guarda cifrado con una llave que da el servidor (AuthProvider): sin llave no hay borrador.
   // `borradorListo` frena el guardado hasta haber leído lo que había, para no pisarlo con el formulario
   // vacío del primer render.
   const claveBorrador = usuario ? claveDeBorrador(usuario.id, Number(paradaId)) : null;
+  const [llaveBorrador, setLlaveBorrador] = useState<CryptoKey | null>(null);
   const [borradorListo, setBorradorListo] = useState(false);
   const [borradorRecuperado, setBorradorRecuperado] = useState(false);
+  // La llave viaja por la red y puede llegar cuando el repartidor ya empezó a cargar. Lo que cargó
+  // mientras tanto manda sobre lo guardado: estos dos recuerdan qué tocó antes de que llegara.
+  const camposTocadosRef = useRef(false);
+  const fotoSinGuardarRef = useRef<{ archivo: File | null } | null>(null);
   // Un input de archivo no se puede vaciar por valor: se lo vuelve a montar al descartar.
   const [versionInputFoto, setVersionInputFoto] = useState(0);
 
@@ -160,39 +166,60 @@ function ParadaDetalle() {
         await descartarBorrador(claveBorrador);
         return;
       }
-      const borrador = await leerBorrador(claveBorrador);
+      // Sin llave (sin señal, navegador sin cifrado) no hay borrador: la pantalla sigue solo en memoria.
+      const llave = await obtenerLlaveDeBorradores();
+      if (!vigente || !llave) return;
+      const borrador = await leerBorrador(claveBorrador, llave);
       if (!vigente) return;
-      if (borrador) {
-        if (borrador.campos) {
-          setReceptorNombre(borrador.campos.receptorNombre);
-          setDocumento(borrador.campos.documento);
-          setSinDocumento(borrador.campos.sinDocumento);
-          setSinDocumentoMotivo(borrador.campos.sinDocumentoMotivo);
-        }
-        if (borrador.foto) setFoto(borrador.foto);
-        setBorradorRecuperado(true);
-        setModo("entregado");
+
+      // La foto elegida (o quitada) mientras no había llave todavía no se guardó: se guarda ahora.
+      const fotoSinGuardar = fotoSinGuardarRef.current;
+      fotoSinGuardarRef.current = null;
+      if (fotoSinGuardar) void guardarFoto(claveBorrador, llave, fotoSinGuardar.archivo);
+
+      // Se recupera solo lo que el repartidor no tocó mientras tanto: lo que ya escribió no se pisa.
+      const campos = camposTocadosRef.current ? null : borrador?.campos;
+      const fotoGuardada = fotoSinGuardar ? null : borrador?.foto;
+      if (campos) {
+        setReceptorNombre(campos.receptorNombre);
+        setDocumento(campos.documento);
+        setSinDocumento(campos.sinDocumento);
+        setSinDocumentoMotivo(campos.sinDocumentoMotivo);
       }
+      if (fotoGuardada) setFoto(fotoGuardada);
+      if (campos || fotoGuardada) {
+        setBorradorRecuperado(true);
+        // Si ya está en otro formulario (no entregado, corregir), no se lo saca de ahí.
+        setModo((actual) => (actual === "detalle" ? "entregado" : actual));
+      }
+      setLlaveBorrador(llave);
       setBorradorListo(true);
     })();
     return () => {
       vigente = false;
     };
-  }, [claveBorrador, estadoParada]);
+  }, [claveBorrador, estadoParada, obtenerLlaveDeBorradores]);
 
   // Los campos se guardan un momento después de la última tecla. La foto no pasa por acá: se guarda
   // al elegirla (elegirFoto), así una foto recuperada no se vuelve a escribir.
   useEffect(() => {
-    if (!claveBorrador || !borradorListo) return;
+    if (!claveBorrador || !llaveBorrador || !borradorListo) return;
     const reloj = setTimeout(() => {
-      void guardarCampos(claveBorrador, { receptorNombre, documento, sinDocumento, sinDocumentoMotivo });
+      void guardarCampos(claveBorrador, llaveBorrador, { receptorNombre, documento, sinDocumento, sinDocumentoMotivo });
     }, 300);
     return () => clearTimeout(reloj);
-  }, [claveBorrador, borradorListo, receptorNombre, documento, sinDocumento, sinDocumentoMotivo]);
+  }, [claveBorrador, llaveBorrador, borradorListo, receptorNombre, documento, sinDocumento, sinDocumentoMotivo]);
+
+  /** Cambia un campo de la entrega a mano (no al recuperar el borrador). */
+  function editarCampo<T>(fijar: (valor: T) => void, valor: T) {
+    camposTocadosRef.current = true;
+    fijar(valor);
+  }
 
   function elegirFoto(archivo: File | null) {
     setFoto(archivo);
-    if (claveBorrador) void guardarFoto(claveBorrador, archivo);
+    if (claveBorrador && llaveBorrador && borradorListo) void guardarFoto(claveBorrador, llaveBorrador, archivo);
+    else fotoSinGuardarRef.current = { archivo };
   }
 
   function descartarCaptura() {
@@ -204,6 +231,8 @@ function ParadaDetalle() {
     setVersionInputFoto((v) => v + 1);
     setBorradorRecuperado(false);
     setEnvioError(null);
+    fotoSinGuardarRef.current = null;
+    // Borrar no necesita la llave: se descarta también lo guardado que todavía no se llegó a leer.
     if (claveBorrador) void descartarBorrador(claveBorrador);
   }
 
@@ -567,7 +596,7 @@ function ParadaDetalle() {
               className="h-12 text-base"
               autoComplete="off"
               value={receptorNombre}
-              onChange={(e) => setReceptorNombre(e.target.value)}
+              onChange={(e) => editarCampo(setReceptorNombre, e.target.value)}
             />
           </div>
 
@@ -581,7 +610,7 @@ function ParadaDetalle() {
               placeholder="12345678"
               disabled={sinDocumento}
               value={documento}
-              onChange={(e) => setDocumento(e.target.value.replace(/[^\d.\s-]/g, ""))}
+              onChange={(e) => editarCampo(setDocumento, e.target.value.replace(/[^\d.\s-]/g, ""))}
               aria-invalid={!sinDocumento && documento !== "" && !dniValido(documento)}
             />
             {!sinDocumento && documento !== "" && !dniValido(documento) && (
@@ -591,7 +620,7 @@ function ParadaDetalle() {
               <Checkbox
                 id="sin-dni"
                 checked={sinDocumento}
-                onCheckedChange={(v) => setSinDocumento(v === true)}
+                onCheckedChange={(v) => editarCampo(setSinDocumento, v === true)}
               />
               <Label htmlFor="sin-dni" className="font-normal">
                 No dio el DNI
@@ -602,7 +631,7 @@ function ParadaDetalle() {
                 aria-label="Motivo por el que no dio el DNI"
                 placeholder="¿Por qué no lo dio? (ej.: no lo tenía a mano, se negó)"
                 value={sinDocumentoMotivo}
-                onChange={(e) => setSinDocumentoMotivo(e.target.value)}
+                onChange={(e) => editarCampo(setSinDocumentoMotivo, e.target.value)}
               />
             )}
           </div>
