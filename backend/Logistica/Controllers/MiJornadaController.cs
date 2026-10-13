@@ -101,9 +101,12 @@ public class MiJornadaController(
 
         // Los bultos esperados los cuenta el SERVIDOR, nunca llegan del cliente: son la lista
         // contra la que se firma. Se congelan en la fila para que un cambio posterior en los
-        // pedidos no reescriba retroactivamente contra qué se contó.
+        // pedidos no reescriba retroactivamente contra qué se contó. Un cancelado o un retenido
+        // conserva su fila en la parada pero no sale del depósito: no se cuenta (misma cuenta que
+        // MisParadasController.Dia, que es el número que el repartidor ve antes de firmar).
         var bultosEsperados = await db.ParadaPedidos
-            .Where(pp => pp.Parada.RutaId == ruta.Id)
+            .Where(pp => pp.Parada.RutaId == ruta.Id
+                && pp.Pedido.Estado != EstadoPedido.Cancelado && pp.Pedido.Estado != EstadoPedido.Retenido)
             .SumAsync(pp => (int?)pp.Pedido.Bultos, ct) ?? 0;
 
         var discrepancia = req.BultosContados != bultosEsperados;

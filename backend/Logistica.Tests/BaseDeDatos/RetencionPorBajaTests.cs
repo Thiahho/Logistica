@@ -480,6 +480,42 @@ public class RetencionPorBajaTests(BaseDePrueba baseDatos)
         Assert.False(await db.Novedades.AnyAsync(n => n.PedidoId == reprogramado.Id));
     }
 
+    /// <summary>El repartidor cuenta lo que se lleva: un retenido y un cancelado conservan su fila en la
+    /// parada, pero sus bultos no salen del depósito. Contarlos haría pasar por discrepancia un conteo
+    /// correcto.</summary>
+    [Fact]
+    public async Task El_retiro_espera_solo_los_bultos_de_los_pedidos_que_se_entregan()
+    {
+        var actor = await baseDatos.UsuarioAsync();
+        var repartidor = await baseDatos.UsuarioAsync(Roles.Repartidor);
+        var cliente = await baseDatos.ClienteAsync();
+        var vivo = await baseDatos.PedidoAsync(EstadoPedido.EnRuta);
+        var cancelado = await baseDatos.PedidoAsync(EstadoPedido.Cancelado, vivo.DestinoUbicacionId);
+        var retenido = await PedidoDeAsync(cliente.Id, EstadoPedido.EnRuta, vivo.DestinoUbicacionId);
+        var ruta = await baseDatos.RutaAsync(repartidor.Id);
+        await ParadaConAsync(ruta.Id, 1, vivo.DestinoUbicacionId, vivo, cancelado, retenido);
+        await baseDatos.EjecutarAsync($"update rutas set estado = 'en_curso' where id = {ruta.Id}");
+        await CambiarActivoAsync(cliente.Id, actor.Id);
+
+        byte[] firma = [0xFF, 0xD8, 0xFF, 0xE0, 0x00];
+        await using var db = baseDatos.CrearContexto();
+        var respuesta = Assert.IsType<OkObjectResult>(
+            await new MiJornadaController(db, new SinFotos(), OpcionesDePrueba)
+                .ComoUsuario(repartidor.Id)
+                .Retiro(new MiJornadaController.RetiroRequest
+                {
+                    DeviceUuid = Guid.NewGuid().ToString(),
+                    CapturadaEn = new DateTimeOffset(2026, 10, 5, 8, 0, 0, TimeSpan.Zero),
+                    BultosContados = vivo.Bultos,
+                    KmInicial = 1000,
+                    Firma = new FormFile(new MemoryStream(firma), 0, firma.Length, "firma", "firma.jpg"),
+                }, CancellationToken.None));
+
+        var retiro = Assert.IsType<MiJornadaController.RetiroResultado>(respuesta.Value);
+        Assert.Equal(vivo.Bultos, retiro.BultosEsperados);
+        Assert.False(retiro.Discrepancia);
+    }
+
     [Fact]
     public async Task Cancelar_el_ultimo_pedido_vivo_de_una_parada_con_un_retenido_cancela_la_parada()
     {
