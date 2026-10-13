@@ -37,8 +37,9 @@ public class RetencionPedidosService(LogisticaDbContext db)
     ///    fila queda como historia, el repartidor recibe el aviso y, si la parada se queda sin ningún
     ///    pedido por entregar, pasa a `cancelada` — así no bloquea el cierre de la ruta.
     ///  - ruta propuesta de un viaje todavía `planificada`: se elimina entera, como en
-    ///    ViajeService.CancelarAsync (es solo de esa empresa). El viaje sigue activo y sin ruta, para
-    ///    rearmarla cuando sus envíos se reanuden. Un viaje con la ruta ya `en_curso` no pierde la
+    ///    ViajeService.CancelarAsync (es solo de esa empresa). El viaje sigue activo y sin ruta propia: esa
+    ///    ruta no vuelve. Sus envíos, al reanudarse, se rutean como cualquier otro, y el viaje lee su
+    ///    estado de ellos (ViajeService.EstadoSinRutaPropia). Un viaje con la ruta ya `en_curso` no pierde la
     ///    ruta — tiene retiro firmado y puede tener entregas hechas —: sus envíos pendientes se retienen
     ///    como los de cualquier otra ruta en curso.
     /// </summary>

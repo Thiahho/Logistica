@@ -571,7 +571,7 @@ public class RetencionPorBajaTests(BaseDePrueba baseDatos)
         Assert.False(await db.RutaParadas.AnyAsync(p => p.RutaId == ruta.Id));
         var guardado = await db.Viajes.SingleAsync(v => v.Id == viaje.Id);
         Assert.Null(guardado.RutaId);
-        Assert.Equal(EstadosViaje.Activo, guardado.Estado); // retenido no es cancelado: se rearma al reanudar
+        Assert.Equal(EstadosViaje.Activo, guardado.Estado); // retenido no es cancelado: sigue activo, sin ruta propia
     }
 
     [Fact]
