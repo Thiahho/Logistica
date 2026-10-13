@@ -42,7 +42,7 @@ export default function MisEnviosPage() {
 /** E1: resumen de cuenta corriente del cliente logueado — solo lectura, sin acciones (el cobro
  * lo gestiona la Empresa; Anexo I §7 excluye pasarelas de pago online). Compacta a propósito: en
  * el teléfono lo importante es saldo y deuda; el detalle de facturas queda plegado. */
-function MiCuenta() {
+function MiCuenta({ onEmpresaActiva }: { onEmpresaActiva: (activa: boolean) => void }) {
   const { fetchConSesion, usuario } = useAuth();
   const [cuenta, setCuenta] = useState<CuentaPropia | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,9 +50,13 @@ function MiCuenta() {
   useEffect(() => {
     fetchConSesion("/api/mi-cuenta")
       .then((r) => leerJson<CuentaPropia>(r))
-      .then(setCuenta)
+      .then((c) => {
+        setCuenta(c);
+        // La cuenta también dice si la empresa está activa: MiPlan lo usa si /servicio no respondió.
+        onEmpresaActiva(c.empresaActiva);
+      })
       .catch((err) => setError(err instanceof Error ? err.message : "No se pudo cargar tu cuenta."));
-  }, [fetchConSesion]);
+  }, [fetchConSesion, onEmpresaActiva]);
 
   if (error) return null; // no bloquea el resto de la pantalla si esto falla
   if (!cuenta) return <p className="text-sm text-muted-foreground">Cargando tu cuenta…</p>;
@@ -243,8 +247,13 @@ function MiPlan() {
     ordenInicial: "-fecha",
   });
 
-  // null mientras no se sabe (o si la consulta falla): sin el dato no se afirma nada.
-  const empresaActiva = useEmpresaActiva();
+  // null mientras no se sabe (o si la consulta falla): sin el dato no se afirma nada. El dueño tiene
+  // otra fuente, su cuenta (MiCuenta): si /servicio no respondió se usa esa, así no se queda sin el
+  // aviso de suspensión — el de deuda vencida no aplica a una empresa dada de baja. El empleado no
+  // tiene datos de cuenta: para él queda como estaba.
+  const empresaActivaSegunServicio = useEmpresaActiva();
+  const [empresaActivaSegunCuenta, setEmpresaActivaSegunCuenta] = useState<boolean | null>(null);
+  const empresaActiva = empresaActivaSegunServicio ?? empresaActivaSegunCuenta;
 
   useEffect(() => {
     if (!esDueno) return;
@@ -263,7 +272,7 @@ function MiPlan() {
       {empresaActiva === false && <AvisoServicioSuspendido esDueno={esDueno} />}
       <EnviosDeHoy onAbrir={setEnvioAbierto} empresaActiva={empresaActiva} />
       <MisViajes empresaActiva={empresaActiva} />
-      {esDueno && <MiCuenta />}
+      {esDueno && <MiCuenta onEmpresaActiva={setEmpresaActivaSegunCuenta} />}
 
       <section aria-labelledby="titulo-todos" className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">

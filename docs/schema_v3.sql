@@ -165,7 +165,10 @@ $$;
 
 create type estado_pedido as enum (
   'borrador','confirmado','en_ruta','entregado',
-  'fallido','reprogramado','devuelto','cancelado'
+  'fallido','reprogramado','devuelto','cancelado',
+  -- Empresa dada de baja por falta de pago: sus pedidos pendientes quedan retenidos hasta que
+  -- operación los reanude o los devuelva (migración 20261013025219_AgregarEstadoRetenido).
+  'retenido'
 );
 
 create table pedidos (
