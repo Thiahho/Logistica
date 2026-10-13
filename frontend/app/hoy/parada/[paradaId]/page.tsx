@@ -14,6 +14,16 @@ import {
 } from "lucide-react";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { ErrorDeTiempoAgotado, LIMITE_PEDIDO_MS, LIMITE_SUBIDA_MS, esFallaDeConexion } from "@/lib/auth/tiempos";
+import {
+  camposVacios,
+  claveDeBorrador,
+  descartarBorrador,
+  guardarCampos,
+  guardarFoto,
+  leerBorrador,
+  purgarBorradoresVencidos,
+} from "@/lib/borradores/capturaDeParada";
 import { CabeceraRepartidor } from "@/components/CabeceraRepartidor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,9 +73,21 @@ function obtenerPosicion(): Promise<{ lat: number; lng: number } | null> {
   });
 }
 
+/** El cierre no llegó al servidor (o su respuesta no volvió). Reintentar es seguro: el device_uuid de
+ * la captura es el mismo, así que el servidor reconoce el duplicado si en realidad ya la tenía. */
+function mensajeSinRespuesta(err: unknown, conCaptura: boolean): string {
+  const causa =
+    err instanceof ErrorDeTiempoAgotado
+      ? "La conexión está lenta y el servidor no respondió a tiempo."
+      : "No hay conexión con el servidor.";
+  return conCaptura
+    ? `${causa} No se perdió nada: lo que cargaste y la foto siguen acá. Probá de nuevo cuando tengas señal.`
+    : `${causa} Probá de nuevo cuando tengas señal.`;
+}
+
 function ParadaDetalle() {
   const { paradaId } = useParams<{ paradaId: string }>();
-  const { fetchConSesion } = useAuth();
+  const { fetchConSesion, usuario } = useAuth();
   const router = useRouter();
 
   const [jornada, setJornada] = useState<JornadaDelDia | null>(null);
@@ -80,6 +102,15 @@ function ParadaDetalle() {
   const [sinDocumento, setSinDocumento] = useState(false);
   const [sinDocumentoMotivo, setSinDocumentoMotivo] = useState("");
   const [foto, setFoto] = useState<File | null>(null);
+
+  // Borrador local de la entrega (lib/borradores/capturaDeParada.ts): lo cargado sobrevive a una recarga.
+  // `borradorListo` frena el guardado hasta haber leído lo que había, para no pisarlo con el formulario
+  // vacío del primer render.
+  const claveBorrador = usuario ? claveDeBorrador(usuario.id, Number(paradaId)) : null;
+  const [borradorListo, setBorradorListo] = useState(false);
+  const [borradorRecuperado, setBorradorRecuperado] = useState(false);
+  // Un input de archivo no se puede vaciar por valor: se lo vuelve a montar al descartar.
+  const [versionInputFoto, setVersionInputFoto] = useState(0);
 
   const [enviando, setEnviando] = useState(false);
   const [envioError, setEnvioError] = useState<string | null>(null);
@@ -115,6 +146,65 @@ function ParadaDetalle() {
   }, [previewFoto]);
 
   const parada: ParadaDelDia | undefined = jornada?.paradas.find((p) => p.paradaId === Number(paradaId));
+  const estadoParada = parada?.estado;
+
+  // Al abrir: se tiran los borradores vencidos y, si la parada sigue pendiente, se recupera el suyo.
+  // Espera a conocer el estado de la parada: el borrador de una ya cerrada no sirve y se borra.
+  useEffect(() => {
+    if (!claveBorrador || !estadoParada) return;
+    let vigente = true;
+    (async () => {
+      await purgarBorradoresVencidos();
+      if (estadoParada !== "pendiente") {
+        await descartarBorrador(claveBorrador);
+        return;
+      }
+      const borrador = await leerBorrador(claveBorrador);
+      if (!vigente) return;
+      if (borrador) {
+        if (borrador.campos) {
+          setReceptorNombre(borrador.campos.receptorNombre);
+          setDocumento(borrador.campos.documento);
+          setSinDocumento(borrador.campos.sinDocumento);
+          setSinDocumentoMotivo(borrador.campos.sinDocumentoMotivo);
+        }
+        if (borrador.foto) setFoto(borrador.foto);
+        setBorradorRecuperado(true);
+        setModo("entregado");
+      }
+      setBorradorListo(true);
+    })();
+    return () => {
+      vigente = false;
+    };
+  }, [claveBorrador, estadoParada]);
+
+  // Los campos se guardan un momento después de la última tecla. La foto no pasa por acá: se guarda
+  // al elegirla (elegirFoto), así una foto recuperada no se vuelve a escribir.
+  useEffect(() => {
+    if (!claveBorrador || !borradorListo) return;
+    const reloj = setTimeout(() => {
+      void guardarCampos(claveBorrador, { receptorNombre, documento, sinDocumento, sinDocumentoMotivo });
+    }, 300);
+    return () => clearTimeout(reloj);
+  }, [claveBorrador, borradorListo, receptorNombre, documento, sinDocumento, sinDocumentoMotivo]);
+
+  function elegirFoto(archivo: File | null) {
+    setFoto(archivo);
+    if (claveBorrador) void guardarFoto(claveBorrador, archivo);
+  }
+
+  function descartarCaptura() {
+    setReceptorNombre("");
+    setDocumento("");
+    setSinDocumento(false);
+    setSinDocumentoMotivo("");
+    setFoto(null);
+    setVersionInputFoto((v) => v + 1);
+    setBorradorRecuperado(false);
+    setEnvioError(null);
+    if (claveBorrador) void descartarBorrador(claveBorrador);
+  }
 
   async function onLlegue() {
     setRegistrandoLlegada(true);
@@ -165,10 +255,22 @@ function ParadaDetalle() {
         form.append("motivoFallo", motivoFallo!);
       }
 
-      const resp = await fetchConSesion(`/api/mis-paradas/${paradaId}/cierre`, { method: "POST", body: form });
+      // Con foto, el límite largo: con mala señal la subida sola puede pasar el común.
+      const resp = await fetchConSesion(`/api/mis-paradas/${paradaId}/cierre`, {
+        method: "POST",
+        body: form,
+        limiteMs: resultado === "entregado" ? LIMITE_SUBIDA_MS : LIMITE_PEDIDO_MS,
+      }).catch((err: unknown) => {
+        // Sin respuesta: el borrador queda como está para reintentar.
+        if (!esFallaDeConexion(err)) throw err;
+        throw new Error(mensajeSinRespuesta(err, resultado === "entregado"));
+      });
       if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
       const cierre = await leerJson<CierreResultado>(resp);
       limpiarUuidDeCaptura(Number(paradaId));
+      // Enviada: el borrador ya no hace falta, y se frena el guardado para que no lo vuelva a escribir.
+      setBorradorListo(false);
+      if (claveBorrador) void descartarBorrador(claveBorrador);
       // replace, no push: atrás desde la parada siguiente no debe volver a una ya cerrada, que
       // solo puede mostrar "ya quedó completada".
       // ?hecha: la pantalla que sigue muestra "Parada N cerrada · quedan M".
@@ -203,7 +305,12 @@ function ParadaDetalle() {
       form.append("campo", corregirCampo);
       form.append("valorNuevo", corregirValor.trim());
 
-      const resp = await fetchConSesion("/api/mi-jornada/novedades", { method: "POST", body: form });
+      // Formulario sin archivo: alcanza el límite común, no el de subida.
+      const resp = await fetchConSesion("/api/mi-jornada/novedades", {
+        method: "POST",
+        body: form,
+        limiteMs: LIMITE_PEDIDO_MS,
+      });
       if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
       await leerJson<NovedadResultado>(resp);
       setCorreccionEnviada(true);
@@ -444,6 +551,11 @@ function ParadaDetalle() {
 
       {modo === "entregado" && (
         <div className="flex flex-col gap-4 rounded-2xl border bg-card shadow-sm p-4">
+          {borradorRecuperado && (
+            <p className="rounded-md bg-muted p-2 text-sm text-muted-foreground">
+              Recuperamos lo que habías cargado en esta parada. Revisalo antes de confirmar.
+            </p>
+          )}
           <div className="flex flex-col gap-2">
             <Label htmlFor="receptor">Nombre de quien recibe</Label>
             <Input
@@ -494,11 +606,12 @@ function ParadaDetalle() {
           <div className="flex flex-col gap-2">
             <Label htmlFor="foto">Foto del pedido entregado</Label>
             <Input
+              key={versionInputFoto}
               id="foto"
               type="file"
               accept="image/*"
               capture="environment"
-              onChange={(e) => setFoto(e.target.files?.[0] ?? null)}
+              onChange={(e) => elegirFoto(e.target.files?.[0] ?? null)}
             />
             {previewFoto && (
               // eslint-disable-next-line @next/next/no-img-element -- objectURL local, no pasa por el optimizador de next/image
@@ -521,6 +634,11 @@ function ParadaDetalle() {
           <Button variant="outline" className="h-12 w-full text-base" disabled={enviando} onClick={() => setModo("detalle")}>
             Cancelar
           </Button>
+          {(foto || !camposVacios({ receptorNombre, documento, sinDocumento, sinDocumentoMotivo })) && (
+            <Button variant="ghost" className="h-12 w-full text-base" disabled={enviando} onClick={descartarCaptura}>
+              Descartar lo cargado
+            </Button>
+          )}
         </div>
       )}
 

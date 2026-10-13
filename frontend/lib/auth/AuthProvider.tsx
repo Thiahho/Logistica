@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { leerError } from "@/lib/api/errores";
+import { esperarConLimite, fetchConLimite, limitePorDefecto, type OpcionesDePedido } from "./tiempos";
 import type { Usuario } from "./types";
 
 // Vacío = mismo origen: en producción el frontend reenvía /api/* al backend (proxy.ts),
@@ -20,8 +21,9 @@ interface EstadoAuth {
   cargando: boolean;
   login: (email: string, password: string) => Promise<Usuario>;
   logout: () => Promise<void>;
-  /** fetch autenticado: agrega el access token y reintenta una vez tras refrescar si da 401 */
-  fetchConSesion: (input: string, init?: RequestInit) => Promise<Response>;
+  /** fetch autenticado: agrega el access token y reintenta una vez tras refrescar si da 401.
+   * Si el servidor no responde dentro del límite, rechaza con `ErrorDeTiempoAgotado` (tiempos.ts). */
+  fetchConSesion: (input: string, init?: OpcionesDePedido) => Promise<Response>;
 }
 
 const AuthContext = createContext<EstadoAuth | null>(null);
@@ -146,16 +148,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [setUsuario]);
 
   const fetchConSesion = useCallback(
-    async (input: string, init: RequestInit = {}) => {
+    async (input: string, { limiteMs, ...init }: OpcionesDePedido = {}) => {
+      const limite = limiteMs ?? limitePorDefecto(init.body);
       const conToken = (token: string | null) => ({
         ...init,
         headers: { ...init.headers, Authorization: `Bearer ${token ?? ""}` },
       });
 
-      let resp = await fetch(`${API_URL}${input}`, conToken(accessTokenRef.current));
+      // Cada intento arranca su propio reloj: el reintento tras refrescar no hereda uno ya vencido.
+      let resp = await fetchConLimite(`${API_URL}${input}`, conToken(accessTokenRef.current), limite);
       if (resp.status === 401) {
-        const nuevoToken = await refrescar();
-        if (nuevoToken) resp = await fetch(`${API_URL}${input}`, conToken(nuevoToken));
+        // El refresh se espera con límite pero no se aborta: es compartido entre pedidos, y cortarlo
+        // a mitad de camino puede dejar al navegador sin la cookie que el backend ya rotó.
+        const nuevoToken = await esperarConLimite(refrescar(), limite);
+        if (nuevoToken) resp = await fetchConLimite(`${API_URL}${input}`, conToken(nuevoToken), limite);
       }
       return resp;
     },
