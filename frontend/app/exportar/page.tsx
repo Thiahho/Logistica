@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { LIMITE_OPERACION_LARGA_MS } from "@/lib/auth/tiempos";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +38,7 @@ function FormularioExportar() {
     setError(null);
     setDescargando(clave);
     try {
-      const resp = await fetchConSesion(`/api/exportar/${clave}?desde=${desde}&hasta=${hasta}`);
+      const resp = await fetchConSesion(`/api/exportar/${clave}?desde=${desde}&hasta=${hasta}`, { limiteMs: LIMITE_OPERACION_LARGA_MS });
       if (!resp.ok) throw new Error((await leerError(resp)).mensaje);
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);

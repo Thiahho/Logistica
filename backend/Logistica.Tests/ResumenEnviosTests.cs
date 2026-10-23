@@ -75,6 +75,10 @@ public class ResumenEnviosTests
         Assert.DoesNotContain(EstadoPedido.Confirmado, ResumenEnvios.Informables);
     }
 
+    [Fact]
+    public void Un_retenido_no_es_informable() =>
+        Assert.DoesNotContain(EstadoPedido.Retenido, ResumenEnvios.Informables);
+
     // ---- Cuándo cierra el día del resumen (hora local de Argentina, UTC-3) ----
 
     private static readonly TimeOnly Hora = new(20, 0);

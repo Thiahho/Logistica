@@ -7,7 +7,7 @@ import { CabeceraSesion } from "@/components/CabeceraSesion";
 import { ControlesPaginacion } from "@/components/ControlesPaginacion";
 import { Button } from "@/components/ui/button";
 import { useListadoPaginado } from "@/lib/hooks/useListadoPaginado";
-import { etiquetaEstadoViaje, type ViajeResumen } from "@/lib/dominio/tipos";
+import { etiquetaEstadoViaje, etiquetaRetenidosDeViaje, type ViajeResumen } from "@/lib/dominio/tipos";
 
 /** Viajes (envíos de varias paradas) de todos los clientes, cargados por el portal o por Operación. */
 export default function ViajesPage() {
@@ -53,8 +53,18 @@ function Viajes() {
                   <span className="shrink-0 tabular-nums text-muted-foreground">
                     {v.entregadas}/{v.paradas}
                   </span>
-                  <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-bf-azul">
-                    {etiquetaEstadoViaje(v.estado)}
+                  {/* Reanudado a medias: el estado ya no es `retenido`, pero le quedan envíos por reanudar o devolver. */}
+                  {v.retenidos > 0 && (
+                    <span className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                      {etiquetaRetenidosDeViaje(v.retenidos, true)}
+                    </span>
+                  )}
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                      v.estado === "retenido" ? "bg-red-100 text-red-700" : "bg-accent text-bf-azul"
+                    }`}
+                  >
+                    {etiquetaEstadoViaje(v.estado, true)}
                   </span>
                 </Link>
               </li>

@@ -15,9 +15,11 @@ interface LineaTiempoEstadosProps {
   estadoActual: EstadoPedido;
   /** `vertical` para el detalle (con motivo); `compacta` para la tarjeta de "Hoy". */
   variante?: "vertical" | "compacta";
+  /** Portal: si la empresa del cliente está activa; decide cómo se dice un Retenido (etiquetaRetenidoPortal). */
+  empresaActiva?: boolean | null;
 }
 
-/** Camino feliz de un envío. Fallido/Reprogramado/Devuelto/Cancelado no están acá: si el pedido
+/** Camino feliz de un envío. Fallido/Reprogramado/Devuelto/Cancelado/Retenido no están acá: si el pedido
  * termina en uno de ellos se agrega como último paso, en color de alerta. */
 const CAMINO: EstadoPedido[] = ["Borrador", "Confirmado", "EnRuta", "Entregado"];
 
@@ -26,6 +28,7 @@ const ALERTA: Partial<Record<EstadoPedido, string>> = {
   Reprogramado: "bg-amber-500 text-white",
   Devuelto: "bg-neutral-500 text-white",
   Cancelado: "bg-neutral-500 text-white",
+  Retenido: "bg-red-600 text-white",
 };
 
 interface Paso {
@@ -64,7 +67,9 @@ function armarPasos(eventos: EventoLinea[], estadoActual: EstadoPedido): Paso[] 
       alcanzado: true,
       actual: true,
       ocurridoEn: evento?.ocurridoEn ?? null,
-      motivo: evento?.motivo ?? null,
+      // El motivo de una retención es texto interno de operación ("Retenido: la empresa fue dada de
+      // baja…"): al cliente ya se lo dice la etiqueta del paso, con sus palabras.
+      motivo: estadoActual === "Retenido" ? null : (evento?.motivo ?? null),
     });
   }
   return pasos;
@@ -96,7 +101,7 @@ function Punto({ paso }: { paso: Paso }) {
   );
 }
 
-export function LineaTiempoEstados({ eventos, estadoActual, variante = "vertical" }: LineaTiempoEstadosProps) {
+export function LineaTiempoEstados({ eventos, estadoActual, variante = "vertical", empresaActiva }: LineaTiempoEstadosProps) {
   const pasos = armarPasos(eventos, estadoActual);
 
   if (variante === "compacta") {
@@ -110,7 +115,7 @@ export function LineaTiempoEstados({ eventos, estadoActual, variante = "vertical
               <span className={cn("h-0.5 flex-1", i === pasos.length - 1 ? "bg-transparent" : pasos[i + 1].alcanzado ? "bg-bf-azul" : "bg-border")} />
             </div>
             <span className={cn("text-[11px] leading-tight", paso.actual ? "font-semibold text-foreground" : "text-muted-foreground")}>
-              {etiquetaEstadoPedido(paso.estado)}
+              {etiquetaEstadoPedido(paso.estado, empresaActiva)}
             </span>
             {paso.ocurridoEn && (
               <span className="text-[10px] leading-none text-muted-foreground">{formatearMomento(paso.ocurridoEn)}</span>
@@ -133,7 +138,7 @@ export function LineaTiempoEstados({ eventos, estadoActual, variante = "vertical
           </div>
           <div className={cn("pb-4", i === pasos.length - 1 && "pb-0")}>
             <p className={cn("text-sm", paso.actual ? "font-semibold" : paso.alcanzado ? "font-medium" : "text-muted-foreground")}>
-              {etiquetaEstadoPedido(paso.estado)}
+              {etiquetaEstadoPedido(paso.estado, empresaActiva)}
             </p>
             {paso.ocurridoEn ? (
               <p className="text-xs text-muted-foreground">{formatearMomento(paso.ocurridoEn)}</p>

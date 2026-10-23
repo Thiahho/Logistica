@@ -1,5 +1,5 @@
 import type { Disponibilidad, EstadoPedido, EstadoRuta } from "@/lib/dominio/tipos";
-import { etiquetaEstadoRuta } from "@/lib/dominio/tipos";
+import { etiquetaEstadoRuta, etiquetaRetenidoPortal } from "@/lib/dominio/tipos";
 
 /** Estilo/etiqueta de estado de parada, antes duplicado literal en app/hoy/page.tsx y
  * app/hoy/parada/[paradaId]/page.tsx. Unificado acá y sumado el estado de ruta, que hasta
@@ -85,6 +85,7 @@ const ESTILO_PEDIDO: Record<EstadoPedido, string> = {
   Reprogramado: "bg-amber-100 text-amber-700",
   Devuelto: "bg-neutral-200 text-neutral-700",
   Cancelado: "bg-neutral-200 text-neutral-500",
+  Retenido: "bg-red-100 text-red-700",
 };
 
 const ETIQUETA_PEDIDO: Record<EstadoPedido, string> = {
@@ -96,16 +97,42 @@ const ETIQUETA_PEDIDO: Record<EstadoPedido, string> = {
   Reprogramado: "Reprogramado",
   Devuelto: "Devuelto",
   Cancelado: "Cancelado",
+  Retenido: "Suspendido por falta de pago",
 };
 
-export function etiquetaEstadoPedido(estado: string): string {
+/** `empresaActiva` solo cambia cómo se dice un Retenido en el portal (etiquetaRetenidoPortal). */
+export function etiquetaEstadoPedido(estado: string, empresaActiva?: boolean | null): string {
+  if (estado === "Retenido") return etiquetaRetenidoPortal(empresaActiva);
   return ETIQUETA_PEDIDO[estado as EstadoPedido] ?? estado;
 }
 
-export function EstadoPedidoBadge({ estado, size }: { estado: EstadoPedido; size?: "sm" | "md" }) {
+/** Color de lo retenido en el portal: rojo mientras la empresa sigue dada de baja (o no se sabe); con la
+ * empresa otra vez activa ya no es una alerta de pago sino algo en espera, como un reprogramado. */
+export function estiloRetenidoPortal(empresaActiva?: boolean | null): string {
+  return empresaActiva === true ? "bg-amber-100 text-amber-700" : ESTILO_PEDIDO.Retenido;
+}
+
+/** `interno`: el badge se muestra en el BackOffice (el detalle de un viaje lo comparten los dos). Ahí
+ * un Retenido se llama por su nombre; al cliente se le dice según `empresaActiva` (etiquetaRetenidoPortal). */
+export function EstadoPedidoBadge({
+  estado,
+  size,
+  interno = false,
+  empresaActiva,
+}: {
+  estado: EstadoPedido;
+  size?: "sm" | "md";
+  interno?: boolean;
+  /** Portal: si la empresa del cliente está activa (null o sin pasar = no se sabe). */
+  empresaActiva?: boolean | null;
+}) {
+  const retenidoEnPortal = estado === "Retenido" && !interno;
   return (
-    <Badge className={ESTILO_PEDIDO[estado] ?? "bg-neutral-100 text-neutral-700"} size={size}>
-      {etiquetaEstadoPedido(estado)}
+    <Badge
+      className={retenidoEnPortal ? estiloRetenidoPortal(empresaActiva) : (ESTILO_PEDIDO[estado] ?? "bg-neutral-100 text-neutral-700")}
+      size={size}
+    >
+      {interno && estado === "Retenido" ? "Retenido" : etiquetaEstadoPedido(estado, empresaActiva)}
     </Badge>
   );
 }

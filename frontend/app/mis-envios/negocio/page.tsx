@@ -350,9 +350,10 @@ function EstadoDeCuenta() {
           />
           <TarjetaMetrica valor={pesos(cuenta.pendienteDeFacturar)} etiqueta="Pendiente de facturar" />
           <TarjetaMetrica
-            valor={cuenta.servicioCortado ? "Servicio cortado" : "Al día"}
+            // Empresa dada de baja: el servicio está suspendido aunque hoy no tenga deuda vencida.
+            valor={!cuenta.empresaActiva ? "Suspendido por falta de pago" : cuenta.servicioCortado ? "Servicio cortado" : "Al día"}
             etiqueta="Servicio"
-            tono={cuenta.servicioCortado ? "alerta" : "normal"}
+            tono={!cuenta.empresaActiva || cuenta.servicioCortado ? "alerta" : "normal"}
             chico
           />
         </div>

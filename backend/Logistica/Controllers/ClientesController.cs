@@ -27,7 +27,7 @@ namespace Logistica.Controllers;
 [Route("api/clientes")]
 public class ClientesController(
     LogisticaDbContext db, TarifaService tarifas, CuentaCorrienteService cuentaCorriente, AvisosCobranzaService avisosCobranza,
-    AlmacenamientoFotos almacenamiento)
+    AlmacenamientoFotos almacenamiento, AuthService auth, RetencionPedidosService retencion)
     : ControllerBase
 {
     public record TarifaZona(
@@ -338,7 +338,7 @@ public class ClientesController(
         cliente.ColorOper = req.ColorOper;
         cliente.CicloFacturacion = req.CicloFacturacion;
 
-        await db.SaveChangesAsync(ct);
+        await GuardarConActivoAsync(cliente, ct);
         return NoContent();
     }
 
@@ -351,8 +351,68 @@ public class ClientesController(
         if (cliente is null) return NotFound();
 
         cliente.Activo = req.Activo;
-        await db.SaveChangesAsync(ct);
+        await GuardarConActivoAsync(cliente, ct);
         return NoContent();
+    }
+
+    /// <summary>Lo que retuvo la pasada sobre las empresas inactivas: cuántas empresas, cuántos pedidos
+    /// en total y el detalle por empresa (solo las que tenían algo pendiente).</summary>
+    public record RetencionDeInactivas(int Empresas, int Pedidos, List<EmpresaRetenida> Detalle);
+
+    /// <summary>La empresa en la que se cortó la pasada: a esa no se le retuvo nada.</summary>
+    public record EmpresaConFallo(int ClienteId, string RazonSocial);
+
+    /// <summary>
+    /// Pasada única para después de desplegar la retención por baja: una empresa que ya estaba inactiva
+    /// antes de esa regla nunca pasó por GuardarConActivoAsync, así que sus pedidos pendientes siguen
+    /// vivos. Retiene los de todas las empresas inactivas, con quien la corre como actor — igual que
+    /// una baja común. Se puede repetir: la segunda vez no encuentra nada y responde cero.
+    ///
+    /// Cada empresa se guarda por separado, así que si una falla las anteriores ya quedaron retenidas.
+    /// Esa respuesta no es un 200 — la pasada no terminó — pero tampoco un error mudo: es el mismo
+    /// problem+json de un error inesperado (ManejadorExcepciones), con dos datos más para saber hasta
+    /// dónde llegó: `retenidas` (lo que sí quedó guardado, con la forma de la respuesta normal) y
+    /// `fallo` (la empresa en la que se cortó, que no cambió nada). Se corrige y se vuelve a correr.
+    /// </summary>
+    [HttpPost("inactivas/retener-pendientes")]
+    [Authorize(Policy = "Administracion")]
+    public async Task<IActionResult> RetenerPendientesDeInactivas(CancellationToken ct)
+    {
+        var pasada = await retencion.GuardarBajaDeInactivasAsync(User.UsuarioId(), ct);
+        var retenidas = new RetencionDeInactivas(
+            pasada.Retenidas.Count, pasada.Retenidas.Sum(e => e.Pedidos), pasada.Retenidas);
+        if (pasada.Fallo is not { } fallo) return Ok(retenidas);
+
+        // El error no sale por ManejadorExcepciones (se respondería sin decir qué se retuvo): se
+        // registra acá, con el mismo código de soporte que va en la respuesta.
+        var traceId = HttpContext.TraceIdentifier;
+        HttpContext.RequestServices?.GetService<ILogger<ClientesController>>()?.LogError(
+            fallo.Error, "La retención de empresas inactivas se cortó en la empresa {ClienteId} (traceId {TraceId})",
+            fallo.ClienteId, traceId);
+
+        var problema = new ProblemDetails
+        {
+            Status = StatusCodes.Status500InternalServerError,
+            Title = "Error inesperado",
+            Detail = $"La pasada se cortó en la empresa #{fallo.ClienteId} ({fallo.RazonSocial}): a esa no se le retuvo nada. " +
+                     $"Antes quedaron retenidas {retenidas.Empresas} empresas ({retenidas.Pedidos} pedidos). " +
+                     $"Volvé a correrla para seguir desde ahí; si se repite, pasale este código a soporte: {traceId}",
+        };
+        problema.Extensions["traceId"] = traceId;
+        problema.Extensions["retenidas"] = retenidas;
+        problema.Extensions["fallo"] = new EmpresaConFallo(fallo.ClienteId, fallo.RazonSocial);
+        return new ObjectResult(problema) { StatusCode = problema.Status };
+    }
+
+    /// <summary>Guarda al cliente ya modificado. Los dos caminos que escriben Cliente.Activo pasan por
+    /// acá: una empresa que queda inactiva tiene el servicio cortado, así que en la misma transacción
+    /// sus pedidos pendientes pasan a Retenido y salen de sus rutas (RetencionPedidosService, que por
+    /// eso guarda con GuardarComoAsync: hay cambios de estado y tienen que quedar con su actor).
+    /// Reactivarla no reanuda nada.</summary>
+    private async Task GuardarConActivoAsync(Cliente cliente, CancellationToken ct)
+    {
+        if (cliente.Activo) await db.SaveChangesAsync(ct);
+        else await retencion.GuardarBajaAsync(cliente.Id, User.UsuarioId(), ct);
     }
 
     /// <summary>
@@ -478,6 +538,8 @@ public class ClientesController(
         var usuario = await db.ClientesUsuarios.SingleOrDefaultAsync(u => u.Id == usuarioId && u.ClienteId == id, ct);
         if (usuario is null) return NotFound();
 
+        // La baja corta las sesiones abiertas del login, sin esperar a su próximo refresh.
+        if (!req.Activo) await auth.RevocarSesionesAsync(usuario, ct);
         usuario.Activo = req.Activo;
         await db.SaveChangesAsync(ct);
         return NoContent();
@@ -492,7 +554,9 @@ public class ClientesController(
         if (usuario is null) return NotFound();
         if (PoliticaContrasena.Validar(req.Password, usuario.Email) is { } errorClave) return BadRequest(errorClave);
 
+        // Quien entró con la contraseña vieja no sigue adentro con su refresh token.
         usuario.PasswordHash = AuthService.HashearCliente(usuario, req.Password);
+        await auth.RevocarSesionesAsync(usuario, ct);
         await db.SaveChangesAsync(ct);
         return NoContent();
     }

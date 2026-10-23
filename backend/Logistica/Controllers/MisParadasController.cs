@@ -153,10 +153,9 @@ public class MisParadasController(
         // Una query más, solo mientras el retiro no está firmado: es el número que la pantalla de
         // retiro pone arriba para contra qué contar. Una vez firmado sale de la fila, porque lo
         // que importa desde ahí es contra qué se contó, no cuántos bultos tiene la ruta ahora.
+        // Sin los cancelados ni los retenidos: la misma cuenta que congela MiJornadaController.Retiro.
         var bultosEsperados = ruta.RetiroBultosEsperados
-            ?? await db.ParadaPedidos
-                .Where(pp => pp.Parada.RutaId == ruta.Id)
-                .SumAsync(pp => (int?)pp.Pedido.Bultos, ct) ?? 0;
+            ?? await MiJornadaController.BultosPorRetirarAsync(db, ruta.Id, ct);
 
         var novedades = await db.Novedades.AsNoTracking()
             // Sin acusar, o lo que él informó y sigue abierto. Un aviso de operación ya acusado sale del
@@ -211,6 +210,14 @@ public class MisParadasController(
     /// Supabase Storage con escritura directa del cliente al bucket — con backend .NET propio, un
     /// solo request server-side es más simple y conserva todos los invariantes que el diagrama
     /// protegía (idempotencia, hora de captura, desvío).
+    ///
+    /// Entre que el cierre lee los pedidos y que guarda puede cambiar algo: el otro tap de un doble tap
+    /// que guardó primero, u operación que canceló un pedido de la parada (su ítem de cancelación choca
+    /// con el de la entrega en ux_factura_items_pedido). En los dos casos la base rechaza el guardado
+    /// entero y el cierre se vuelve a intentar UNA vez desde cero, leyendo de nuevo: si era el otro tap,
+    /// el chequeo de idempotencia encuentra las pruebas ya guardadas y responde duplicado; si era una
+    /// cancelación, el pedido cancelado queda afuera y se guarda la prueba del resto. Nunca se responde
+    /// duplicado sin pruebas guardadas — la PWA borra su captura local al recibirlo.
     /// </summary>
     [HttpPost("{paradaId:long}/cierre")]
     [Consumes("multipart/form-data")]
@@ -219,6 +226,38 @@ public class MisParadasController(
     {
         var repartidorId = User.UsuarioId();
 
+        // La foto se sube una sola vez aunque el cierre se reintente: Lazy la escribe en el primer
+        // intento que llega a necesitarla (pasadas las validaciones) y el segundo reusa la misma ruta.
+        var foto = new Lazy<Task<string?>>(() => GuardarFotoAsync(paradaId, req, ct));
+
+        try
+        {
+            return await IntentarCierreAsync(paradaId, req, repartidorId, foto, ct);
+        }
+        catch (DbUpdateException ex) when (EsCambioConcurrente(ex))
+        {
+            // Lo que quedó en el change tracker es del intento rechazado (pruebas e ítems sin
+            // guardar, pedidos con el estado viejo): se descarta todo y se lee de nuevo.
+            db.ChangeTracker.Clear();
+        }
+
+        try
+        {
+            return await IntentarCierreAsync(paradaId, req, repartidorId, foto, ct);
+        }
+        catch (DbUpdateException ex) when (EsCambioConcurrente(ex))
+        {
+            // Dos choques seguidos: no se insiste. 409 y no duplicado — no hay prueba guardada, la
+            // captura tiene que seguir en el teléfono.
+            return Conflict("La parada cambió mientras se guardaba el cierre; volvé a cargar la jornada e intentá de nuevo.");
+        }
+    }
+
+    /// <summary>Un intento completo de cierre: lee el estado actual, valida y guarda. Deja escapar el
+    /// DbUpdateException de un choque con otra escritura para que Cerrar decida si reintenta.</summary>
+    private async Task<IActionResult> IntentarCierreAsync(
+        long paradaId, CerrarParadaRequest req, Guid repartidorId, Lazy<Task<string?>> foto, CancellationToken ct)
+    {
         var parada = await db.RutaParadas
             .Include(p => p.Ruta)
             .Include(p => p.Ubicacion)
@@ -232,10 +271,13 @@ public class MisParadasController(
         // falla: se excluye del cierre en vez de dejar que dispare el Conflict de más abajo y bloquee
         // a los demás pedidos de la parada consolidada. Se decide acá, antes del chequeo de
         // idempotencia, para que un reintento compare contra el mismo conjunto que el intento original.
+        // Lo mismo un Retenido: la empresa fue dada de baja por falta de pago con el pedido ya en la
+        // calle (RetencionPedidosService) — tampoco se entrega ni frena a los demás.
         var todosLosPedidos = await db.Pedidos.Where(p => idsDeLaParada.Contains(p.Id)).ToListAsync(ct);
-        var pedidoIds = todosLosPedidos.Where(p => p.Estado != EstadoPedido.Cancelado).Select(p => p.Id).ToList();
+        var pedidoIds = todosLosPedidos
+            .Where(p => p.Estado is not (EstadoPedido.Cancelado or EstadoPedido.Retenido)).Select(p => p.Id).ToList();
         if (pedidoIds.Count == 0)
-            return Conflict("Operación canceló todos los pedidos de esta parada: no hay nada para entregar.");
+            return Conflict("Operación canceló o suspendió todos los pedidos de esta parada: no hay nada para entregar.");
 
         // Chequeo de idempotencia EXPLÍCITO primero (RNF-02): si ya existe una prueba para todos
         // los pedidos de la parada con este device_uuid, no es un conflicto — es un reintento. Un
@@ -294,12 +336,7 @@ public class MisParadasController(
         // La foto se escribe a disco ANTES de la transacción: si después falla la base, queda un
         // archivo huérfano inofensivo que el reintento pisa. Al revés (base primero) quedaría una
         // fila apuntando a un archivo inexistente, irreparable sin intervención manual.
-        string? fotoPath = null;
-        if (req.Foto is not null)
-        {
-            await using var stream = req.Foto.OpenReadStream();
-            fotoPath = await almacenamiento.GuardarAsync(paradaId, req.DeviceUuid, stream, req.Foto.Length, ct);
-        }
+        var fotoPath = await foto.Value;
 
         int? desvioMetros = null;
         if (req.Lat is not null && req.Lng is not null && parada.Ubicacion.Lat is not null && parada.Ubicacion.Lng is not null)
@@ -345,25 +382,11 @@ public class MisParadasController(
         parada.LlegadaEn ??= llegadaEnUtc;
         parada.SalidaEn = capturadaEnUtc;
 
-        try
-        {
-            // GuardarComoAsync obligatorio acá (regla 7): cambia Pedido.Estado y
-            // fn_log_estado_pedido tiene que registrar al repartidor como actor.
-            var motivo = req.Resultado == "fallido" ? req.MotivoFallo : "Entrega confirmada por el repartidor.";
-            await db.GuardarComoAsync(repartidorId, motivo, ct);
-        }
-        catch (DbUpdateException ex) when (EsViolacionDeUnique(ex))
-        {
-            // Backstop de carrera: dos taps casi simultáneos pasaron el chequeo de idempotencia a
-            // la vez. Se responde igual que el camino feliz de "ya existía" — nunca se deja
-            // escapar como 409, que ManejadorExcepciones no sabría distinguir de un conflicto real.
-            var yaExistentes = await db.PruebasEntrega.AsNoTracking()
-                .Where(pe => pe.DeviceUuid == req.DeviceUuid && pedidoIds.Contains(pe.PedidoId))
-                .ToListAsync(ct);
-            return Ok(new CierreResultado(paradaId, parada.Estado, yaExistentes.Count,
-                yaExistentes.FirstOrDefault()?.DesvioMetros, desvioAlto, Duplicado: true,
-                await SiguienteParadaAsync(parada.RutaId, ct)));
-        }
+        // GuardarComoAsync obligatorio acá (regla 7): cambia Pedido.Estado y fn_log_estado_pedido
+        // tiene que registrar al repartidor como actor. Sin try/catch a propósito: un unique violation
+        // acá no dice por sí solo "ya estaba guardado" — lo resuelve Cerrar, reintentando.
+        var motivo = req.Resultado == "fallido" ? req.MotivoFallo : "Entrega confirmada por el repartidor.";
+        await db.GuardarComoAsync(repartidorId, motivo, ct);
 
         return Ok(new CierreResultado(paradaId, parada.Estado, pedidos.Count, desvioMetros, desvioAlto, Duplicado: false,
             await SiguienteParadaAsync(parada.RutaId, ct)));
@@ -387,6 +410,18 @@ public class MisParadasController(
             .Select(p => (long?)p.Id)
             .FirstOrDefaultAsync(ct);
 
-    private static bool EsViolacionDeUnique(DbUpdateException ex) =>
-        ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
+    /// <summary>Idempotente por (parada, dispositivo): AlmacenamientoFotos pisa el archivo si ya existe.</summary>
+    private async Task<string?> GuardarFotoAsync(long paradaId, CerrarParadaRequest req, CancellationToken ct)
+    {
+        if (req.Foto is null) return null;
+        await using var stream = req.Foto.OpenReadStream();
+        return await almacenamiento.GuardarAsync(paradaId, req.DeviceUuid, stream, req.Foto.Length, ct);
+    }
+
+    /// <summary>Otra escritura ganó la carrera: por un unique (la prueba del otro tap, o el ítem facturable
+    /// de una cancelación — ux_factura_items_pedido) o porque el pedido ya no es la versión que se leyó
+    /// (Pedido.Version). Cuál de los dos salta primero depende del orden en que EF mande las sentencias.</summary>
+    private static bool EsCambioConcurrente(DbUpdateException ex) =>
+        ex is DbUpdateConcurrencyException
+        || ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
 }

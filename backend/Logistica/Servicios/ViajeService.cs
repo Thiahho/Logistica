@@ -35,9 +35,14 @@ public record ViajeDetalle(
 
 public record ViajeResumen(
     long Id, int ClienteId, string ClienteRazonSocial, DateOnly FechaEntrega, string Estado,
-    int Paradas, int Entregadas, int Fallidas, decimal? KmEstimados, string CreadoPor, DateTimeOffset CreadoEn);
+    int Paradas, int Entregadas, int Fallidas, decimal? KmEstimados, string CreadoPor, DateTimeOffset CreadoEn,
+    int Retenidos = 0);
 
-/// <summary>Datos comunes de un viaje nuevo. Uno de los dos creadores, nunca los dos (ck_viajes_creador).</summary>
+/// <summary>Un envío de un viaje sin ruta propia, con lo que hace falta para decir en qué anda el viaje:
+/// su estado y si hoy tiene una fila de parada_pedidos en una ruta en curso o en una en planificación.</summary>
+public readonly record struct EnvioDeViaje(EstadoPedido Estado, bool EnRutaEnCurso, bool EnRutaPlanificada);
+
+/// <summary>Datos comunes de un viaje nuevo.Uno de los dos creadores, nunca los dos (ck_viajes_creador).</summary>
 public record NuevoViaje(
     int ClienteId, DateOnly FechaEntrega, bool Urgente, string? TipoVehiculo, string? Observaciones,
     Guid? ClienteUsuarioId, Guid? UsuarioId);
@@ -50,9 +55,11 @@ public record ViajeCreado(long Id, long? RutaId, List<long> PedidoIds, int Parad
 /// (MiCuentaController) y el BackOffice (ViajesController): las validaciones propias de cada puerta
 /// (corte horario, deuda, fecha) y el precio quedan en el controller; acá, lo que es igual en los dos.
 /// </summary>
-public class ViajeService(LogisticaDbContext db, OrigenRutaService origenes, RuteoService ruteo)
+public class ViajeService(
+    LogisticaDbContext db, OrigenRutaService origenes, RuteoService ruteo, RetencionPedidosService retencion)
 {
-    /// <summary>Estado que ve el usuario: cancelado, o el de su ruta (sin_ruta si todavía no tiene).</summary>
+    /// <summary>Estado que ve el usuario: cancelado, o el de su ruta (sin_ruta si todavía no tiene). Para
+    /// un viaje activo sin ruta propia, lo que se muestra es EstadoSinRutaPropia.</summary>
     public static string EstadoVisible(string estado, string? rutaEstado) =>
         estado == EstadosViaje.Cancelado ? "cancelado" : rutaEstado switch
         {
@@ -61,6 +68,51 @@ public class ViajeService(LogisticaDbContext db, OrigenRutaService origenes, Rut
             "en_curso" => "en_curso",
             _ => "cerrado",
         };
+
+    /// <summary>
+    /// Estado que ve el usuario de un viaje activo que no tiene ruta propia. La baja de la empresa por
+    /// falta de pago le quita la propuesta (RetencionPedidosService) y nada se la devuelve: al
+    /// reanudarse, sus envíos se rutean como cualquier otro pedido. Entonces el estado sale de ellos,
+    /// y gana lo primero que se cumpla:
+    ///  - alguno está en la calle (EnRuta, en una ruta en curso): `en_curso`;
+    ///  - alguno pendiente está en el armado de una ruta todavía en planificación: `planificado`;
+    ///  - alguno sigue pendiente y no está en ninguna ruta: `sin_ruta`;
+    ///  - no queda ninguno pendiente y alguno está retenido: `retenido`;
+    ///  - están todos resueltos (entregados, fallidos, devueltos): `cerrado`.
+    /// Los cancelados no deciden. La fila que un reprogramado conserva en la parada donde falló (ruta
+    /// en curso o cerrada) es historia de ese intento, no una asignación vigente — misma regla que
+    /// RutasController.GuardarParadas —: por eso `en_curso` mira el estado del envío y no solo la fila.
+    /// Un viaje sin envíos no tiene de dónde derivar nada: `sin_ruta`, como antes.
+    /// </summary>
+    public static string EstadoSinRutaPropia(IEnumerable<EnvioDeViaje> envios)
+    {
+        var todos = envios.ToList();
+        if (todos.Count == 0) return "sin_ruta";
+
+        var pendientes = todos.Where(e => TransicionesPedido.Retenibles.Contains(e.Estado)).ToList();
+        if (pendientes.Any(e => e.Estado == EstadoPedido.EnRuta && e.EnRutaEnCurso)) return "en_curso";
+        if (pendientes.Any(e => e.EnRutaPlanificada)) return "planificado";
+        if (pendientes.Count > 0) return "sin_ruta";
+        return todos.Any(e => e.Estado == EstadoPedido.Retenido) ? "retenido" : "cerrado";
+    }
+
+    /// <summary>Los envíos de cada viaje sin ruta propia, para EstadoSinRutaPropia. Una sola consulta
+    /// para todos los viajes pedidos (los de una página del listado).</summary>
+    private async Task<ILookup<long, EnvioDeViaje>> EnviosDeViajesAsync(IReadOnlyCollection<long> viajeIds, CancellationToken ct)
+    {
+        if (viajeIds.Count == 0) return Array.Empty<long>().ToLookup(id => id, _ => default(EnvioDeViaje));
+
+        var filas = await db.Pedidos.AsNoTracking()
+            .Where(p => p.ViajeId != null && viajeIds.Contains(p.ViajeId.Value))
+            .Select(p => new
+            {
+                ViajeId = p.ViajeId!.Value, p.Estado,
+                EnCurso = db.ParadaPedidos.Any(pp => pp.PedidoId == p.Id && pp.Parada.Ruta.Estado == "en_curso"),
+                Planificada = db.ParadaPedidos.Any(pp => pp.PedidoId == p.Id && pp.Parada.Ruta.Estado == "planificada"),
+            })
+            .ToListAsync(ct);
+        return filas.ToLookup(f => f.ViajeId, f => new EnvioDeViaje(f.Estado, f.EnCurso, f.Planificada));
+    }
 
     /// <summary>Las ubicaciones de las paradas, con su zona y si la dirección es apta para una ruta
     /// (misma regla que trg_bloquear_direccion_dudosa). Error si alguna no existe o no tiene zona.</summary>
@@ -299,15 +351,27 @@ public class ViajeService(LogisticaDbContext db, OrigenRutaService origenes, Rut
                 // Orden de la parada en la ruta del viaje, si está en ella.
                 OrdenRuta = db.ParadaPedidos.Where(pp => pp.PedidoId == p.Id && pp.Parada.RutaId == v.RutaId)
                     .Select(pp => (int?)pp.Parada.Orden).FirstOrDefault(),
+                // Lo que hace falta cuando el viaje no tiene ruta propia: en qué ruta anda hoy cada envío
+                // (EstadoSinRutaPropia) y si su dirección sirve para una ruta.
+                EnCurso = db.ParadaPedidos.Any(pp => pp.PedidoId == p.Id && pp.Parada.Ruta.Estado == "en_curso"),
+                Planificada = db.ParadaPedidos.Any(pp => pp.PedidoId == p.Id && pp.Parada.Ruta.Estado == "planificada"),
+                Apta = LogisticaDbContext.UbicacionApta(p.DestinoUbicacionId),
             })
             .ToListAsync(ct);
+
+        // Sin ruta propia no hay "quedó fuera de la ruta propuesta": lo único que sigue diciendo EnRuta
+        // es si la dirección es dudosa, que es por lo que una parada queda afuera al crear el viaje.
+        var sinRutaPropia = v.RutaId is null;
+        var estado = sinRutaPropia && v.Estado != EstadosViaje.Cancelado
+            ? EstadoSinRutaPropia(pedidos.Select(p => new EnvioDeViaje(p.Estado, p.EnCurso, p.Planificada)))
+            : EstadoVisible(v.Estado, v.RutaEstado);
 
         var ordenados = pedidos
             .OrderBy(p => p.OrdenRuta ?? int.MaxValue).ThenBy(p => p.OrdenEnViaje).ThenBy(p => p.Id)
             .ToList();
         var paradas = ordenados.Select((p, i) => new ParadaViajeDetalle(
             i + 1, p.Id, p.DestinatarioNombre, p.DestinatarioTelefono, p.CalleNumero, p.Localidad, p.Lat, p.Lng,
-            p.Bultos, p.Observaciones, p.Estado.ToString(), p.OrdenRuta is not null,
+            p.Bultos, p.Observaciones, p.Estado.ToString(), sinRutaPropia ? p.Apta : p.OrdenRuta is not null,
             conPrecios ? p.Precio : null)).ToList();
 
         // Recorrido del orden actual (por calle; el proveedor lo cachea 30 min). Una dirección
@@ -322,7 +386,7 @@ public class ViajeService(LogisticaDbContext db, OrigenRutaService origenes, Rut
 
         return new ViajeDetalle(
             v.Id, v.ClienteId, v.ClienteRazonSocial, v.FechaEntrega, v.TipoVehiculo,
-            EstadoVisible(v.Estado, v.RutaEstado), v.RutaId, v.RutaEstado, v.KmEstimados, v.CreadoPor, v.CreadoEn,
+            estado, v.RutaId, v.RutaEstado, v.KmEstimados, v.CreadoPor, v.CreadoEn,
             v.Observaciones, v.Origen, paradas,
             pedidos.Count(p => p.Estado == EstadoPedido.Entregado),
             pedidos.Count(p => NegocioCliente.Grupo(p.Estado) == NegocioCliente.GrupoEstado.Fallido),
@@ -341,11 +405,14 @@ public class ViajeService(LogisticaDbContext db, OrigenRutaService origenes, Rut
             .Skip((paginaActual - 1) * tamanio).Take(tamanio)
             .Select(v => new
             {
-                v.Id, v.ClienteId, v.Cliente.RazonSocial, v.FechaEntrega, v.Estado,
+                v.Id, v.ClienteId, v.Cliente.RazonSocial, v.FechaEntrega, v.Estado, v.RutaId,
                 RutaEstado = v.Ruta != null ? v.Ruta.Estado : null,
                 Paradas = db.Pedidos.Count(p => p.ViajeId == v.Id),
                 Entregadas = db.Pedidos.Count(p => p.ViajeId == v.Id && p.Estado == EstadoPedido.Entregado),
                 Fallidas = db.Pedidos.Count(p => p.ViajeId == v.Id && (p.Estado == EstadoPedido.Fallido || p.Estado == EstadoPedido.Devuelto)),
+                // Un viaje reanudado a medias ya no se lee `retenido`: el listado dice aparte cuántos de
+                // sus envíos lo siguen. Va con los otros conteos, en la misma consulta de la página.
+                Retenidos = db.Pedidos.Count(p => p.ViajeId == v.Id && p.Estado == EstadoPedido.Retenido),
                 v.KmEstimados,
                 CreadoPor = v.CreadoPorClienteUsuario != null ? v.CreadoPorClienteUsuario.Nombre
                     : v.CreadoPorUsuario != null ? v.CreadoPorUsuario.Nombre : "—",
@@ -353,14 +420,22 @@ public class ViajeService(LogisticaDbContext db, OrigenRutaService origenes, Rut
             })
             .ToListAsync(ct);
 
+        // Los viajes de la página que no tienen ruta propia se leen de sus envíos: una consulta más para
+        // todos ellos, no una por viaje.
+        var sinRutaPropia = filas.Where(v => v.RutaId is null && v.Estado != EstadosViaje.Cancelado).Select(v => v.Id).ToList();
+        var envios = await EnviosDeViajesAsync(sinRutaPropia, ct);
+
         return new ListaPaginada<ViajeResumen>(filas.Select(v => new ViajeResumen(
-            v.Id, v.ClienteId, v.RazonSocial, v.FechaEntrega, EstadoVisible(v.Estado, v.RutaEstado),
-            v.Paradas, v.Entregadas, v.Fallidas, v.KmEstimados, v.CreadoPor, v.CreadoEn)).ToList(), total);
+            v.Id, v.ClienteId, v.RazonSocial, v.FechaEntrega,
+            v.RutaId is null && v.Estado != EstadosViaje.Cancelado ? EstadoSinRutaPropia(envios[v.Id]) : EstadoVisible(v.Estado, v.RutaEstado),
+            v.Paradas, v.Entregadas, v.Fallidas, v.KmEstimados, v.CreadoPor, v.CreadoEn, v.Retenidos)).ToList(), total);
     }
 
     /// <summary>Cancela el viaje entero mientras nada salió: la ruta propuesta sigue en planificación
     /// (o no hay) y todos sus envíos en Borrador. Cancelar en Borrador no tiene costo (§10.2-I). La ruta
-    /// propuesta se elimina (sus paradas caen en cascada). Devuelve el error para un 409, o null.</summary>
+    /// propuesta se elimina (sus paradas caen en cascada). Un viaje sin ruta propia — la perdió con la
+    /// baja de la empresa — puede tener sus envíos, ya reanudados, en el armado de una ruta común: salen
+    /// de ella igual que al retenerlos (RetencionPedidosService). Devuelve el error para un 409, o null.</summary>
     public async Task<string?> CancelarAsync(long id, int clienteId, Guid? usuarioId, string motivo, CancellationToken ct)
     {
         var viaje = await db.Viajes.Include(v => v.Ruta).SingleOrDefaultAsync(v => v.Id == id && v.ClienteId == clienteId, ct);
@@ -373,8 +448,11 @@ public class ViajeService(LogisticaDbContext db, OrigenRutaService origenes, Rut
         if (pedidos.Any(p => p.Estado is not (EstadoPedido.Borrador or EstadoPedido.Cancelado)))
             return "Alguno de los envíos del viaje ya fue confirmado; para cambiarlo, contactá a la Empresa.";
 
-        foreach (var p in pedidos.Where(p => p.Estado == EstadoPedido.Borrador)) p.Estado = EstadoPedido.Cancelado;
+        var cancelados = pedidos.Where(p => p.Estado == EstadoPedido.Borrador).ToList();
+        foreach (var p in cancelados) p.Estado = EstadoPedido.Cancelado;
         viaje.Estado = EstadosViaje.Cancelado;
+        // Las filas de la ruta propuesta caen en cascada con ella, más abajo.
+        await retencion.SacarDeRutasEnPlanificacionAsync(cancelados.Select(p => p.Id).ToList(), viaje.RutaId, ct);
         if (viaje.Ruta is not null)
         {
             db.Rutas.Remove(viaje.Ruta);

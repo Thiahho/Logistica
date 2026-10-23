@@ -51,8 +51,13 @@ public class TableroController(LogisticaDbContext db) : ControllerBase
         var indicadoresDeRuta = clienteId is null && zonaId is null;
 
         // ── Pedidos del período (entregas, cancelaciones, entregas por día) ─────────────────────────
+        // Fuera los que siguen en borrador (docs/diseño_b2_tablero.md): todavía no son un pedido que la
+        // Empresa haya tomado. Lo mismo el borrador que la baja de su empresa dejó Retenido — sin total
+        // nunca se confirmó, y al reanudarse vuelve a Borrador —: si entrara al total diluiría el
+        // porcentaje de cancelaciones. El retenido que ya estaba confirmado sigue contando, como contaba.
         var pedidos = db.Pedidos.AsNoTracking()
-            .Where(p => p.FechaEntrega >= desde && p.FechaEntrega <= hasta && p.Estado != EstadoPedido.Borrador);
+            .Where(p => p.FechaEntrega >= desde && p.FechaEntrega <= hasta && p.Estado != EstadoPedido.Borrador
+                && !(p.Estado == EstadoPedido.Retenido && p.Total == null));
         if (clienteId is not null) pedidos = pedidos.Where(p => p.ClienteId == clienteId);
         if (zonaId is not null) pedidos = pedidos.Where(p => p.ZonaId == zonaId);
         if (vehiculoId is not null || repartidorId is not null)

@@ -49,12 +49,15 @@ public static class NegocioCliente
     public enum GrupoEstado { Entregado, Fallido, Cancelado, EnCurso }
 
     /// <summary>"Fallido" suma Fallido y Devuelto; "En curso" es todo lo que todavía no terminó
-    /// (Borrador, Confirmado, EnRuta, Reprogramado).</summary>
+    /// (Borrador, Confirmado, EnRuta, Reprogramado). Retenido también: suspendido por falta de pago no es
+    /// un final — se reanuda o se devuelve — y contarlo como fallido o cancelado le atribuiría al envío
+    /// un resultado que no tuvo.</summary>
     public static GrupoEstado Grupo(EstadoPedido estado) => estado switch
     {
         EstadoPedido.Entregado => GrupoEstado.Entregado,
         EstadoPedido.Fallido or EstadoPedido.Devuelto => GrupoEstado.Fallido,
         EstadoPedido.Cancelado => GrupoEstado.Cancelado,
+        EstadoPedido.Retenido => GrupoEstado.EnCurso,
         _ => GrupoEstado.EnCurso,
     };
 

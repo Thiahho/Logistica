@@ -45,3 +45,7 @@ backend/**/.vs/
 .vs/
 *.suo
 *.user
+
+# Tooling local de agentes (se regenera; no se versiona)
+.atl/
+.codegraph/

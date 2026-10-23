@@ -21,7 +21,7 @@ namespace Logistica.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/usuarios")]
-public class UsuariosController(LogisticaDbContext db) : ControllerBase
+public class UsuariosController(LogisticaDbContext db, AuthService auth) : ControllerBase
 {
     public record UsuarioResumen(Guid Id, string Nombre, string Email, string Rol, bool Activo);
     public record UsuarioSeleccion(Guid Id, string Nombre);
@@ -83,6 +83,10 @@ public class UsuariosController(LogisticaDbContext db) : ControllerBase
         var usuario = await db.Usuarios.SingleOrDefaultAsync(u => u.Id == id, ct);
         if (usuario is null) return NotFound();
 
+        // Un rol nuevo o una baja dejan viejas las sesiones abiertas: se cortan todas acá, sin
+        // esperar a que cada dispositivo pase por su próximo refresh.
+        if (usuario.Rol != req.Rol || (usuario.Activo && !req.Activo)) await auth.RevocarSesionesAsync(usuario, ct);
+
         usuario.Nombre = req.Nombre;
         usuario.Rol = req.Rol;
         usuario.Activo = req.Activo;
@@ -93,7 +97,7 @@ public class UsuariosController(LogisticaDbContext db) : ControllerBase
 
     /// <summary>Alta/baja rápida desde el listado, igual que ClientesController.CambiarActivo.
     /// Desactivar en vez de borrar: no hay borrado de usuarios, el historial de pedido_eventos
-    /// referencia actor_usuario_id.</summary>
+    /// referencia actor_usuario_id. La baja corta las sesiones abiertas.</summary>
     [HttpPut("{id:guid}/activo")]
     [Authorize(Policy = "Administracion")]
     public async Task<IActionResult> CambiarActivo(Guid id, ActivoRequest req, CancellationToken ct)
@@ -101,13 +105,15 @@ public class UsuariosController(LogisticaDbContext db) : ControllerBase
         var usuario = await db.Usuarios.SingleOrDefaultAsync(u => u.Id == id, ct);
         if (usuario is null) return NotFound();
 
+        if (!req.Activo) await auth.RevocarSesionesAsync(usuario, ct);
         usuario.Activo = req.Activo;
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
 
     /// <summary>Reset de contraseña por el admin (acta: "nunca pedir contraseña en la calle" —
-    /// el repartidor no puede autoservirse un cambio).</summary>
+    /// el repartidor no puede autoservirse un cambio). Corta las sesiones abiertas: quien entró
+    /// con la contraseña vieja no sigue adentro con su refresh token.</summary>
     [HttpPut("{id:guid}/password")]
     [Authorize(Policy = "Administracion")]
     public async Task<IActionResult> CambiarPassword(Guid id, CambiarPasswordRequest req, CancellationToken ct)
@@ -117,6 +123,7 @@ public class UsuariosController(LogisticaDbContext db) : ControllerBase
         if (PoliticaContrasena.Validar(req.Password, usuario.Email) is { } errorClave) return BadRequest(errorClave);
 
         usuario.PasswordHash = AuthService.Hashear(usuario, req.Password);
+        await auth.RevocarSesionesAsync(usuario, ct);
         await db.SaveChangesAsync(ct);
         return NoContent();
     }

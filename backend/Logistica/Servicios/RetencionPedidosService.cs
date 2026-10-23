@@ -1,0 +1,291 @@
+using Logistica.Datos;
+using Logistica.Dominio;
+using Logistica.Entidades;
+using Microsoft.EntityFrameworkCore;
+
+namespace Logistica.Servicios;
+
+/// <summary>Una empresa inactiva y cuántos de sus pedidos pendientes quedaron retenidos en la pasada.</summary>
+public record EmpresaRetenida(int ClienteId, string RazonSocial, int Pedidos);
+
+/// <summary>La empresa en la que se cortó la pasada, y con qué error: a esa no se le retuvo nada.</summary>
+public record FalloDeRetencion(int ClienteId, string RazonSocial, Exception Error);
+
+/// <summary>Hasta dónde llegó la pasada sobre las empresas inactivas: las que quedaron retenidas (y
+/// guardadas) y, si se cortó, en cuál. `Fallo` null = recorrió todas.</summary>
+public record PasadaDeRetencion(List<EmpresaRetenida> Retenidas, FalloDeRetencion? Fallo);
+
+/// <summary>
+/// Baja de una empresa por falta de pago: el servicio se corta de verdad. Sus pedidos pendientes
+/// (TransicionesPedido.Retenibles) pasan a Retenido y dejan de estar en una ruta o por entregar; lo ya
+/// resuelto (Entregado, Fallido, Devuelto, Cancelado) no se toca. Retener no cobra nada: no acuña
+/// factura_items, no es un intento fallido y no consume una reprogramación sin cargo.
+///
+/// Un solo lugar para los dos caminos que escriben Cliente.Activo (ClientesController.Actualizar y
+/// CambiarActivo). Reactivar la empresa no reanuda nada: eso lo decide operación pedido por pedido
+/// (PedidosController.CambiarEstado).
+/// </summary>
+public class RetencionPedidosService(LogisticaDbContext db)
+{
+    /// <summary>El motivo que fn_log_estado_pedido deja en pedido_eventos por cada pedido retenido.</summary>
+    public const string MotivoBaja = "Retenido: la empresa fue dada de baja por falta de pago.";
+
+    /// <summary>
+    /// Guarda lo que el contexto tenga pendiente — la baja de la empresa — junto con la retención de sus
+    /// pedidos, en una sola transacción (GuardarComoAsync): o quedan las dos cosas o ninguna. Devuelve
+    /// cuántos pedidos retuvo. Si la empresa ya estaba inactiva vuelve a pasar el rastrillo: no hace
+    /// nada cuando no queda nada pendiente, y recoge lo que haya quedado de una baja anterior a esta regla.
+    ///
+    /// Qué pasa con la ruta de cada pedido retenido:
+    ///  - `planificada`: sale del armado (se borra su fila de parada_pedidos). La parada que queda sin
+    ///    ningún pedido se elimina y el resto se renumera, así el cierre de planificación sigue
+    ///    funcionando para los pedidos de las demás empresas.
+    ///  - `en_curso`: igual que una cancelación con el repartidor en la calle (acta changelog 4.8). La
+    ///    fila queda como historia, el repartidor recibe el aviso y, si la parada se queda sin ningún
+    ///    pedido por entregar, pasa a `cancelada` — así no bloquea el cierre de la ruta.
+    ///  - ruta propuesta de un viaje todavía `planificada`: se elimina entera, como en
+    ///    ViajeService.CancelarAsync (es solo de esa empresa). El viaje sigue activo y sin ruta propia: esa
+    ///    ruta no vuelve. Sus envíos, al reanudarse, se rutean como cualquier otro, y el viaje lee su
+    ///    estado de ellos (ViajeService.EstadoSinRutaPropia). Un viaje con la ruta ya `en_curso` no pierde la
+    ///    ruta — tiene retiro firmado y puede tener entregas hechas —: sus envíos pendientes se retienen
+    ///    como los de cualquier otra ruta en curso.
+    /// </summary>
+    public async Task<int> GuardarBajaAsync(int clienteId, Guid actorId, CancellationToken ct)
+    {
+        var retenidos = await RetenerPendientesAsync(clienteId, actorId, ct);
+
+        // GuardarComoAsync (regla 7): cambia Pedido.Estado, fn_log_estado_pedido tiene que registrar
+        // quién dio la baja y por qué quedó retenido cada pedido.
+        await db.GuardarComoAsync(actorId, MotivoBaja, ct);
+        return retenidos;
+    }
+
+    /// <summary>Deja en el contexto la retención de los pedidos pendientes de la empresa — estados, filas
+    /// de parada, avisos — sin guardar: lo hace quien llama, en su transacción. Devuelve cuántos son.</summary>
+    private async Task<int> RetenerPendientesAsync(int clienteId, Guid actorId, CancellationToken ct)
+    {
+        var pedidos = await db.Pedidos
+            .Where(p => p.ClienteId == clienteId && TransicionesPedido.Retenibles.Contains(p.Estado))
+            .ToListAsync(ct);
+        var ids = pedidos.Select(p => p.Id).ToList();
+
+        var rutasDeViaje = await QuitarRutasPropuestasAsync(clienteId, ct);
+
+        // Las filas de una ruta cerrada son historia y no se tocan. Las de una ruta propuesta que se
+        // elimina más arriba caen en cascada con ella.
+        var filas = await db.ParadaPedidos
+            .Include(pp => pp.Parada).ThenInclude(p => p.Ruta)
+            .Where(pp => ids.Contains(pp.PedidoId) && pp.Parada.Ruta.Estado != "cerrada")
+            .ToListAsync(ct);
+        filas = filas.Where(pp => !rutasDeViaje.Contains(pp.Parada.RutaId)).ToList();
+
+        await SacarDelArmadoAsync(filas.Where(pp => pp.Parada.Ruta.Estado == "planificada").ToList(), ids, ct);
+        // Solo la parada todavía pendiente es el intento vigente: la fila que un reprogramado conserva
+        // en la parada donde falló (D13) no le dice nada al repartidor.
+        await AvisarAlRepartidorAsync(
+            filas.Where(pp => pp.Parada.Ruta.Estado == "en_curso" && pp.Parada.Estado == "pendiente").ToList(),
+            pedidos.ToDictionary(p => p.Id), actorId, ct);
+
+        foreach (var pedido in pedidos) pedido.Estado = EstadoPedido.Retenido;
+        return pedidos.Count;
+    }
+
+    /// <summary>
+    /// La retención de una empresa de la pasada (GuardarBajaDeInactivasAsync), en su propia transacción
+    /// y solo si la empresa sigue inactiva: entre que la pasada arma su lista y le llega el turno, la
+    /// pudieron reactivar, y una empresa activa no se retiene. La fila de la empresa queda tomada
+    /// (`for update`) hasta el commit, así que una reactivación que llegue a la vez espera y encuentra
+    /// la retención ya hecha — el mismo resultado que reactivarla después. Devuelve cuántos pedidos
+    /// retuvo, o null si la salteó porque ya no está inactiva (o no existe).
+    /// </summary>
+    public async Task<int?> GuardarBajaSiSigueInactivaAsync(int clienteId, Guid actorId, CancellationToken ct)
+    {
+        var estrategia = db.Database.CreateExecutionStrategy();
+        return await estrategia.ExecuteAsync(async () =>
+        {
+            // Todo dentro del delegate, como GuardarComoAsync: si la estrategia reintenta, parte de cero.
+            db.ChangeTracker.Clear();
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+            var activa = await db.Database
+                .SqlQuery<bool>($"select activo from clientes where id = {clienteId} for update")
+                .ToListAsync(ct);
+            if (activa is not [false]) return (int?)null;
+
+            await db.PublicarActorAsync(actorId, MotivoBaja, ct);
+            var retenidos = await RetenerPendientesAsync(clienteId, actorId, ct);
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+            return retenidos;
+        });
+    }
+
+    /// <summary>
+    /// La misma retención para todas las empresas que ya están inactivas: recoge lo que quedó pendiente
+    /// de las bajas anteriores a esta regla. Cada empresa va en su propia transacción
+    /// (GuardarBajaSiSigueInactivaAsync), así ninguna queda a medio retener, y la que se reactivó
+    /// mientras tanto se saltea. Si una falla, las anteriores ya quedaron completas, esa no cambia nada
+    /// y la pasada se corta ahí: el resultado dice cuáles se retuvieron y cuál falló, para que quien la
+    /// corre sepa hasta dónde llegó — se vuelve a correr y sigue desde ahí. `Retenidas` trae solo las
+    /// empresas a las que les retuvo algún pedido.
+    /// </summary>
+    public async Task<PasadaDeRetencion> GuardarBajaDeInactivasAsync(Guid actorId, CancellationToken ct)
+    {
+        var inactivas = await db.Clientes.AsNoTracking()
+            .Where(c => !c.Activo)
+            .OrderBy(c => c.Id)
+            .Select(c => new { c.Id, c.RazonSocial })
+            .ToListAsync(ct);
+
+        var retenidas = new List<EmpresaRetenida>();
+        foreach (var empresa in inactivas)
+        {
+            try
+            {
+                var pedidos = await GuardarBajaSiSigueInactivaAsync(empresa.Id, actorId, ct);
+                if (pedidos > 0) retenidas.Add(new EmpresaRetenida(empresa.Id, empresa.RazonSocial, pedidos.Value));
+            }
+            // Una cancelación del request no es un fallo de esta empresa: sigue su curso.
+            catch (Exception error) when (error is not OperationCanceledException)
+            {
+                // Su transacción se deshizo entera; lo que quedó a medio armar en el contexto se suelta.
+                db.ChangeTracker.Clear();
+                return new PasadaDeRetencion(retenidas, new FalloDeRetencion(empresa.Id, empresa.RazonSocial, error));
+            }
+            // Lo de esta empresa ya está guardado: se suelta para que la siguiente arranque limpia y su
+            // transacción lleve solo lo suyo.
+            db.ChangeTracker.Clear();
+        }
+        return new PasadaDeRetencion(retenidas, null);
+    }
+
+    /// <summary>Elimina la ruta propuesta, todavía en planificación, de cada viaje activo de la empresa
+    /// (sus paradas caen en cascada). Devuelve los ids de las rutas eliminadas.</summary>
+    private async Task<HashSet<long>> QuitarRutasPropuestasAsync(int clienteId, CancellationToken ct)
+    {
+        var viajes = await db.Viajes
+            .Include(v => v.Ruta)
+            .Where(v => v.ClienteId == clienteId && v.Estado == EstadosViaje.Activo && v.Ruta!.Estado == "planificada")
+            .ToListAsync(ct);
+
+        var eliminadas = new HashSet<long>();
+        foreach (var viaje in viajes)
+        {
+            eliminadas.Add(viaje.Ruta!.Id);
+            db.Rutas.Remove(viaje.Ruta);
+            viaje.RutaId = null;
+        }
+        return eliminadas;
+    }
+
+    /// <summary>
+    /// Saca `pedidoIds` del armado de toda ruta todavía en planificación, con el mismo resultado que al
+    /// retenerlos (SacarDelArmadoAsync): para quien deja esos pedidos sin nada por entregar por otro
+    /// camino — ViajeService.CancelarAsync —. `salvoRutaId`: una ruta que quien llama elimina entera,
+    /// cuyas filas caen en cascada con ella. No guarda: lo hace quien llama, junto con el cambio de estado.
+    /// </summary>
+    public async Task SacarDeRutasEnPlanificacionAsync(List<long> pedidoIds, long? salvoRutaId, CancellationToken ct)
+    {
+        if (pedidoIds.Count == 0) return;
+        var filas = await db.ParadaPedidos
+            .Include(pp => pp.Parada)
+            .Where(pp => pedidoIds.Contains(pp.PedidoId) && pp.Parada.Ruta.Estado == "planificada"
+                && (salvoRutaId == null || pp.Parada.RutaId != salvoRutaId))
+            .ToListAsync(ct);
+        await SacarDelArmadoAsync(filas, pedidoIds, ct);
+    }
+
+    /// <summary>Saca los pedidos retenidos de las rutas en planificación. Una parada que solo los tenía a
+    /// ellos se elimina, y las que quedan en esa ruta se renumeran sin huecos (el unique (ruta_id, orden)
+    /// es deferrable: no choca a mitad del guardado).</summary>
+    private async Task SacarDelArmadoAsync(List<ParadaPedido> filas, List<long> retenidos, CancellationToken ct)
+    {
+        if (filas.Count == 0) return;
+        db.ParadaPedidos.RemoveRange(filas);
+
+        var tocadas = filas.Select(pp => pp.ParadaId).ToHashSet();
+        var rutaIds = filas.Select(pp => pp.Parada.RutaId).Distinct().ToList();
+        var paradas = await db.RutaParadas
+            .Where(p => rutaIds.Contains(p.RutaId))
+            .Select(p => new
+            {
+                Parada = p,
+                Quedan = db.ParadaPedidos.Count(pp => pp.ParadaId == p.Id && !retenidos.Contains(pp.PedidoId)),
+            })
+            .ToListAsync(ct);
+
+        foreach (var deLaRuta in paradas.GroupBy(x => x.Parada.RutaId))
+        {
+            var vacias = deLaRuta.Where(x => x.Quedan == 0 && tocadas.Contains(x.Parada.Id)).Select(x => x.Parada).ToList();
+            if (vacias.Count == 0) continue;
+            db.RutaParadas.RemoveRange(vacias);
+
+            var orden = 1;
+            foreach (var parada in deLaRuta.Select(x => x.Parada).Except(vacias).OrderBy(p => p.Orden))
+                parada.Orden = orden++;
+        }
+    }
+
+    /// <summary>Por cada pedido retenido que el repartidor todavía lleva: el aviso (Novedad) y, si la parada
+    /// se queda sin ningún pedido por entregar, la parada pasa a `cancelada`.</summary>
+    private async Task AvisarAlRepartidorAsync(
+        List<ParadaPedido> filas, Dictionary<long, Pedido> pedidos, Guid actorId, CancellationToken ct)
+    {
+        if (filas.Count == 0) return;
+
+        var paradaIds = filas.Select(pp => pp.ParadaId).Distinct().ToList();
+        var retenidos = pedidos.Keys.ToList();
+        var conAlgoPorEntregar = (await db.ParadaPedidos
+            .Where(pp => paradaIds.Contains(pp.ParadaId) && !retenidos.Contains(pp.PedidoId)
+                && pp.Pedido.Estado != EstadoPedido.Cancelado && pp.Pedido.Estado != EstadoPedido.Retenido)
+            .Select(pp => pp.ParadaId)
+            .Distinct()
+            .ToListAsync(ct)).ToHashSet();
+
+        foreach (var fila in filas)
+        {
+            if (!conAlgoPorEntregar.Contains(fila.ParadaId)) fila.Parada.Estado = "cancelada";
+
+            var pedido = pedidos[fila.PedidoId];
+            db.Novedades.Add(new Novedad
+            {
+                RutaId = fila.Parada.RutaId,
+                ParadaId = fila.ParadaId,
+                PedidoId = pedido.Id,
+                // Sin tipo propio: ck_novedades_tipo es una lista cerrada y para el repartidor es lo
+                // mismo que una cancelación — ese pedido ya no se entrega. El texto dice por qué.
+                Tipo = "cancelacion",
+                Origen = "operacion",
+                Descripcion = $"Operación suspendió el pedido #{pedido.Id} ({pedido.DestinatarioNombre}): " +
+                              "la empresa fue dada de baja por falta de pago. No se entrega.",
+                CreadaPor = actorId,
+                CreadaEn = DateTimeOffset.UtcNow,
+            });
+        }
+    }
+
+    /// <summary>
+    /// El pedido deja de estar retenido (se reanuda o se devuelve) y su ruta sigue en la calle: sale de la
+    /// parada que todavía está pendiente. Mientras estaba retenido el cierre de esa parada lo salteaba;
+    /// con cualquier otro estado lo trataría como un pedido más y respondería 409 para todos. La fila de
+    /// una parada ya resuelta o cancelada es historia y queda. No guarda: lo hace quien llama, junto con
+    /// el cambio de estado.
+    /// </summary>
+    public async Task SoltarParadasPendientesAsync(long pedidoId, CancellationToken ct)
+    {
+        var filas = await db.ParadaPedidos
+            .Where(pp => pp.PedidoId == pedidoId && pp.Parada.Estado == "pendiente" && pp.Parada.Ruta.Estado == "en_curso")
+            .ToListAsync(ct);
+        db.ParadaPedidos.RemoveRange(filas);
+    }
+
+    /// <summary>En qué estado estaba el pedido cuando se retuvo: el estado_anterior del último evento que
+    /// lo llevó a Retenido — lo escribió fn_log_estado_pedido en la misma transacción que la baja y
+    /// pedido_eventos es de solo inserción. null si ese evento no dice de dónde venía.</summary>
+    public async Task<EstadoPedido?> EstadoAlRetenerAsync(long pedidoId, CancellationToken ct) =>
+        await db.PedidoEventos.AsNoTracking()
+            .Where(e => e.PedidoId == pedidoId && e.EstadoNuevo == EstadoPedido.Retenido)
+            .OrderByDescending(e => e.Id)
+            .Select(e => e.EstadoAnterior)
+            .FirstOrDefaultAsync(ct);
+}

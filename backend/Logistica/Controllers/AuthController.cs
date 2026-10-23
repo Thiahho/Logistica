@@ -11,10 +11,15 @@ namespace Logistica.Controllers;
 
 [ApiController]
 [Route("api/auth")]
-public class AuthController(AuthService auth, IWebHostEnvironment env, IOptions<OpcionesPortal> opcionesPortal) : ControllerBase
+public class AuthController(
+    AuthService auth,
+    IWebHostEnvironment env,
+    IOptions<OpcionesPortal> opcionesPortal,
+    ClaveDeBorradores claveDeBorradores) : ControllerBase
 {
     public record LoginRequest(string Email, string Password);
     public record AccessTokenResponse(string AccessToken);
+    public record ClaveBorradoresResponse(string Clave);
 
     /// <summary>Sin límite de intentos era fuerza bruta viable (auditoría de seguridad) —
     /// EnableRateLimiting("login") lo frena a 5 intentos por minuto por IP (Program.cs).</summary>
@@ -71,6 +76,18 @@ public class AuthController(AuthService auth, IWebHostEnvironment env, IOptions<
         // Acta changelog 4.30: si esta sesión ve el precio de los envíos (el frontend no lo infiere).
         verPrecios = User.VePreciosDeEnvio(opcionesPortal.Value.MostrarPrecios),
     });
+
+    /// <summary>Clave AES de 32 bytes, propia de quien tiene la sesión, para cifrar en el teléfono el
+    /// borrador de una entrega (Auth/ClaveDeBorradores.cs). El frontend la guarda solo en memoria. El
+    /// "no-store" va explícito aunque Program.cs ya lo pone por defecto: esta respuesta no puede quedar
+    /// en ningún caché, ni siquiera si ese valor por defecto cambia.</summary>
+    [HttpGet("clave-borradores")]
+    [Authorize]
+    public ActionResult<ClaveBorradoresResponse> ClaveBorradores()
+    {
+        Response.Headers.CacheControl = "no-store";
+        return Ok(new ClaveBorradoresResponse(Convert.ToBase64String(claveDeBorradores.Derivar(User.UsuarioId()))));
+    }
 
     private string? IpDelCliente() => HttpContext.Connection.RemoteIpAddress?.ToString();
 

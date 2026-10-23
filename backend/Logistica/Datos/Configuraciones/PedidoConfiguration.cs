@@ -68,6 +68,9 @@ public class PedidoConfiguration : IEntityTypeConfiguration<Pedido>
         b.Property(x => x.RecepcionConfirmadaEn).HasColumnName("recepcion_confirmada_en");
         b.Property(x => x.RecepcionConfirmadaPor).HasColumnName("recepcion_confirmada_por");
 
+        // uint + IsRowVersion: Npgsql lo mapea a la columna de sistema xmin (tipo xid).
+        b.Property(x => x.Version).IsRowVersion();
+
         b.HasOne(x => x.Cliente).WithMany()
             .HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.PedidoOrigen).WithMany()

@@ -25,16 +25,20 @@ namespace Logistica.Controllers;
 /// B5 (diseño_b5_portal_carga.md) agrega el alta de pedido desde el portal: mismo controller, no
 /// uno nuevo, porque comparte exactamente el mismo criterio de alcance ("resuelve del claim,
 /// nunca del body ni de la URL").
+///
+/// [CortaServicioAEmpresaInactiva]: con la empresa dada de baja el portal queda de solo lectura,
+/// más lo que hace falta para pagar. Toda acción nueva que no sea GET nace cortada.
 /// </summary>
 [ApiController]
 [Route("api/mi-cuenta")]
 [Authorize(Policy = "Cliente")]
+[CortaServicioAEmpresaInactiva]
 public class MiCuentaController(
     LogisticaDbContext db, CuentaCorrienteService cuentaCorriente, PrecioService precios,
     DistanciaService distancias, OrigenRutaService origenes, IOptions<OpcionesPortal> opcionesPortal,
     IOptions<OpcionesCarga> opcionesCarga, UbicacionService ubicaciones, GeocodificacionService geocodificador, ZonaLocalidadService zonasLocalidad,
     DireccionDesdeMapaService desdeMapa, RangoClienteService rangos, AlmacenamientoFotos almacenamiento,
-    ViajeService viajes)
+    ViajeService viajes, AuthService auth)
     : ControllerBase
 {
     public record FacturaPropia(
@@ -45,7 +49,14 @@ public class MiCuentaController(
         decimal Saldo, decimal DeudaVencida, bool ServicioCortado,
         DateOnly? ProximoVencimiento, List<FacturaPropia> Facturas,
         // B3 (acta RF-42): el cliente ve su rango y su descuento, nunca los números con que se calculó (RF-33).
-        string RangoNombre = "", decimal DescuentoPct = 0m);
+        string RangoNombre = "", decimal DescuentoPct = 0m,
+        // false = empresa dada de baja por falta de pago: sus pedidos pendientes quedaron retenidos. No es
+        // ServicioCortado, que sale de la deuda vencida y solo frena los pedidos nuevos.
+        bool EmpresaActiva = true);
+
+    /// <summary>Lo que cualquier login del portal necesita saber del servicio de su empresa. El
+    /// empleado no ve la cuenta corriente (CuentaPropia es del dueño), pero sí sus envíos suspendidos.</summary>
+    public record ServicioPropio(bool EmpresaActiva);
 
     public record CrearPedidoPortalRequest(
         [Required(AllowEmptyStrings = false, ErrorMessage = "El nombre del destinatario es obligatorio.")] string DestinatarioNombre,
@@ -148,6 +159,19 @@ public class MiCuentaController(
             eventos[p.Id].Select(e => new EventoEstado(e.EstadoNuevo.ToString(), e.Motivo, e.OcurridoEn)).ToList())));
     }
 
+    /// <summary>Cliente.Activo, de la base y no de un claim: la baja vale desde ya (mismo criterio que
+    /// CortaServicioAEmpresaInactiva).</summary>
+    private Task<bool> EmpresaActivaAsync(int clienteId, CancellationToken ct) =>
+        db.Clientes.AsNoTracking().Where(c => c.Id == clienteId).Select(c => c.Activo).SingleOrDefaultAsync(ct);
+
+    /// <summary>Si la empresa está activa, para el aviso de servicio suspendido del portal. Dueño y empleado.</summary>
+    [HttpGet("servicio")]
+    public async Task<IActionResult> Servicio(CancellationToken ct)
+    {
+        if (User.ClienteId() is not { } clienteId) return Forbid();
+        return Ok(new ServicioPropio(await EmpresaActivaAsync(clienteId, ct)));
+    }
+
     /// <summary>Cuenta corriente: solo el dueño. Un empleado carga y sigue envíos, no ve plata.</summary>
     [HttpGet]
     [Authorize(Policy = "ClienteDueno")]
@@ -174,7 +198,7 @@ public class MiCuentaController(
         var rango = await rangos.EfectivoAsync(clienteId.Value, ct);
 
         return Ok(new CuentaPropia(saldo, deudaVencida, servicioCortado, proximoVencimiento, facturas,
-            rango?.Nombre ?? "", rango?.DescuentoPct ?? 0m));
+            rango?.Nombre ?? "", rango?.DescuentoPct ?? 0m, await EmpresaActivaAsync(clienteId.Value, ct)));
     }
 
     /// <summary>Espejo de LocalidadesController.Buscar (ver comentario arriba de estos records) —
@@ -700,15 +724,18 @@ public class MiCuentaController(
         return Ok(new UsuarioEquipo(usuario.Id, usuario.Nombre, usuario.Email, usuario.Rol, usuario.Activo, usuario.CreadoEn));
     }
 
-    /// <summary>Desactivar corta la sesión del empleado en el próximo refresh (AuthService
-    /// re-chequea Activo) y le impide volver a entrar.</summary>
+    /// <summary>Desactivar corta las sesiones abiertas del empleado (AuthService.RevocarSesionesAsync)
+    /// y le impide volver a entrar. Permitido con la empresa inactiva: no pide servicio, y el dueño
+    /// tiene que poder sacar a un empleado igual.</summary>
     [HttpPut("usuarios/{id:guid}/activo")]
     [Authorize(Policy = "ClienteDueno")]
+    [PermitidoConEmpresaInactiva]
     public async Task<IActionResult> CambiarActivoUsuario(Guid id, ActivoEquipoRequest req, CancellationToken ct)
     {
         var (usuario, error) = await UsuarioGestionableAsync(id, ct);
         if (usuario is null) return error!;
 
+        if (!req.Activo) await auth.RevocarSesionesAsync(usuario, ct);
         usuario.Activo = req.Activo;
         ActividadPortal.Registrar(db, User,
             req.Activo ? AccionesPortal.UsuarioActivado : AccionesPortal.UsuarioDesactivado,
@@ -717,15 +744,20 @@ public class MiCuentaController(
         return NoContent();
     }
 
+    /// <summary>Permitido con la empresa inactiva, por lo mismo que CambiarActivoUsuario: es
+    /// seguridad de la cuenta, no servicio.</summary>
     [HttpPut("usuarios/{id:guid}/password")]
     [Authorize(Policy = "ClienteDueno")]
+    [PermitidoConEmpresaInactiva]
     public async Task<IActionResult> CambiarPasswordUsuario(Guid id, PasswordEquipoRequest req, CancellationToken ct)
     {
         var (usuario, error) = await UsuarioGestionableAsync(id, ct);
         if (usuario is null) return error!;
         if (PoliticaContrasena.Validar(req.Password, usuario.Email) is { } errorClave) return BadRequest(errorClave);
 
+        // Quien entró con la contraseña vieja no sigue adentro con su refresh token.
         usuario.PasswordHash = AuthService.HashearCliente(usuario, req.Password);
+        await auth.RevocarSesionesAsync(usuario, ct);
         ActividadPortal.Registrar(db, User, AccionesPortal.UsuarioContrasena, "usuario", usuario.Id.ToString(), usuario.Nombre);
         await db.SaveChangesAsync(ct);
         return NoContent();
@@ -883,7 +915,7 @@ public class MiCuentaController(
     public record EstadoDeCuentaPropio(
         DateOnly Desde, DateOnly Hasta, decimal SaldoInicial, decimal SaldoFinal,
         decimal SaldoActual, decimal DeudaVencida, decimal PendienteDeFacturar, bool ServicioCortado,
-        List<NegocioCliente.Movimiento> Movimientos);
+        List<NegocioCliente.Movimiento> Movimientos, bool EmpresaActiva = true);
 
     /// <summary>Resumen tipo extracto bancario: facturas (debe) y pagos imputados (haber) del período,
     /// con saldo acumulado. Por defecto, los últimos 90 días. Los pagos informados todavía sin
@@ -925,7 +957,7 @@ public class MiCuentaController(
             inicio, fin, saldoInicial, movimientos.Count > 0 ? movimientos[^1].Saldo : saldoInicial,
             await cuentaCorriente.SaldoAsync(clienteId, ct), deudaVencida, pendiente,
             await cuentaCorriente.ServicioCortadoAsync(clienteId, hoy, deudaVencida, ct),
-            movimientos));
+            movimientos, await EmpresaActivaAsync(clienteId, ct)));
     }
 
     public record FacturaItemPropio(long? PedidoId, string Tipo, string Descripcion, decimal? Monto);
@@ -1015,9 +1047,11 @@ public class MiCuentaController(
     }
 
     /// <summary>El dueño avisa un pago. No toca el saldo: Administración lo confirma (y ahí se crea el
-    /// Pago) o lo rechaza. El comprobante es una foto JPEG opcional.</summary>
+    /// Pago) o lo rechaza. El comprobante es una foto JPEG opcional. Permitido con la empresa
+    /// inactiva: es justamente como avisa que pagó para que le devuelvan el servicio.</summary>
     [HttpPost("pagos-informados")]
     [Authorize(Policy = "ClienteDueno")]
+    [PermitidoConEmpresaInactiva]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(2 * 1024 * 1024)]
     public async Task<IActionResult> InformarPago([FromForm] InformarPagoRequest req, CancellationToken ct)

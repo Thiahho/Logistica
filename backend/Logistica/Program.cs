@@ -68,6 +68,7 @@ if (!builder.Environment.IsDevelopment())
 
 builder.Services.Configure<OpcionesJwt>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddSingleton<TokenService>();
+builder.Services.AddSingleton<ClaveDeBorradores>();
 builder.Services.AddScoped<AuthService>();
 
 builder.Services.Configure<OpcionesPrecio>(builder.Configuration.GetSection("Precio"));
@@ -108,6 +109,7 @@ switch (almacenamiento.Proveedor)
         throw new InvalidOperationException($"Almacenamiento:Proveedor inválido: '{almacenamiento.Proveedor}' (local o cloudinary).");
 }
 builder.Services.AddScoped<CuentaCorrienteService>();
+builder.Services.AddScoped<RetencionPedidosService>();
 builder.Services.AddScoped<JornadaService>();
 builder.Services.AddScoped<LiquidacionService>();
 builder.Services.AddScoped<RangoClienteService>();

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { EstadoPedidoBadge } from "@/components/EstadoBadge";
+import { EstadoPedidoBadge, estiloRetenidoPortal } from "@/components/EstadoBadge";
+import { useEmpresaActiva } from "@/components/useEmpresaActiva";
 import { MapaDinamico } from "@/components/mapa/MapaDinamico";
 import type { MarcadorMapa, VarianteMarcador } from "@/components/mapa/Mapa";
 import { TarjetaMetrica } from "@/components/TarjetaMetrica";
@@ -11,15 +12,23 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { leerError, leerJson } from "@/lib/api/errores";
-import { etiquetaEstadoViaje, etiquetaTipoVehiculo, type EstadoPedido, type ViajeDetalle } from "@/lib/dominio/tipos";
+import {
+  etiquetaEstadoViaje,
+  etiquetaRetenidoPortal,
+  etiquetaTipoVehiculo,
+  type EstadoPedido,
+  type ViajeDetalle,
+} from "@/lib/dominio/tipos";
 
 const pesos = (n: number) => `$${n.toLocaleString("es-AR", { maximumFractionDigits: 2 })}`;
 
 function variante(estado: EstadoPedido, enRuta: boolean): VarianteMarcador {
+  // Un Retenido tampoco se va a visitar: salió de la ruta con la baja de la empresa. Va antes que
+  // `enRuta`: ni él ni un cancelado están en la ruta, y eso no los vuelve una dirección a verificar.
+  if (estado === "Cancelado" || estado === "Retenido") return "cancelada";
   if (!enRuta) return "dudosa";
   if (estado === "Entregado") return "completada";
   if (estado === "Fallido" || estado === "Devuelto") return "fallida";
-  if (estado === "Cancelado") return "cancelada";
   return "pendiente";
 }
 
@@ -44,6 +53,8 @@ export function DetalleViaje({
   mostrarRuta?: boolean;
 }) {
   const { fetchConSesion } = useAuth();
+  // Solo el portal (sin `mostrarRuta`) necesita saberlo: cambia cómo se le dice al cliente lo retenido.
+  const empresaActiva = useEmpresaActiva(!mostrarRuta);
   const [viaje, setViaje] = useState<ViajeDetalle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cancelando, setCancelando] = useState(false);
@@ -96,13 +107,29 @@ export function DetalleViaje({
            variante: variante(p.estado, p.enRuta), titulo: `${p.orden}. ${p.destinatarioNombre} — ${p.calleNumero}` }]
       : []),
   ];
-  const puedeCancelar = rutaCancelar && (viaje.estado === "planificado" || viaje.estado === "sin_ruta")
+  // Un viaje que conserva su ruta se lee de ella y no sabe de retenciones; uno sin ruta propia solo es
+  // `retenido` cuando no le queda nada pendiente. Las paradas retenidas se dicen aparte, con la palabra
+  // de cada lado — salvo en el portal cuando el estado ya lo dice con esas mismas palabras. En el portal
+  // la palabra y el color dependen de si la empresa ya está otra vez activa (etiquetaRetenidoPortal).
+  const viajeRetenido = viaje.estado === "retenido";
+  const retenidas = viaje.paradas.filter((p) => p.estado === "Retenido").length;
+  const estiloRetenido = mostrarRuta ? "bg-red-100 text-red-700" : estiloRetenidoPortal(empresaActiva);
+  const puedeCancelar =rutaCancelar && (viaje.estado === "planificado" || viaje.estado === "sin_ruta")
     && viaje.paradas.every((p) => p.estado === "Borrador" || p.estado === "Cancelado");
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="rounded-full bg-accent px-3 py-1 font-medium text-bf-azul">{etiquetaEstadoViaje(viaje.estado)}</span>
+        <span className={`rounded-full px-3 py-1 font-medium ${viajeRetenido ? estiloRetenido : "bg-accent text-bf-azul"}`}>
+          {etiquetaEstadoViaje(viaje.estado, mostrarRuta, empresaActiva)}
+        </span>
+        {retenidas > 0 && (mostrarRuta || !viajeRetenido) && (
+          <span className={`rounded-full px-3 py-1 font-medium ${estiloRetenido}`}>
+            {mostrarRuta
+              ? `${retenidas} ${retenidas === 1 ? "parada retenida" : "paradas retenidas"}`
+              : etiquetaRetenidoPortal(empresaActiva)}
+          </span>
+        )}
         <span className="text-muted-foreground">
           Entrega {viaje.fechaEntrega.split("-").reverse().join("/")}
           {viaje.tipoVehiculo && ` · ${etiquetaTipoVehiculo(viaje.tipoVehiculo)}`}
@@ -152,7 +179,7 @@ export function DetalleViaje({
                     </p>
                   </div>
                   {p.precio !== null && <span className="hidden shrink-0 tabular-nums md:block">{pesos(p.precio)}</span>}
-                  <EstadoPedidoBadge estado={p.estado} />
+                  <EstadoPedidoBadge estado={p.estado} interno={mostrarRuta} empresaActiva={empresaActiva} />
                 </Link>
               </li>
             ))}

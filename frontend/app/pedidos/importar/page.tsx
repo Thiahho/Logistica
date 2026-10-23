@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { RequireRole } from "@/lib/auth/RequireRole";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { LIMITE_OPERACION_LARGA_MS } from "@/lib/auth/tiempos";
 import { CabeceraSesion } from "@/components/CabeceraSesion";
 import { ComboboxBusqueda } from "@/components/ComboboxBusqueda";
 import { Button } from "@/components/ui/button";
@@ -146,6 +147,7 @@ function ImportarPedidos() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ clienteId, filas: tanda.map((f) => f.original) }),
+          limiteMs: LIMITE_OPERACION_LARGA_MS,
         });
         const importadas = await leerJson<FilaImportada[]>(resp);
         setResultados((previos) => ({ ...previos, ...Object.fromEntries(importadas.map((r) => [r.numero, r])) }));

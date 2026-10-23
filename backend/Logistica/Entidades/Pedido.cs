@@ -101,4 +101,12 @@ public class Pedido
     public DateTimeOffset? RecepcionConfirmadaEn { get; set; }
     public Guid? RecepcionConfirmadaPor { get; set; }
     public Usuario? RecepcionConfirmadaPorUsuario { get; set; }
+
+    /// <summary>Token de concurrencia optimista: la columna de sistema `xmin` de Postgres, que cambia
+    /// sola con cada escritura de la fila (no es una columna propia, no hay nada que migrar). Si entre
+    /// que se leyó el pedido y que se guarda alguien más lo modificó, el UPDATE no encuentra la versión
+    /// leída y EF tira DbUpdateConcurrencyException (409, ManejadorExcepciones) en vez de pisar el
+    /// cambio del otro en silencio — p. ej. el cierre de parada entregando un pedido que operación
+    /// acaba de cancelar.</summary>
+    public uint Version { get; set; }
 }

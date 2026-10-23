@@ -27,7 +27,9 @@ import {
   type ListaPaginada,
   type ViajeResumen,
   etiquetaEstadoViaje,
+  etiquetaRetenidosDeViaje,
 } from "@/lib/dominio/tipos";
+import { useEmpresaActiva } from "@/components/useEmpresaActiva";
 
 export default function MisEnviosPage() {
   return (
@@ -40,7 +42,7 @@ export default function MisEnviosPage() {
 /** E1: resumen de cuenta corriente del cliente logueado — solo lectura, sin acciones (el cobro
  * lo gestiona la Empresa; Anexo I §7 excluye pasarelas de pago online). Compacta a propósito: en
  * el teléfono lo importante es saldo y deuda; el detalle de facturas queda plegado. */
-function MiCuenta() {
+function MiCuenta({ onEmpresaActiva }: { onEmpresaActiva: (activa: boolean) => void }) {
   const { fetchConSesion, usuario } = useAuth();
   const [cuenta, setCuenta] = useState<CuentaPropia | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,9 +50,13 @@ function MiCuenta() {
   useEffect(() => {
     fetchConSesion("/api/mi-cuenta")
       .then((r) => leerJson<CuentaPropia>(r))
-      .then(setCuenta)
+      .then((c) => {
+        setCuenta(c);
+        // La cuenta también dice si la empresa está activa: MiPlan lo usa si /servicio no respondió.
+        onEmpresaActiva(c.empresaActiva);
+      })
       .catch((err) => setError(err instanceof Error ? err.message : "No se pudo cargar tu cuenta."));
-  }, [fetchConSesion]);
+  }, [fetchConSesion, onEmpresaActiva]);
 
   if (error) return null; // no bloquea el resto de la pantalla si esto falla
   if (!cuenta) return <p className="text-sm text-muted-foreground">Cargando tu cuenta…</p>;
@@ -86,7 +92,9 @@ function MiCuenta() {
           </p>
         )}
 
-        {cuenta.servicioCortado && (
+        {/* Corte por deuda vencida de una empresa activa: solo frena los envíos nuevos. Con la empresa
+            dada de baja no aplica (sus envíos pendientes están retenidos): lo dice AvisoServicioSuspendido. */}
+        {cuenta.servicioCortado && cuenta.empresaActiva && (
           <p className="text-sm text-destructive">
             Tu servicio está interrumpido por deuda vencida. Los envíos ya confirmados o en ruta
             siguen su curso; no se pueden cargar envíos nuevos hasta regularizar.
@@ -121,10 +129,32 @@ function MiCuenta() {
   );
 }
 
+/** Empresa dada de baja por falta de pago: el servicio está suspendido y los envíos pendientes
+ * quedaron retenidos. Lo ven el dueño y el empleado; el camino para pagar es solo del dueño. */
+function AvisoServicioSuspendido({ esDueno }: { esDueno: boolean }) {
+  return (
+    <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm">
+      <p className="font-semibold text-destructive">Servicio suspendido por falta de pago</p>
+      <p className="mt-1">
+        Tus envíos pendientes quedaron retenidos: no se entregan, y no se pueden cargar envíos nuevos
+        hasta regularizar el pago.
+        {esDueno && (
+          <>
+            {" "}
+            <Link href="/mis-envios/negocio" className="font-medium underline underline-offset-2">
+              Ver mi deuda e informar un pago
+            </Link>
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
 /** Los envíos de hoy con su línea de tiempo de estados. Se actualiza solo cada 30 s (con la
  * pestaña visible): lo que más le importa al cliente es saber si ya salió o ya llegó. En camino
  * primero; el resto por número. */
-function EnviosDeHoy({ onAbrir }: { onAbrir: (id: number) => void }) {
+function EnviosDeHoy({ onAbrir, empresaActiva }: { onAbrir: (id: number) => void; empresaActiva: boolean | null }) {
   const { datos, error } = useSondeo<PedidoDelDia[]>("/api/mi-cuenta/plan-del-dia", { intervaloMs: 30_000 });
 
   const ordenados = datos
@@ -173,11 +203,12 @@ function EnviosDeHoy({ onAbrir }: { onAbrir: (id: number) => void }) {
                       {p.destinoLocalidad ? `, ${p.destinoLocalidad}` : ""}
                     </p>
                   </div>
-                  <EstadoPedidoBadge estado={p.estado} />
+                  <EstadoPedidoBadge estado={p.estado} empresaActiva={empresaActiva} />
                 </div>
                 <LineaTiempoEstados
                   variante="compacta"
                   estadoActual={p.estado}
+                  empresaActiva={empresaActiva}
                   eventos={p.eventos.map((e) => ({ estado: e.estado, ocurridoEn: e.ocurridoEn, motivo: e.motivo }))}
                 />
               </button>
@@ -216,6 +247,14 @@ function MiPlan() {
     ordenInicial: "-fecha",
   });
 
+  // null mientras no se sabe (o si la consulta falla): sin el dato no se afirma nada. El dueño tiene
+  // otra fuente, su cuenta (MiCuenta): si /servicio no respondió se usa esa, así no se queda sin el
+  // aviso de suspensión — el de deuda vencida no aplica a una empresa dada de baja. El empleado no
+  // tiene datos de cuenta: para él queda como estaba.
+  const empresaActivaSegunServicio = useEmpresaActiva();
+  const [empresaActivaSegunCuenta, setEmpresaActivaSegunCuenta] = useState<boolean | null>(null);
+  const empresaActiva = empresaActivaSegunServicio ?? empresaActivaSegunCuenta;
+
   useEffect(() => {
     if (!esDueno) return;
     fetchConSesion("/api/mi-cuenta/usuarios")
@@ -230,9 +269,10 @@ function MiPlan() {
     <div className="flex flex-col gap-6 p-4 md:p-8">
       <CabeceraSesion titulo="Mi plan" />
 
-      <EnviosDeHoy onAbrir={setEnvioAbierto} />
-      <MisViajes />
-      {esDueno && <MiCuenta />}
+      {empresaActiva === false && <AvisoServicioSuspendido esDueno={esDueno} />}
+      <EnviosDeHoy onAbrir={setEnvioAbierto} empresaActiva={empresaActiva} />
+      <MisViajes empresaActiva={empresaActiva} />
+      {esDueno && <MiCuenta onEmpresaActiva={setEmpresaActivaSegunCuenta} />}
 
       <section aria-labelledby="titulo-todos" className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
@@ -313,7 +353,7 @@ function MiPlan() {
                         {esDueno && p.cargadoPorNombre && ` · Cargó ${p.cargadoPorNombre}`}
                       </p>
                     </div>
-                    <EstadoPedidoBadge estado={p.estado} />
+                    <EstadoPedidoBadge estado={p.estado} empresaActiva={empresaActiva} />
                     <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                   </button>
                 </li>
@@ -338,7 +378,7 @@ function MiPlan() {
 
 /** Los últimos viajes (envíos de varias paradas) con su avance; cada uno abre su detalle con el mapa.
  * No se muestra si el cliente todavía no cargó ninguno. */
-function MisViajes() {
+function MisViajes({ empresaActiva }: { empresaActiva: boolean | null }) {
   const { fetchConSesion } = useAuth();
   const [viajes, setViajes] = useState<ViajeResumen[] | null>(null);
 
@@ -366,7 +406,14 @@ function MisViajes() {
               <div className="min-w-0 flex-1">
                 <p className="font-medium">Viaje #{v.id} · {v.paradas} paradas</p>
                 <p className="text-muted-foreground">
-                  Entrega {v.fechaEntrega.split("-").reverse().join("/")} · {etiquetaEstadoViaje(v.estado)}
+                  Entrega {v.fechaEntrega.split("-").reverse().join("/")} · {etiquetaEstadoViaje(v.estado, false, empresaActiva)}
+                  {/* Reanudado a medias: el estado ya no lo dice, pero le quedan envíos retenidos. */}
+                  {v.retenidos > 0 && v.estado !== "retenido" && (
+                    <span className={empresaActiva === true ? "text-amber-700" : "text-red-700"}>
+                      {" "}
+                      · {etiquetaRetenidosDeViaje(v.retenidos, false, empresaActiva)}
+                    </span>
+                  )}
                 </p>
               </div>
               <span className="shrink-0 tabular-nums text-muted-foreground" aria-label={`${v.entregadas} de ${v.paradas} entregadas`}>

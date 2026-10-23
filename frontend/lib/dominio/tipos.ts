@@ -10,7 +10,10 @@ export type EstadoPedido =
   | "Fallido"
   | "Reprogramado"
   | "Devuelto"
-  | "Cancelado";
+  | "Cancelado"
+  // La empresa fue dada de baja por falta de pago: el pedido salió de su ruta y espera a que operación
+  // lo reanude o lo devuelva. Al cliente se le muestra como "Suspendido por falta de pago".
+  | "Retenido";
 
 export const ESTADOS_PEDIDO: EstadoPedido[] = [
   "Borrador",
@@ -21,6 +24,7 @@ export const ESTADOS_PEDIDO: EstadoPedido[] = [
   "Reprogramado",
   "Devuelto",
   "Cancelado",
+  "Retenido",
 ];
 
 export interface PedidoResumen {
@@ -138,6 +142,12 @@ export interface PedidoDetalle {
   cargadoPorNombre: string | null;
   viajeId: number | null;
   ordenEnViaje: number | null;
+  /** Solo en un Retenido: a qué estado lo reanuda operación ("Reprogramado" si ya tenía precio
+   * congelado, "Borrador" si nunca se confirmó). El backend rechaza cualquier otro. */
+  reanudaEn: "Reprogramado" | "Borrador" | null;
+  /** false = la empresa del pedido está dada de baja por falta de pago: el backend no deja que el pedido
+   * vuelva a un estado pendiente (reanudar un retenido, reprogramar un fallido) hasta que se reactive. */
+  empresaActiva: boolean;
 }
 
 /** Quién fijó el precio manual y cuándo (B9, Anexo I §4) — criterio subjetivo que afecta precio,
@@ -687,8 +697,15 @@ export interface PedidoDeParada {
   bultos: number;
   observaciones: string | null;
   /** Estado del pedido (EnRuta, Cancelado...). Un pedido Cancelado lo canceló operación con la ruta
-   * en curso: no se entrega, y el cierre de la parada lo saltea. */
+   * en curso: no se entrega, y el cierre de la parada lo saltea. Lo mismo un Retenido (ver noSeEntrega). */
   estado: EstadoPedido;
+}
+
+/** Pedido que sigue figurando en una parada pero el repartidor no entrega: operación lo canceló, o
+ * quedó retenido porque su empresa fue dada de baja por falta de pago. El cierre de la parada lo
+ * saltea (MisParadasController). */
+export function noSeEntrega(estado: EstadoPedido): boolean {
+  return estado === "Cancelado" || estado === "Retenido";
 }
 
 /** Espejo de PedidosController.PruebaEntregaResumen (GET /api/pedidos/{id}/prueba-entrega, solo administración). */
@@ -1040,6 +1057,14 @@ export interface CuentaPropia {
   /** B3 (acta RF-42): el cliente ve su rango y su descuento, nunca los números con que se calculó. */
   rangoNombre: string;
   descuentoPct: number;
+  /** false = empresa dada de baja por falta de pago: sus envíos pendientes quedaron retenidos. No es
+   * servicioCortado, que sale de la deuda vencida y solo frena los envíos nuevos. */
+  empresaActiva: boolean;
+}
+
+/** Espejo de MiCuentaController.ServicioPropio (GET /api/mi-cuenta/servicio): dueño y empleado. */
+export interface ServicioPropio {
+  empresaActiva: boolean;
 }
 
 /** B3 (acta RF-42): configuración de un rango (GET /api/rangos). Umbrales null = no exige nada. */
@@ -1594,6 +1619,8 @@ export interface EstadoDeCuentaPropio {
   pendienteDeFacturar: number;
   servicioCortado: boolean;
   movimientos: MovimientoCuenta[];
+  /** Ver CuentaPropia.empresaActiva. */
+  empresaActiva: boolean;
 }
 
 export interface FacturaPropiaDetalle {
@@ -1698,10 +1725,29 @@ export interface PrevisualizacionViajePortal {
   total: number | null;
 }
 
-export type EstadoViaje = "sin_ruta" | "planificado" | "en_curso" | "cerrado" | "cancelado";
+/**
+ * Espejo de Servicios/ViajeService: el estado sale de la ruta propia del viaje o, si no la tiene
+ * (EstadoSinRutaPropia), de sus envíos. `retenido`: la baja de la empresa por falta de pago le retuvo
+ * los envíos y no le queda ninguno pendiente.
+ */
+export type EstadoViaje = "sin_ruta" | "planificado" | "en_curso" | "cerrado" | "cancelado" | "retenido";
 
-export function etiquetaEstadoViaje(e: EstadoViaje): string {
+/**
+ * Cómo le dice el portal al cliente que un envío o un viaje está retenido. Mientras la empresa sigue dada
+ * de baja, "Suspendido por falta de pago". Con la empresa otra vez activa el cliente ya pagó y lo que
+ * falta es que operación lo reanude: "Pendiente de reanudación". Sin el dato (la consulta está cargando
+ * o falló) no se afirma que pagó: queda como suspendido.
+ */
+export function etiquetaRetenidoPortal(empresaActiva?: boolean | null): string {
+  return empresaActiva === true ? "Pendiente de reanudación" : "Suspendido por falta de pago";
+}
+
+/** `interno` (back-office): un viaje retenido se llama por su nombre; al cliente se le dice con
+ * etiquetaRetenidoPortal, igual que con un pedido (EstadoPedidoBadge). */
+export function etiquetaEstadoViaje(e: EstadoViaje, interno = false, empresaActiva?: boolean | null): string {
   switch (e) {
+    case "retenido":
+      return interno ? "Retenido" : etiquetaRetenidoPortal(empresaActiva);
     case "sin_ruta":
       return "Por planificar";
     case "planificado":
@@ -1713,6 +1759,16 @@ export function etiquetaEstadoViaje(e: EstadoViaje): string {
     case "cancelado":
       return "Cancelado";
   }
+}
+
+/** Los envíos retenidos que le quedan a un viaje, para decirlos al lado de su estado: un viaje reanudado
+ * a medias ya no se lee `retenido`. Mismas palabras de cada lado que etiquetaEstadoViaje. */
+export function etiquetaRetenidosDeViaje(cantidad: number, interno = false, empresaActiva?: boolean | null): string {
+  const uno = cantidad === 1;
+  if (interno) return `${cantidad} ${uno ? "retenido" : "retenidos"}`;
+  return empresaActiva === true
+    ? `${cantidad} ${uno ? "pendiente" : "pendientes"} de reanudación`
+    : `${cantidad} ${uno ? "suspendido" : "suspendidos"}`;
 }
 
 export interface ParadaViajeDetalle {
@@ -1727,7 +1783,8 @@ export interface ParadaViajeDetalle {
   bultos: number;
   observaciones: string | null;
   estado: EstadoPedido;
-  /** false = la dirección quedó fuera de la ruta propuesta (dudosa) hasta que la corrijan. */
+  /** false = la dirección quedó fuera de la ruta propuesta (dudosa) hasta que la corrijan. En un viaje
+   * sin ruta propia no hay propuesta de la que quedar afuera: false solo si la dirección es dudosa. */
   enRuta: boolean;
   precio: number | null;
 }
@@ -1765,4 +1822,6 @@ export interface ViajeResumen {
   kmEstimados: number | null;
   creadoPor: string;
   creadoEn: string;
+  /** Envíos del viaje que siguen retenidos por la baja de la empresa (0 si ninguno). */
+  retenidos: number;
 }

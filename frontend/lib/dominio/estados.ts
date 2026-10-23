@@ -21,13 +21,28 @@ const TRANSICIONES: Record<EstadoPedido, EstadoPedido[]> = {
   Reprogramado: ["Confirmado"],
   Devuelto: [],
   Cancelado: [],
+  // Las dos salidas de un Retenido; a cuál de las dos primeras se reanuda lo dice el backend
+  // (PedidoDetalle.reanudaEn): ver transicionesDisponibles. Retenido -> Cancelado no está a propósito:
+  // cancelar un confirmado factura el 100% y retener no cobra nada.
+  Retenido: ["Reprogramado", "Borrador", "Devuelto"],
 };
 
 // Fallido y Cancelado: sin motivo la razón de la interrupción se pierde para siempre.
 const CON_MOTIVO_OBLIGATORIO = new Set<EstadoPedido>(["Fallido", "Cancelado"]);
 
-export function transicionesDisponibles(estado: EstadoPedido): EstadoPedido[] {
-  return TRANSICIONES[estado];
+/** `reanudaEn` solo importa en un Retenido: deja, de sus dos formas de reanudarse, la que le corresponde. */
+export function transicionesDisponibles(estado: EstadoPedido, reanudaEn?: EstadoPedido | null): EstadoPedido[] {
+  if (estado !== "Retenido") return TRANSICIONES[estado];
+  return [reanudaEn ?? "Reprogramado", "Devuelto"];
+}
+
+// Espejo de TransicionesPedido.Retenibles: los estados en que un pedido está pendiente de entrega.
+const PENDIENTES = new Set<EstadoPedido>(["Borrador", "Confirmado", "EnRuta", "Reprogramado"]);
+
+/** Con la empresa dada de baja por falta de pago, ningún pedido suyo vuelve a un estado pendiente
+ * (reanudar un retenido, reprogramar un fallido): PedidosController.CambiarEstado responde 409. */
+export function requiereEmpresaActiva(estadoNuevo: EstadoPedido): boolean {
+  return PENDIENTES.has(estadoNuevo);
 }
 
 export function motivoObligatorio(estadoNuevo: EstadoPedido): boolean {
@@ -43,4 +58,10 @@ export const ETIQUETA_TRANSICION: Record<EstadoPedido, string> = {
   Reprogramado: "Reprogramar",
   Devuelto: "Marcar devuelto",
   Cancelado: "Cancelar",
+  Retenido: "Retener", // nunca se ofrece: a Retenido solo se llega por la baja de la empresa
 };
+
+/** Texto del botón. Salir de Retenido hacia Reprogramado o Borrador es "Reanudar", sea cual sea de los dos. */
+export function etiquetaTransicion(desde: EstadoPedido, hacia: EstadoPedido): string {
+  return desde === "Retenido" && hacia !== "Devuelto" ? "Reanudar" : ETIQUETA_TRANSICION[hacia];
+}

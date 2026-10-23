@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { EstadoPedidoBadge } from "@/components/EstadoBadge";
 import { LineaTiempoEstados } from "@/components/LineaTiempoEstados";
+import { useEmpresaActiva } from "@/components/useEmpresaActiva";
 import { UbicacionEnvio } from "@/components/UbicacionEnvio";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +26,7 @@ export function PedidoDetalleCliente({ pedidoId }: { pedidoId: number }) {
   const { fetchConSesion, usuario } = useAuth();
   // El precio lo ve solo quien tiene verPrecios (acta 4.30; el backend ya lo manda vacío); el dueño ve quién cargó.
   const esDueno = esClienteDueno(usuario);
+  const empresaActiva = useEmpresaActiva();
   const [pedido, setPedido] = useState<PedidoDetalle | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,12 +55,24 @@ export function PedidoDetalleCliente({ pedidoId }: { pedidoId: number }) {
       <Card>
         <CardHeader className="flex items-center justify-between gap-3">
           <CardTitle className="text-base">{pedido.destinatarioNombre}</CardTitle>
-          <EstadoPedidoBadge estado={pedido.estado} size="md" />
+          <EstadoPedidoBadge estado={pedido.estado} size="md" empresaActiva={empresaActiva} />
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-col gap-3">
+          {/* Con la empresa otra vez activa el cliente ya pagó: lo que falta es que la Empresa lo reanude. */}
+          {pedido.estado === "Retenido" &&
+            (empresaActiva === true ? (
+              <p className="text-sm text-amber-700">
+                Este envío está pendiente de reanudación: la cuenta ya se regularizó y la Empresa lo va a retomar.
+              </p>
+            ) : (
+              <p className="text-sm text-destructive">
+                Este envío está suspendido por falta de pago: no se entrega hasta que se regularice la cuenta.
+              </p>
+            ))}
           <LineaTiempoEstados
             eventos={pedido.historial.map((e) => ({ estado: e.estadoNuevo, ocurridoEn: e.ocurridoEn, motivo: e.motivo }))}
             estadoActual={pedido.estado}
+            empresaActiva={empresaActiva}
           />
         </CardContent>
       </Card>

@@ -65,6 +65,11 @@ public class NegocioClienteTests
         Assert.Equal(4, c.EnCurso);
     }
 
+    // Suspendido por falta de pago: no terminó (se reanuda o se devuelve), así que no es fallido ni cancelado.
+    [Fact]
+    public void Un_retenido_cuenta_como_en_curso() =>
+        Assert.Equal(NegocioCliente.GrupoEstado.EnCurso, NegocioCliente.Grupo(EstadoPedido.Retenido));
+
     [Fact]
     public void El_estado_de_cuenta_acumula_facturas_menos_pagos_desde_el_saldo_inicial()
     {

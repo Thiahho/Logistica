@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Navigation, Phone } from "lucide-react";
 import { useParams } from "next/navigation";
@@ -23,14 +23,15 @@ import { Input } from "@/components/ui/input";
 import { TarjetaNovedades } from "@/components/PanelNovedades";
 import { RutaEnGoogleMaps } from "@/components/RutaEnGoogleMaps";
 import { enlaceParadaGoogleMaps } from "@/lib/dominio/googleMaps";
-import type {
-  JornadaRuta,
-  NovedadResumen,
-  ParadaDelDia,
-  ResultadoRuta,
-  RutaDetalle,
-  UsuarioSeleccion,
-  VentanaUrgencias,
+import {
+  noSeEntrega,
+  type JornadaRuta,
+  type NovedadResumen,
+  type ParadaDelDia,
+  type ResultadoRuta,
+  type RutaDetalle,
+  type UsuarioSeleccion,
+  type VentanaUrgencias,
 } from "@/lib/dominio/tipos";
 import { DialogoUrgencia } from "./DialogoUrgencia";
 
@@ -160,8 +161,10 @@ function RutaDetalleContenido() {
   ];
 
   const pendientes = paradas.filter((p) => p.estado === "pendiente").length;
-  const totalPedidos = paradas.reduce((n, p) => n + p.pedidos.length, 0);
-  const totalBultos = paradas.reduce((n, p) => n + p.pedidos.reduce((m, ped) => m + ped.bultos, 0), 0);
+  // Un pedido cancelado o retenido sigue figurando en su parada pero no se entrega: no cuenta.
+  const pedidosVivos = paradas.flatMap((p) => p.pedidos.filter((ped) => !noSeEntrega(ped.estado)));
+  const totalPedidos = pedidosVivos.length;
+  const totalBultos = pedidosVivos.reduce((n, ped) => n + ped.bultos, 0);
 
   return (
     <div className="flex max-w-5xl flex-col gap-4 p-4 md:gap-6 md:p-8">
@@ -403,9 +406,12 @@ function Fila({ etiqueta, valor }: { etiqueta: string; valor: React.ReactNode })
 
 function ParadaFila({ parada: p, anclada }: { parada: ParadaDelDia; anclada: boolean }) {
   const resuelta = p.estado !== "pendiente";
-  const bultos = p.pedidos.reduce((n, ped) => n + ped.bultos, 0);
+  // Un pedido que operación canceló o retuvo sigue en la parada pero no se entrega: se muestra tachado
+  // con su estado, y no entra en la cuenta ni en la elección del teléfono.
+  const vivos = p.pedidos.filter((ped) => !noSeEntrega(ped.estado));
+  const bultos = vivos.reduce((n, ped) => n + ped.bultos, 0);
   // Un solo destinatario = un solo teléfono al que llamar; con varios no hay cuál elegir por el usuario.
-  const telefono = p.pedidos.length === 1 ? p.pedidos[0].destinatarioTelefono : null;
+  const telefono = vivos.length === 1 ? vivos[0].destinatarioTelefono : null;
   const hora = (iso: string) => new Date(iso).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
 
   return (
@@ -416,7 +422,19 @@ function ParadaFila({ parada: p, anclada }: { parada: ParadaDelDia; anclada: boo
         </span>
         <div className="min-w-0 flex-1">
           <p className="break-words font-medium leading-snug">
-            {p.pedidos.map((ped) => ped.destinatarioNombre).join(" · ")}
+            {p.pedidos.map((ped, i) => (
+              <Fragment key={ped.pedidoId}>
+                {i > 0 && " · "}
+                {noSeEntrega(ped.estado) ? (
+                  <>
+                    <span className="line-through">{ped.destinatarioNombre}</span>{" "}
+                    <span className="text-xs font-medium text-red-700">({ped.estado})</span>
+                  </>
+                ) : (
+                  ped.destinatarioNombre
+                )}
+              </Fragment>
+            ))}
             {anclada && <span className="ml-2 text-xs font-normal text-muted-foreground">(anclada)</span>}
           </p>
           <p className="break-words text-sm text-muted-foreground">
@@ -427,7 +445,7 @@ function ParadaFila({ parada: p, anclada }: { parada: ParadaDelDia; anclada: boo
         <EstadoParadaBadge estado={p.estado} />
       </div>
       <p className="pl-11 text-xs text-muted-foreground">
-        {p.pedidos.length} {p.pedidos.length === 1 ? "pedido" : "pedidos"} · {bultos} {bultos === 1 ? "bulto" : "bultos"}
+        {vivos.length} {vivos.length === 1 ? "pedido" : "pedidos"} · {bultos} {bultos === 1 ? "bulto" : "bultos"}
         {p.llegadaEn && ` · llegada ${hora(p.llegadaEn)}`}
         {p.salidaEn && ` · salida ${hora(p.salidaEn)}`}
       </p>

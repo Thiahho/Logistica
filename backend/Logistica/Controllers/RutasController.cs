@@ -425,14 +425,19 @@ public class RutasController(
             if (pedidos.Count != pedidoIds.Count)
                 return BadRequest("Alguno de los pedidos no existe.");
             // Acta changelog 3.11: el precio (y Confirmado) recién se fija en CerrarPlanificacion,
-            // cuando se conoce el vehículo — un pedido llega acá siempre en Borrador.
-            if (pedidos.Any(p => p.Estado != EstadoPedido.Borrador || p.FechaEntrega != ruta.Fecha))
-                return BadRequest("Todos los pedidos deben estar en borrador (sin rutear todavía) y ser de la fecha de la ruta.");
+            // cuando se conoce el vehículo — un pedido llega acá en Borrador. O en Reprogramado
+            // (D13, §10.2-M): falló en otra ruta, ya tiene precio congelado y vuelve a salir en esta.
+            if (pedidos.Any(p => p.Estado is not (EstadoPedido.Borrador or EstadoPedido.Reprogramado) || p.FechaEntrega != ruta.Fecha))
+                return BadRequest("Todos los pedidos deben estar en borrador o reprogramados (sin rutear todavía) y ser de la fecha de la ruta.");
 
             // Nada a nivel de base impide todavía que el mismo pedido termine en dos rutas: la PK
             // de parada_pedidos es compuesta (parada_id, pedido_id), no hay unique sobre pedido_id.
+            // Solo cuenta otra ruta todavía en planificación: la fila que un reprogramado conserva en
+            // la ruta donde falló (en curso o cerrada) es historia de ese intento, no una asignación
+            // vigente. Un Borrador nunca tiene filas fuera de una ruta en planificación (al cerrarla
+            // deja de ser Borrador), así que para él la regla no cambia.
             var asignadosOtraRuta = await db.ParadaPedidos
-                .Where(pp => pp.Parada.RutaId != id && pedidoIds.Contains(pp.PedidoId))
+                .Where(pp => pp.Parada.RutaId != id && pp.Parada.Ruta.Estado == "planificada" && pedidoIds.Contains(pp.PedidoId))
                 .Select(pp => pp.PedidoId)
                 .ToListAsync(ct);
             if (asignadosOtraRuta.Count > 0)
@@ -483,7 +488,8 @@ public class RutasController(
     /// RF-17: cierra el armado y lo hace disponible para el repartidor. Desde acta changelog
     /// 3.11, este es también el momento en que se cotiza y confirma cada pedido de la ruta que
     /// todavía esté en Borrador: recién acá se conoce el vehículo real (camioneta o moto), y el
-    /// precio depende de eso. Dos SaveChangesAsync bajo la misma transacción y el mismo actor
+    /// precio depende de eso. Un Reprogramado (D13) hace el mismo recorrido de estados pero
+    /// conserva el precio que ya tenía congelado. Dos SaveChangesAsync bajo la misma transacción y el mismo actor
     /// (PublicarActorAsync, no dos GuardarComoAsync — esto abriría dos transacciones separadas y
     /// dejaría una ventana de fallo parcial): el primero fija precio y pasa Borrador -> Confirmado,
     /// el segundo pasa todo a EnRuta — así el historial (RF-28, "sin huecos") registra ambas
@@ -509,8 +515,15 @@ public class RutasController(
             .Where(p => db.ParadaPedidos.Any(pp => pp.Parada.RutaId == id && pp.PedidoId == p.Id))
             .ToListAsync(ct);
         if (pedidos.Count == 0) return BadRequest("La ruta no tiene paradas.");
-        if (pedidos.Any(p => p.Estado != EstadoPedido.Borrador && p.Estado != EstadoPedido.Confirmado))
+        if (pedidos.Any(p => p.Estado is not (EstadoPedido.Borrador or EstadoPedido.Confirmado or EstadoPedido.Reprogramado)))
             return Conflict("Alguno de los pedidos de la ruta cambió de estado; volvé a armar la ruta.");
+
+        // D13 (§10.2-M): un reprogramado ya salió una vez, así que su precio está congelado (P1) y
+        // la reprogramación es sin cargo — no se vuelve a cotizar aunque esta ruta lleve otro
+        // vehículo. Solo se cotizan los borradores.
+        var reprogramados = pedidos.Where(p => p.Estado == EstadoPedido.Reprogramado).ToList();
+        if (reprogramados.FirstOrDefault(p => p.Total is null) is { } sinPrecio)
+            return Conflict($"El pedido {sinPrecio.Id} está reprogramado pero no tiene precio congelado; no se puede sacar a la calle.");
 
         var borradores = pedidos.Where(p => p.Estado == EstadoPedido.Borrador).ToList();
         var (congelamiento, errorPrecio) = await PrepararCongelamientoAsync(borradores, ruta.Vehiculo!.Tipo, ct);
@@ -528,6 +541,11 @@ public class RutasController(
             await db.PublicarActorAsync(User.UsuarioId(), "Cierre de planificación de ruta.", ct);
 
             AplicarCongelamiento(congelamiento!);
+            // Reprogramado -> Confirmado es la única salida que TransicionesPedido le da a un
+            // reprogramado: va en el mismo SaveChanges que los borradores, sin tocar el precio, y el
+            // historial registra el paso por Confirmado igual que para ellos.
+            foreach (var pedido in reprogramados)
+                pedido.Estado = EstadoPedido.Confirmado;
             await db.SaveChangesAsync(ct);
 
             ruta.Estado = "en_curso";
@@ -565,26 +583,46 @@ public class RutasController(
             .Where(p => p.PrecioManual != null && p.PrecioManualPor != null && fijadosPorCliente.Contains(p.PrecioManualPor.Value))
             .ToList();
 
+        // Los pedidos se recorren en orden y el primero que falla corta: ninguno posterior a uno sin zona
+        // llega a cotizarse, así que tampoco hace falta pedir su tarifa ni su distancia.
+        var aCotizar = borradores.Except(vinculantes).ToList();
+        // Una ruta solo de reprogramados o de precios vinculantes no cotiza nada.
+        if (aCotizar.Count == 0) return (new Congelamiento([], vinculantes), null);
+        var conZona =aCotizar.TakeWhile(p => p.ZonaId is not null).ToList();
+
+        // Antes era, por cada pedido y en fila, una consulta al proveedor de distancias y hasta cuatro a
+        // la base. Ahora la base se lee una vez para todos y las distancias se piden de a varias; el
+        // precio de cada pedido sale igual, en memoria y en el mismo orden. Primero la base y recién
+        // después el proveedor: un DbContext no admite uso concurrente, así que mientras las distancias
+        // corren en paralelo no se toca.
+        var lote = await precios.PrepararLoteAsync(
+            conZona.Where(p => p.PrecioManual is null).Select(p => new ClaveTarifa(p.ClienteId, p.ZonaId!.Value, p.FechaEntrega)),
+            tipoVehiculo, ct);
+        var distanciasPedidas = await distancias.ResolverLoteAsync(
+            conZona.Select(p => new SolicitudDistancia(
+                p.OrigenUbicacion.Lat, p.OrigenUbicacion.Lng, p.DestinoUbicacion.Lat, p.DestinoUbicacion.Lng,
+                p.KmManual)).ToList(),
+            ct);
+
         var cotizados = new Dictionary<Pedido, DesglosePrecio>();
-        foreach (var pedido in borradores.Except(vinculantes))
+        for (var i = 0; i < conZona.Count; i++)
         {
-            if (pedido.ZonaId is null)
-                return (null, $"El pedido {pedido.Id} no tiene zona resuelta; no se puede cotizar.");
+            var pedido = conZona[i];
             try
             {
-                var distancia = await distancias.ResolverAsync(
-                    pedido.OrigenUbicacion.Lat, pedido.OrigenUbicacion.Lng,
-                    pedido.DestinoUbicacion.Lat, pedido.DestinoUbicacion.Lng,
-                    pedido.KmManual, ct);
-                cotizados[pedido] = await precios.CotizarAsync(
-                    pedido.ClienteId, pedido.ZonaId.Value, pedido.FechaEntrega, pedido.Urgente,
-                    pedido.Peajes, descuentoRuta: false, tipoVehiculo, pedido.PrecioManual, distancia, ct);
+                // Tarea ya terminada: esperarla solo entrega el km, o relanza la falla de ESTE pedido.
+                var distancia = await distanciasPedidas[i];
+                cotizados[pedido] = lote.Cotizar(
+                    pedido.ClienteId, pedido.ZonaId!.Value, pedido.FechaEntrega, pedido.Urgente,
+                    pedido.Peajes, descuentoRuta: false, pedido.PrecioManual, distancia);
             }
             catch (InvalidOperationException ex)
             {
                 return (null, $"Pedido {pedido.Id}: {ex.Message}");
             }
         }
+        if (conZona.Count < aCotizar.Count)
+            return (null, $"El pedido {aCotizar[conZona.Count].Id} no tiene zona resuelta; no se puede cotizar.");
         return (new Congelamiento(cotizados, vinculantes), null);
     }
 
@@ -755,6 +793,15 @@ public class RutasController(
         if (ruta.Estado == "cerrada") return Conflict("La ruta ya está cerrada.");
         if (ruta.Estado != "en_curso")
             return Conflict("La ruta todavía no cerró su planificación (RF-17); no se puede cerrar económicamente.");
+
+        // Una ruta cerrada ya no se interrumpe (Interrumpir exige en_curso): cerrarla con paradas
+        // pendientes dejaría sus pedidos en EnRuta para siempre, fuera del circuito de reprogramación.
+        // Mismo criterio que el cierre de jornada del repartidor (MiJornadaController), sin escape:
+        // el escape es interrumpir, que declara fallido lo pendiente con su motivo.
+        var paradasPendientes = await db.RutaParadas.CountAsync(p => p.RutaId == id && p.Estado == "pendiente", ct);
+        if (paradasPendientes > 0)
+            return Conflict($"La ruta todavía tiene {paradasPendientes} parada(s) pendientes. Interrumpila primero: lo pendiente pasa a fallido y se puede reprogramar; después cerrala.");
+
         // Regla cruzada, no expresable con [Range]: el km final no puede ser anterior al inicial.
         if (req.KmFinal < req.KmInicial)
             return BadRequest("El km final no puede ser menor al km inicial.");
@@ -824,9 +871,16 @@ public class RutasController(
     {
         // Ingresos: pedidos de la ruta efectivamente entregados. parada_pedidos es la tabla
         // puente (RF-14: N retiros en la misma dirección = una sola parada).
-        var pedidosDeLaRuta = db.ParadaPedidos
-            .Where(pp => pp.Parada.RutaId == rutaId)
-            .Select(pp => pp.Pedido);
+        var filasDeLaRuta = db.ParadaPedidos.Where(pp => pp.Parada.RutaId == rutaId);
+        var pedidosDeLaRuta = filasDeLaRuta.Select(pp => pp.Pedido);
+
+        // Un reprogramado tiene una fila por cada ruta en la que salió (D13) y el estado es del
+        // pedido, no del intento: la entrega es de su ÚLTIMA parada. Sin este corte, el pedido que
+        // falló acá y se entregó en otra ruta sumaría su total como ingreso de las dos.
+        var entregadosPorEstaRuta = filasDeLaRuta
+            .Where(pp => !db.ParadaPedidos.Any(otra => otra.PedidoId == pp.PedidoId && otra.ParadaId > pp.ParadaId))
+            .Select(pp => pp.Pedido)
+            .Where(p => p.Estado == EstadoPedido.Entregado);
 
         // Antes eran 5 round-trips en serie (ingresos, 3 conteos, la ruta). Los 4 agregados de
         // pedidos y los costos de la ruta van como subconsultas correlacionadas de una sola
@@ -835,8 +889,8 @@ public class RutasController(
             .Where(r => r.Id == rutaId)
             .Select(r => new
             {
-                Ingresos = pedidosDeLaRuta.Where(p => p.Estado == EstadoPedido.Entregado).Sum(p => (decimal?)p.Total) ?? 0m,
-                Efectivas = pedidosDeLaRuta.Count(p => p.Estado == EstadoPedido.Entregado),
+                Ingresos = entregadosPorEstaRuta.Sum(p => (decimal?)p.Total) ?? 0m,
+                Efectivas = entregadosPorEstaRuta.Count(),
                 Fallidas = pedidosDeLaRuta.Count(p => p.Estado == EstadoPedido.Fallido),
                 Reprogramadas = pedidosDeLaRuta.Count(p => p.Estado == EstadoPedido.Reprogramado),
                 Costos = (r.CombustibleMonto ?? 0) + (r.PeajesMonto ?? 0) + (r.OtrosCostos ?? 0) + (r.PagoRepartidor ?? 0),
