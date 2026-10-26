@@ -224,9 +224,7 @@ public class RutasController(
         if (ruta is null) return NotFound();
         if (ruta.Estado == "cerrada") return Conflict("La ruta ya está cerrada.");
 
-        var repartidor = await db.Usuarios.SingleOrDefaultAsync(u => u.Id == req.RepartidorId, ct);
-        if (repartidor is null || repartidor.Rol != Roles.Repartidor || !repartidor.Activo)
-            return BadRequest("El usuario elegido no es un repartidor activo.");
+        if (await ErrorDeRepartidorAsync(req.RepartidorId, ct) is { } error) return BadRequest(error);
 
         // MisParadasController.Dia toma la primera ruta en_curso del repartidor (FirstOrDefault):
         // una segunda no daría error, le escondería una de las dos en silencio.
@@ -317,6 +315,15 @@ public class RutasController(
         return NoContent();
     }
 
+    /// <summary>Un repartidor asignable existe, tiene ese rol y está activo; si no, el mensaje de rechazo.</summary>
+    private async Task<string?> ErrorDeRepartidorAsync(Guid repartidorId, CancellationToken ct)
+    {
+        var repartidor = await db.Usuarios.SingleOrDefaultAsync(u => u.Id == repartidorId, ct);
+        return repartidor is null || repartidor.Rol != Roles.Repartidor || !repartidor.Activo
+            ? "El usuario elegido no es un repartidor activo."
+            : null;
+    }
+
     [HttpPost]
     public async Task<IActionResult> Crear(CrearRutaRequest req, CancellationToken ct)
     {
@@ -338,6 +345,12 @@ public class RutasController(
         // igual que el alta de pedido, una dirección dudosa no bloquea el guardado.
         if (req.OrigenUbicacionId is { } origenId && !await db.Ubicaciones.AnyAsync(u => u.Id == origenId, ct))
             return BadRequest("La ubicación de partida no existe.");
+
+        // V1: mismas reglas que ReasignarRepartidor; null sigue siendo "todavía sin asignar".
+        if (req.RepartidorId is { } repartidorId && await ErrorDeRepartidorAsync(repartidorId, ct) is { } errorRepartidor)
+            return BadRequest(errorRepartidor);
+        if (req.VehiculoId is { } vehiculoId && !await db.Vehiculos.AnyAsync(v => v.Id == vehiculoId && v.Activo, ct))
+            return BadRequest("El vehículo elegido no existe o no está activo.");
 
         ruta.VehiculoId = req.VehiculoId;
         ruta.RepartidorId = req.RepartidorId;

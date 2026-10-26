@@ -40,13 +40,19 @@ public static class Csv
             DateOnly d => d.ToString("yyyy-MM-dd"),
             DateTimeOffset dt => dt.ToString("O"),
             decimal dec => dec.ToString(CultureInfo.InvariantCulture),
+            double or float => ((IFormattable)valor).ToString(null, CultureInfo.InvariantCulture),
             _ => valor.ToString() ?? "",
         };
-        if (texto.Length > 0 && PrefijosFormula.Contains(texto[0]))
+        // F-2: el prefijo es para texto. Un número negativo no es una fórmula: con apóstrofo la
+        // planilla lo leería como texto.
+        if (!EsNumero(valor) && texto.Length > 0 && PrefijosFormula.Contains(texto[0]))
             texto = "'" + texto;
 
         return texto.Contains(';') || texto.Contains('"') || texto.Contains('\n')
             ? $"\"{texto.Replace("\"", "\"\"")}\""
             : texto;
     }
+
+    private static bool EsNumero(object? valor) =>
+        valor is decimal or double or float or int or long or short or sbyte or byte or uint or ulong or ushort;
 }
