@@ -25,10 +25,12 @@ public class UbicacionService(LogisticaDbContext db, GeocodificacionService geoc
     /// exacto de la dirección (`geo_proveedor = google_maps`, confianza alta) sin pasar por el
     /// geocoder. Nunca tumba el alta: un link inservible, lejano a la localidad o fuera de la
     /// Argentina cae a la geocodificación normal y devuelve el motivo en `UrlMapaError`. Una
-    /// ubicación `Verificada` (confirmada por administración) no se mueve.
+    /// ubicación `Verificada` (confirmada por administración) no se mueve. Con `clienteDelPortal`, una
+    /// existente solo se mueve si la usa únicamente ese cliente (AccesoUbicacionesService.PuedeMoverAsync).
     /// </summary>
     public async Task<ResultadoUbicacion> ResolverConMapaAsync(
-        string calleNumero, int localidadId, string? referencia, string? urlMapa, CancellationToken ct = default)
+        string calleNumero, int localidadId, string? referencia, string? urlMapa, CancellationToken ct = default,
+        int? clienteDelPortal = null)
     {
         if (string.IsNullOrWhiteSpace(urlMapa))
             return new ResultadoUbicacion(await ResolverOCrearAsync(calleNumero, localidadId, referencia, ct), false, null);
@@ -50,6 +52,9 @@ public class UbicacionService(LogisticaDbContext db, GeocodificacionService geoc
             if (existente.Verificada)
                 return new ResultadoUbicacion(existente, false,
                     "Esa dirección ya fue confirmada por la empresa: se mantiene su ubicación.");
+            if (clienteDelPortal is { } clienteId && !await AccesoUbicacionesService.PuedeMoverAsync(db, existente, clienteId, ct))
+                return new ResultadoUbicacion(existente, false,
+                    "Esa dirección ya la usan otros envíos: se mantiene su ubicación. Si el punto está mal, avisale a la empresa.");
             AplicarPunto(existente, punto.Value);
             await db.SaveChangesAsync(ct);
             return new ResultadoUbicacion(existente, true, null);

@@ -1,13 +1,14 @@
-# CI (construccion_v1.md changelog 1.43): compila y prueba backend y frontend en cada push y PR a main.
+# CI (construccion_v1.md changelog 1.43): compila y prueba backend y frontend en cada push y PR a main
+# y a demoV2-main (la demo previa a producción). Flujo: ramas de trabajo -> demoV2-main -> main.
 # No usa secretos: ni el build ni las pruebas tocan Resend, ORS o Cloudinary. Las pruebas de triggers
 # (Logistica.Tests/BaseDeDatos) levantan su propio Postgres en un contenedor con el Docker del runner.
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, demoV2-main]
   pull_request:
-    branches: [main]
+    branches: [main, demoV2-main]
 
 permissions:
   contents: read
@@ -17,6 +18,72 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Producción solo recibe lo que ya pasó por la demo.
+  origen-de-main:
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: El PR a main tiene que venir de demoV2-main
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if [ "$HEAD_REF" != "demoV2-main" ]; then
+            echo "::error::Los PR a main tienen que salir de demoV2-main (este sale de '$HEAD_REF')."
+            exit 1
+          fi
+
+  # El backend no migra al arrancar: un cambio de modelo sin migración, o una migración que nadie
+  # aplica en producción, rompe el despliegue. Este job falla en el primer caso y avisa en el segundo.
+  migraciones:
+    runs-on: ubuntu-latest
+    env:
+      # Solo para que el host de diseño de EF arranque: ningún comando de este job se conecta a una base.
+      ASPNETCORE_ENVIRONMENT: Production
+      DOTNET_ENVIRONMENT: Production
+      ConnectionStrings__Postgres: "Host=localhost;Database=ci;Username=ci;Password=ci"
+      Jwt__Key: "ci-only-design-time-key-not-a-secret-0123456789abcdef"
+      Frontend__Origin: "http://localhost"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - run: dotnet tool install --global dotnet-ef --version 8.0.10
+      - name: El modelo no tiene cambios sin migración
+        run: dotnet ef migrations has-pending-model-changes -p backend/Logistica --configuration Release
+      - name: Detectar migraciones nuevas del PR
+        id: nuevas
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          nuevas=$(git diff --name-only --diff-filter=A "origin/$BASE_REF...HEAD" -- backend/Logistica/Migrations \
+            | grep -v -e '\.Designer\.cs$' -e 'ModelSnapshot\.cs$' || true)
+          if [ -n "$nuevas" ]; then
+            echo "hay=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Este PR trae migraciones"
+              echo "Aplicar \`migraciones.sql\` (artefacto de este job) en la base de producción **antes** de publicar,"
+              echo "y reiniciar el backend después (construccion_v1.md changelog 1.44)."
+              echo '```'
+              echo "$nuevas"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Este PR trae migraciones: aplicarlas en producción antes de publicar."
+          fi
+      - name: Generar SQL idempotente
+        if: steps.nuevas.outputs.hay == 'true'
+        run: dotnet ef migrations script --idempotent -p backend/Logistica --configuration Release -o migraciones.sql
+      - uses: actions/upload-artifact@v4
+        if: steps.nuevas.outputs.hay == 'true'
+        with:
+          name: migraciones-sql
+          path: migraciones.sql
+
   backend:
     runs-on: ubuntu-latest
     defaults:
@@ -51,6 +118,8 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      # Fail on high/critical advisories in production dependencies.
+      - run: pnpm audit --prod --audit-level=high
       - run: pnpm typecheck
       - run: pnpm lint
       # Vacía, como en producción: AuthProvider llama a /api en el mismo origen (construccion_v1.md §9).
