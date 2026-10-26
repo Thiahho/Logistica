@@ -51,6 +51,7 @@ public class LogisticaDbContext(DbContextOptions<LogisticaDbContext> options) : 
     public DbSet<Viaje> Viajes => Set<Viaje>();
     public DbSet<Novedad> Novedades => Set<Novedad>();
     public DbSet<ClienteDestinatario> ClientesDestinatarios => Set<ClienteDestinatario>();
+    public DbSet<ClienteUbicacion> ClientesUbicaciones => Set<ClienteUbicacion>();
     public DbSet<ParametroLiquidacion> ParametrosLiquidacion => Set<ParametroLiquidacion>();
     public DbSet<Liquidacion> Liquidaciones => Set<Liquidacion>();
     public DbSet<Rango> Rangos => Set<Rango>();
@@ -62,6 +63,21 @@ public class LogisticaDbContext(DbContextOptions<LogisticaDbContext> options) : 
     {
         modelBuilder.HasPostgresEnum<EstadoPedido>(schema: null, name: "estado_pedido");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(LogisticaDbContext).Assembly);
+
+        // M-N1: ubicaciones que cada cliente resolvió desde el portal (AccesoUbicacionesService).
+        modelBuilder.Entity<ClienteUbicacion>(b =>
+        {
+            b.ToTable("clientes_ubicaciones");
+            b.HasKey(x => new { x.ClienteId, x.UbicacionId });
+            b.Property(x => x.ClienteId).HasColumnName("cliente_id");
+            b.Property(x => x.UbicacionId).HasColumnName("ubicacion_id");
+            b.Property(x => x.CreadoEn).HasColumnName("creado_en").HasDefaultValueSql("now()");
+            b.HasOne(x => x.Cliente).WithMany()
+                .HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.Ubicacion).WithMany()
+                .HasForeignKey(x => x.UbicacionId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => x.UbicacionId);
+        });
 
         // v_paradas_repartidor: proyección sin importes para la PWA (RNF-08, construccion_v1.md §3
         // regla 4). Se registra como entidad sin llave para poder consultarla con EF; la vista en

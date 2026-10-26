@@ -150,6 +150,17 @@ create table clientes_usuarios (
   creado_en   timestamptz not null default now()
 );
 
+-- Ubicaciones a las que un cliente llegó desde el portal resolviendo la dirección (M-N1). El portal
+-- solo acepta un id de acá, o uno que ya es destino de un pedido o de un contacto del cliente: el
+-- catálogo `ubicaciones` es compartido (migración 20261026141726_AgregarClientesUbicaciones).
+create table clientes_ubicaciones (
+  cliente_id    int not null references clientes(id),
+  ubicacion_id  bigint not null references ubicaciones(id),
+  creado_en     timestamptz not null default now(),
+  primary key (cliente_id, ubicacion_id)
+);
+create index on clientes_ubicaciones (ubicacion_id);
+
 create or replace function mi_rol() returns text
 language sql stable security definer set search_path = public as $$
   select rol from usuarios where id = auth.uid() and activo

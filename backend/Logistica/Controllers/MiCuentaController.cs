@@ -269,7 +269,12 @@ public class MiCuentaController(
     [EnableRateLimiting("geo")]
     public async Task<IActionResult> ResolverUbicacion(ResolverUbicacionRequest req, CancellationToken ct)
     {
-        var r = await ubicaciones.ResolverConMapaAsync(req.CalleNumero, req.LocalidadId, req.Referencia, req.UrlMapa, ct);
+        if (User.ClienteId() is not { } clienteId) return Forbid();
+
+        var r = await ubicaciones.ResolverConMapaAsync(
+            req.CalleNumero, req.LocalidadId, req.Referencia, req.UrlMapa, ct, clienteDelPortal: clienteId);
+        // M-N1: desde acá el cliente puede usar este id en sus altas.
+        await AccesoUbicacionesService.RegistrarAsync(db, clienteId, r.Ubicacion.Id, ct);
         return Ok(new UbicacionResuelta(
             r.Ubicacion.Id, r.Ubicacion.Lat, r.Ubicacion.Lng, r.Ubicacion.GeoConfianza, r.UrlMapaAplicada, r.UrlMapaError));
     }
@@ -296,7 +301,7 @@ public class MiCuentaController(
         if (await ValidarAltaPortalAsync(clienteId.Value, req.FechaEntrega, req.TipoVehiculo, ct) is { } rechazo)
             return rechazo;
 
-        var destino = await db.Ubicaciones.Include(u => u.Localidad)
+        var destino = await AccesoUbicacionesService.Alcanzables(db, clienteId.Value).Include(u => u.Localidad)
             .SingleOrDefaultAsync(u => u.Id == req.DestinoUbicacionId, ct);
         if (destino is null) return BadRequest("La ubicación de destino no existe.");
 
@@ -468,7 +473,8 @@ public class MiCuentaController(
             return (null, rechazo);
 
         var ids = req.Paradas.Select(p => p.DestinoUbicacionId).Distinct().ToList();
-        var destinos = await db.Ubicaciones.Include(u => u.Localidad).Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, ct);
+        var destinos = await AccesoUbicacionesService.Alcanzables(db, clienteId).Include(u => u.Localidad)
+            .Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, ct);
         if (destinos.Count != ids.Count) return (null, BadRequest("Alguna de las direcciones de destino no existe."));
         var sinZona = destinos.Values.FirstOrDefault(u => u.Localidad?.ZonaId is null);
         if (sinZona is not null)
@@ -606,7 +612,7 @@ public class MiCuentaController(
         var clienteId = User.ClienteId();
         if (clienteId is null) return Forbid();
 
-        var destino = await db.Ubicaciones.Include(u => u.Localidad)
+        var destino = await AccesoUbicacionesService.Alcanzables(db, clienteId.Value).Include(u => u.Localidad)
             .SingleOrDefaultAsync(u => u.Id == req.DestinoUbicacionId, ct);
         if (destino is null) return BadRequest("La ubicación de destino no existe.");
 
@@ -650,7 +656,7 @@ public class MiCuentaController(
         var existente = await db.ClientesDestinatarios.SingleOrDefaultAsync(d => d.Id == id && d.ClienteId == clienteId.Value, ct);
         if (existente is null) return NotFound();
 
-        var destino = await db.Ubicaciones.Include(u => u.Localidad)
+        var destino = await AccesoUbicacionesService.Alcanzables(db, clienteId.Value).Include(u => u.Localidad)
             .SingleOrDefaultAsync(u => u.Id == req.DestinoUbicacionId, ct);
         if (destino is null) return BadRequest("La ubicación de destino no existe.");
 
