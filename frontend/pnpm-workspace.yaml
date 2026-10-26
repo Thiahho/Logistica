@@ -1,2 +1,6 @@
 allowBuilds:
   unrs-resolver: true
+
+# Force the patched version pulled in via next > postcss (GHSA-68fv-2mgg-jv7q).
+overrides:
+  source-map-js: "^1.2.2"

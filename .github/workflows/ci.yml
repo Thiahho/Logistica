@@ -51,6 +51,8 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      # Fail on high/critical advisories in production dependencies.
+      - run: pnpm audit --prod --audit-level=high
       - run: pnpm typecheck
       - run: pnpm lint
       # Vacía, como en producción: AuthProvider llama a /api en el mismo origen (construccion_v1.md §9).
