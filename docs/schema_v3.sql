@@ -136,7 +136,10 @@ create table usuarios (
   rol         text not null
               check (rol in ('administracion','operacion','repartidor')),
   activo      boolean not null default true,
-  creado_en   timestamptz not null default now()
+  creado_en   timestamptz not null default now(),
+  -- Último corte de sesiones (baja, contraseña o rol nuevo): un access token emitido antes ya no vale
+  -- (M-N3, migración 20261026175857_AgregarSesionesRevocadasEn). Null: nunca se cortaron.
+  sesiones_revocadas_en timestamptz
 );
 
 -- Login de consulta de una empresa cliente. Separada de `usuarios` para que un cliente no
@@ -147,7 +150,8 @@ create table clientes_usuarios (
   nombre      text not null,
   email       text not null unique,
   activo      boolean not null default true,
-  creado_en   timestamptz not null default now()
+  creado_en   timestamptz not null default now(),
+  sesiones_revocadas_en timestamptz  -- igual que en usuarios (M-N3)
 );
 
 -- Ubicaciones a las que un cliente llegó desde el portal resolviendo la dirección (M-N1). El portal
