@@ -1,6 +1,6 @@
 # Documento de construcción — Sistema de gestión logística
 
-**v1.58 · 13/10/2026**
+**v1.60 · 26/10/2026**
 Reemplaza y deja sin efecto `mvp_especificacion.md`.
 *(Este encabezado había quedado clavado en "v1.1 · 29/08/2026" desde entonces, mientras §12 seguía avanzando hasta 1.20. La versión vigente es siempre la última fila de §12; el encabezado se sincroniza con ella.)*
 
