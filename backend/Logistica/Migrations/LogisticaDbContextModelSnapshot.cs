@@ -418,6 +418,29 @@ namespace Logistica.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Logistica.Entidades.ClienteUbicacion", b =>
+                {
+                    b.Property<int>("ClienteId")
+                        .HasColumnType("integer")
+                        .HasColumnName("cliente_id");
+
+                    b.Property<long>("UbicacionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("ubicacion_id");
+
+                    b.Property<DateTimeOffset>("CreadoEn")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("creado_en")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("ClienteId", "UbicacionId");
+
+                    b.HasIndex("UbicacionId");
+
+                    b.ToTable("clientes_ubicaciones", (string)null);
+                });
+
             modelBuilder.Entity("Logistica.Entidades.ClienteUsuario", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2619,6 +2642,25 @@ namespace Logistica.Migrations
                         .IsRequired();
 
                     b.Navigation("Cliente");
+                });
+
+            modelBuilder.Entity("Logistica.Entidades.ClienteUbicacion", b =>
+                {
+                    b.HasOne("Logistica.Entidades.Cliente", "Cliente")
+                        .WithMany()
+                        .HasForeignKey("ClienteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Logistica.Entidades.Ubicacion", "Ubicacion")
+                        .WithMany()
+                        .HasForeignKey("UbicacionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Cliente");
+
+                    b.Navigation("Ubicacion");
                 });
 
             modelBuilder.Entity("Logistica.Entidades.ClienteUsuario", b =>
