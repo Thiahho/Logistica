@@ -486,6 +486,10 @@ namespace Logistica.Migrations
                         .HasDefaultValue("dueno")
                         .HasColumnName("rol");
 
+                    b.Property<DateTimeOffset?>("SesionesRevocadasEn")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sesiones_revocadas_en");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ClienteId");
@@ -2351,6 +2355,10 @@ namespace Logistica.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("rol");
+
+                    b.Property<DateTimeOffset?>("SesionesRevocadasEn")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sesiones_revocadas_en");
 
                     b.HasKey("Id");
 

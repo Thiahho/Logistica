@@ -41,4 +41,8 @@ public class Usuario
 
     public bool Activo { get; set; } = true;
     public DateTimeOffset CreadoEn { get; set; }
+
+    /// <summary>Último corte de sesiones (AuthService.RevocarSesionesAsync): todo access token emitido
+    /// antes deja de valer en el próximo request (ValidacionDeSesion). Null: nunca se cortaron.</summary>
+    public DateTimeOffset? SesionesRevocadasEn { get; set; }
 }

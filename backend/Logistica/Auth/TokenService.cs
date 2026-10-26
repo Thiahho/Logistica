@@ -29,6 +29,8 @@ public class TokenService(IOptions<OpcionesJwt> opciones)
             new(JwtRegisteredClaimNames.Sub, id.ToString()),
             new("nombre", nombre),
             new(ClaimTypes.Role, rol),
+            new(ValidacionDeSesion.ClaimEmitido,
+                ValidacionDeSesion.Ahora().ToUnixTimeMilliseconds().ToString(), ClaimValueTypes.Integer64),
         };
         if (clienteId is not null)
             claims.Add(new Claim("cliente_id", clienteId.Value.ToString()));

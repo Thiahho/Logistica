@@ -22,6 +22,7 @@ public class ClienteUsuarioConfiguration : IEntityTypeConfiguration<ClienteUsuar
         b.Property(x => x.Rol).HasColumnName("rol").IsRequired().HasDefaultValue(RolesCliente.Dueno);
         b.Property(x => x.Activo).HasColumnName("activo").HasDefaultValue(true);
         b.Property(x => x.CreadoEn).HasColumnName("creado_en").HasDefaultValueSql("now()");
+        b.Property(x => x.SesionesRevocadasEn).HasColumnName("sesiones_revocadas_en");
 
         b.HasOne(x => x.Cliente).WithMany()
             .HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.Restrict);

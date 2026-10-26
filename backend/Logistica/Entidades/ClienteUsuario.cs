@@ -21,4 +21,7 @@ public class ClienteUsuario
 
     public bool Activo { get; set; } = true;
     public DateTimeOffset CreadoEn { get; set; }
+
+    /// <summary>Último corte de sesiones; ver Usuario.SesionesRevocadasEn.</summary>
+    public DateTimeOffset? SesionesRevocadasEn { get; set; }
 }
