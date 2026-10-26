@@ -22,6 +22,7 @@ public class UsuarioConfiguration : IEntityTypeConfiguration<Usuario>
         b.Property(x => x.Rol).HasColumnName("rol").IsRequired();
         b.Property(x => x.Activo).HasColumnName("activo").HasDefaultValue(true);
         b.Property(x => x.CreadoEn).HasColumnName("creado_en").HasDefaultValueSql("now()");
+        b.Property(x => x.SesionesRevocadasEn).HasColumnName("sesiones_revocadas_en");
 
         b.HasIndex(x => x.Email).IsUnique();
     }

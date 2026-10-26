@@ -18,7 +18,7 @@ public class PruebaEntrega
     public string? ReceptorNombre { get; set; }
 
     /// <summary>RF-23 en su redacción anterior a acta changelog 4.7 (solo el booleano, sin imagen).
-    /// Se conserva cuando 4.7 sume documento_numero/foto_documento_path: responde "¿se verificó?".</summary>
+    /// Se conserva junto a documento_numero: responde "¿se verificó?". Sin imagen del documento (acta 4.40).</summary>
     public bool IdentidadVerificada { get; set; }
 
     /// <summary>Número de documento del receptor, solo dígitos (sin puntos ni espacios). Sin imagen del

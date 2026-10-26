@@ -194,6 +194,16 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromSeconds(30),
         };
+        // Una baja, contraseña nueva o rol nuevo cortan el access token en el próximo request (M-N3).
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async contexto =>
+            {
+                var db = contexto.HttpContext.RequestServices.GetRequiredService<LogisticaDbContext>();
+                if (!await ValidacionDeSesion.EsVigenteAsync(db, contexto.Principal!, contexto.HttpContext.RequestAborted))
+                    contexto.Fail("Sesión revocada o login inactivo.");
+            },
+        };
     });
 
 builder.Services.AddAuthorizationBuilder()

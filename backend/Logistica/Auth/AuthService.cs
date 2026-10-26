@@ -102,18 +102,27 @@ public class AuthService(LogisticaDbContext db, TokenService tokens)
     /// de un dispositivo (eso es RevocarAsync). Va con todo cambio que deja vieja a la sesión:
     /// contraseña nueva, rol nuevo o baja. No guarda: los tokens quedan marcados en el contexto y
     /// salen en el mismo SaveChangesAsync que el cambio que los motiva, así nunca queda uno sin el
-    /// otro. El access token ya emitido sigue valiendo hasta que vence (Jwt:AccessMinutos).
+    /// otro. El access token ya emitido también se corta: queda anotado el momento del corte en el
+    /// login (SesionesRevocadasEn), que ValidacionDeSesion mira en cada request. El login tiene que
+    /// venir trackeado por `db`.
     /// </summary>
-    public Task RevocarSesionesAsync(Usuario usuario, CancellationToken ct = default) =>
-        RevocarSesionesAsync(db.RefreshTokens.Where(t => t.UsuarioId == usuario.Id), ct);
+    public Task RevocarSesionesAsync(Usuario usuario, CancellationToken ct = default)
+    {
+        var ahora = ValidacionDeSesion.Ahora();
+        usuario.SesionesRevocadasEn = ahora;
+        return RevocarSesionesAsync(db.RefreshTokens.Where(t => t.UsuarioId == usuario.Id), ahora, ct);
+    }
 
     /// <summary>Análogo a RevocarSesionesAsync(Usuario) para un login del portal.</summary>
-    public Task RevocarSesionesAsync(ClienteUsuario clienteUsuario, CancellationToken ct = default) =>
-        RevocarSesionesAsync(db.RefreshTokens.Where(t => t.ClienteUsuarioId == clienteUsuario.Id), ct);
-
-    private static async Task RevocarSesionesAsync(IQueryable<RefreshToken> delLogin, CancellationToken ct)
+    public Task RevocarSesionesAsync(ClienteUsuario clienteUsuario, CancellationToken ct = default)
     {
-        var ahora = DateTimeOffset.UtcNow;
+        var ahora = ValidacionDeSesion.Ahora();
+        clienteUsuario.SesionesRevocadasEn = ahora;
+        return RevocarSesionesAsync(db.RefreshTokens.Where(t => t.ClienteUsuarioId == clienteUsuario.Id), ahora, ct);
+    }
+
+    private static async Task RevocarSesionesAsync(IQueryable<RefreshToken> delLogin, DateTimeOffset ahora, CancellationToken ct)
+    {
         var vigentes = await delLogin.Where(t => t.RevocadoEn == null && t.ExpiraEn > ahora).ToListAsync(ct);
         foreach (var token in vigentes) token.RevocadoEn = ahora;
     }
