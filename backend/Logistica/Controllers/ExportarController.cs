@@ -73,7 +73,10 @@ public class ExportarController(LogisticaDbContext db) : ControllerBase
         // el rango (join), no con una lista IN de miles de ids: con 4.000 rutas eso tardaba 1,7 s.
         var ingresosPorRuta = await db.ParadaPedidos
             .Where(pp => pp.Parada.Ruta.Fecha >= desde && pp.Parada.Ruta.Fecha <= hasta
-                && pp.Parada.Ruta.Estado == "cerrada" && pp.Pedido.Estado == EstadoPedido.Entregado)
+                && pp.Parada.Ruta.Estado == "cerrada" && pp.Pedido.Estado == EstadoPedido.Entregado
+                // F-1: un reprogramado conserva la fila de la ruta donde falló (D13); el ingreso es de su
+                // última parada, mismo corte que RutasController.CalcularResultadoAsync.
+                && !db.ParadaPedidos.Any(otra => otra.PedidoId == pp.PedidoId && otra.ParadaId > pp.ParadaId))
             .GroupBy(pp => pp.Parada.RutaId)
             .Select(g => new { RutaId = g.Key, Ingresos = g.Sum(pp => pp.Pedido.Total) ?? 0m })
             .ToDictionaryAsync(x => x.RutaId, x => x.Ingresos, ct);

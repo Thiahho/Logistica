@@ -149,7 +149,10 @@ public class TableroController(LogisticaDbContext db) : ControllerBase
                 .ToListAsync(ct);
 
             var ingresos = await db.ParadaPedidos.AsNoTracking()
-                .Where(pp => idsRutas.Contains(pp.Parada.RutaId) && pp.Pedido.Estado == EstadoPedido.Entregado)
+                .Where(pp => idsRutas.Contains(pp.Parada.RutaId) && pp.Pedido.Estado == EstadoPedido.Entregado
+                    // F-1: el ingreso de un reprogramado es de su última parada, no de cada ruta por la que
+                    // pasó (mismo corte que RutasController.CalcularResultadoAsync).
+                    && !db.ParadaPedidos.Any(otra => otra.PedidoId == pp.PedidoId && otra.ParadaId > pp.ParadaId))
                 .GroupBy(pp => pp.Parada.RutaId)
                 .Select(g => new { RutaId = g.Key, Total = g.Sum(pp => pp.Pedido.Total) ?? 0m })
                 .ToDictionaryAsync(x => x.RutaId, x => x.Total, ct);
